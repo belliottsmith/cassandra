@@ -152,6 +152,17 @@ public abstract class Selector
         }
 
         /**
+         * Checks if this factory creates <code>maxwritetime</code> selector instances.
+         *
+         * @return <code>true</code> if this factory creates <code>maxwritetime</code> selectors instances,
+         * <code>false</code> otherwise
+         */
+        public boolean isMaxWritetimeSelectorFactory()
+        {
+            return false;
+        }
+
+        /**
          * Checks if this factory creates <code>TTL</code> selectors instances.
          *
          * @return <code>true</code> if this factory creates <code>TTL</code> selectors instances,
@@ -322,13 +333,18 @@ public abstract class Selector
 
         public void add(ByteBuffer v)
         {
+            add(v, Long.MIN_VALUE, -1);
+        }
+
+        public void add(ByteBuffer v, long timestamp, int ttl)
+        {
             values[index] = v;
 
             if (timestamps != null)
-                timestamps[index] = Long.MIN_VALUE;
+                timestamps[index] = timestamp;
 
             if (ttls != null)
-                ttls[index] = -1;
+                ttls[index] = ttl;
 
             index++;
         }
