@@ -38,6 +38,7 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -147,6 +148,17 @@ public abstract class Selector
          * <code>false</code> otherwise
          */
         public boolean isWritetimeSelectorFactory()
+        {
+            return false;
+        }
+
+        /**
+         * Checks if this factory creates <code>maxwritetime</code> selector instances.
+         *
+         * @return <code>true</code> if this factory creates <code>maxwritetime</code> selectors instances,
+         * <code>false</code> otherwise
+         */
+        public boolean isMaxWritetimeSelectorFactory()
         {
             return false;
         }
@@ -322,13 +334,18 @@ public abstract class Selector
 
         public void add(ByteBuffer v)
         {
+            add(v, Long.MIN_VALUE, -1);
+        }
+
+        public void add(ByteBuffer v, long timestamp, int ttl)
+        {
             values[index] = v;
 
             if (timestamps != null)
-                timestamps[index] = Long.MIN_VALUE;
+                timestamps[index] = timestamp;
 
             if (ttls != null)
-                ttls[index] = -1;
+                ttls[index] = ttl;
 
             index++;
         }

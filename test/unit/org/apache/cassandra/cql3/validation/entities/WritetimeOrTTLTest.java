@@ -242,7 +242,7 @@ public class WritetimeOrTTLTest extends CQLTester
 
     private void assertInvalidPrimaryKeySelection(String column) throws Throwable
     {
-        assertInvalidThrowMessage("Cannot use selection function writeTime on PRIMARY KEY part " + column,
+        assertInvalidThrowMessage("Cannot use selection function writetime on PRIMARY KEY part " + column,
                                   InvalidRequestException.class,
                                   String.format("SELECT WRITETIME(%s) FROM %%s", column));
         assertInvalidThrowMessage("Cannot use selection function ttl on PRIMARY KEY part " + column,
@@ -254,7 +254,7 @@ public class WritetimeOrTTLTest extends CQLTester
     {
         String message = format("Cannot use selection function %%s on non-frozen %s %s",
                                 isCollection ? "collection" : "UDT", column);
-        assertInvalidThrowMessage(format(message, "writeTime"),
+        assertInvalidThrowMessage(format(message, "writetime"),
                                   InvalidRequestException.class,
                                   String.format("SELECT WRITETIME(%s) FROM %%s", column));
         assertInvalidThrowMessage(format(message, "ttl"),
