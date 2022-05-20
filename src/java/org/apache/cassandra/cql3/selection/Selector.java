@@ -20,7 +20,6 @@ package org.apache.cassandra.cql3.selection;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.ColumnSpecification;
 import org.apache.cassandra.cql3.QueryOptions;
@@ -28,6 +27,7 @@ import org.apache.cassandra.cql3.functions.Function;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
 
 /**
@@ -90,6 +90,17 @@ public abstract class Selector
          * <code>false</code> otherwise
          */
         public boolean isWritetimeSelectorFactory()
+        {
+            return false;
+        }
+
+        /**
+         * Checks if this factory creates <code>maxwritetime</code> selector instances.
+         *
+         * @return <code>true</code> if this factory creates <code>maxwritetime</code> selectors instances,
+         * <code>false</code> otherwise
+         */
+        public boolean isMaxWritetimeSelectorFactory()
         {
             return false;
         }

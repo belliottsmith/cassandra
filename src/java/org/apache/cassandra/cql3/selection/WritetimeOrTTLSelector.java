@@ -19,13 +19,11 @@ package org.apache.cassandra.cql3.selection;
 
 import java.nio.ByteBuffer;
 
-import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.ColumnSpecification;
+import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
-import org.apache.cassandra.db.marshal.Int32Type;
-import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -33,22 +31,22 @@ final class WritetimeOrTTLSelector extends Selector
 {
     private final ColumnMetadata column;
     private final int idx;
-    private final boolean isWritetime;
+    private final Selectable.WritetimeOrTTL.Kind kind;
     private ByteBuffer current;
     private boolean isSet;
 
-    public static Factory newFactory(final ColumnMetadata def, final int idx, final boolean isWritetime)
+    public static Factory newFactory(final ColumnMetadata def, final int idx, final Selectable.WritetimeOrTTL.Kind kind)
     {
         return new Factory()
         {
             protected String getColumnName()
             {
-                return String.format("%s(%s)", isWritetime ? "writetime" : "ttl", def.name.toString());
+                return String.format("%s(%s)", kind.name, def.name.toString());
             }
 
             protected AbstractType<?> getReturnType()
             {
-                return isWritetime ? LongType.instance : Int32Type.instance;
+                return kind.returnType;
             }
 
             protected void addColumnMapping(SelectionColumnMapping mapping, ColumnSpecification resultsColumn)
@@ -58,17 +56,25 @@ final class WritetimeOrTTLSelector extends Selector
 
             public Selector newInstance(QueryOptions options)
             {
-                return new WritetimeOrTTLSelector(def, idx, isWritetime);
+                return new WritetimeOrTTLSelector(def, idx, kind);
             }
 
+            @Override
             public boolean isWritetimeSelectorFactory()
             {
-                return isWritetime;
+                return kind != Selectable.WritetimeOrTTL.Kind.TTL;
             }
 
+            @Override
             public boolean isTTLSelectorFactory()
             {
-                return !isWritetime;
+                return kind == Selectable.WritetimeOrTTL.Kind.TTL;
+            }
+
+            @Override
+            public boolean isMaxWritetimeSelectorFactory()
+            {
+                return kind == Selectable.WritetimeOrTTL.Kind.MAX_WRITE_TIME;
             }
 
             public boolean areAllFetchedColumnsKnown()
@@ -95,15 +101,15 @@ final class WritetimeOrTTLSelector extends Selector
 
         isSet = true;
 
-        if (isWritetime)
-        {
-            long ts = rs.timestamps[idx];
-            current = ts != Long.MIN_VALUE ? ByteBufferUtil.bytes(ts) : null;
-        }
-        else
+        if (kind == Selectable.WritetimeOrTTL.Kind.TTL)
         {
             int ttl = rs.ttls[idx];
             current = ttl > 0 ? ByteBufferUtil.bytes(ttl) : null;
+        }
+        else
+        {
+            long ts = rs.timestamps[idx];
+            current = ts != Long.MIN_VALUE ? ByteBufferUtil.bytes(ts) : null;
         }
     }
 
@@ -120,7 +126,7 @@ final class WritetimeOrTTLSelector extends Selector
 
     public AbstractType<?> getType()
     {
-        return isWritetime ? LongType.instance : Int32Type.instance;
+        return kind.returnType;
     }
 
     @Override
@@ -129,10 +135,10 @@ final class WritetimeOrTTLSelector extends Selector
         return column.name.toString();
     }
 
-    private WritetimeOrTTLSelector(ColumnMetadata column, int idx, boolean isWritetime)
+    private WritetimeOrTTLSelector(ColumnMetadata column, int idx, Selectable.WritetimeOrTTL.Kind kind)
     {
         this.column = column;
         this.idx = idx;
-        this.isWritetime = isWritetime;
+        this.kind = kind;
     }
 }
