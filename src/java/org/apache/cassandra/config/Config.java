@@ -914,6 +914,9 @@ public class Config
     @Deprecated // this warning threshold will be replaced by an equivalent guardrail
     public volatile int keyspace_count_warn_threshold = 40;
 
+    @SuppressWarnings("unused")
+    public boolean allow_zstd = true; // ACI Cassandra 3.0 config backward compatibility - always supported in 4.0
+
     public volatile int consecutive_message_errors_threshold = 1;
 
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
