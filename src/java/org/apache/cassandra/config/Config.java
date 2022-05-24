@@ -893,6 +893,9 @@ public class Config
     public volatile long min_tracked_partition_tombstone_count = 5000;
     public volatile boolean top_partitions_enabled = true;
 
+    @SuppressWarnings("unused")
+    public boolean allow_zstd = true; // ACI Cassandra 3.0 config backward compatibility - always supported in 4.0
+
     public volatile int consecutive_message_errors_threshold = 1;
 
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
