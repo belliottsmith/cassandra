@@ -1,5 +1,22 @@
+4.0.2.2
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.1 cie-cassandra-4.0.2
+
 4.0.2.1
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.0 cie-cassandra-4.0.2
+* rdar://93445212 (4.0.2.x: Missing allow_zstd feature flag) (#2942)
+* rdar://92874081 / CASSANDRA_17623 (Frozen Map-typed cells written by SBW are not always readable by CQL) (#2948)
+* Add new CQL function maxWritetime (#2944)
+* rdar://89311533 (Integrate with Gradle for Gatehouse analysis) (#2941)
+* rdar://78193239 (Exception while replacing instance: "Node X is trying to replace node Y with tokens [] with a different set of tokens [-6456360425798343066].") (#2881) (#2904) (#2925)
+* rdar://86419310 (Deprecate non-superuser queries referencing system_auth.roles salted_hash) (#2937)
+* rdar://91055469 (getPreparedStatements exposed to JMX which returns Pair which causes JMX to fail) (#2930)
+* rdar://92665709 (Improve the way we handle repair message timeouts/fa… (#2920)
+* rdar://91794874 (Coordinator level metrics for read response and mutation row and column counts) (#2886) (#2897) (#2902)
+* rdar://92280257 (Split unit build into unit, jvm-dtest, and jvm-dtest-upgrade so there is better visibility into where flakes are, what is slow, and cheaper recovery of flaky tests) (#2896) (#2900) (#2903)
+* rdar://92341741 (When a node is bootstrapping it gets the whole gossip state but appllies in random order causing some cases where StorageService will fail causing an instance to not show up in TokenMetadata) (#2894) (#2899) (#2901)
+* 4.0.2: rdar://91027611 (When issuing a snapshot for preview repair mi… (#2863)
+* 4.0.2: rdar://78306479 (Investigate recent preview repair failures) - Abort inc repair if we get a repair success while preparing (#2865)
+* rdar://91371426 (Make DynamicEndpointSnitch runtime configurables thread-safe in 4.0)
+* [rdar://91267355] Update python dtest prb image to include parallelci (#2859)
 
 4.0.2.0
 * Rebased on OSS 4.1-SNAPSHOT commit 96c80f0b89314dc805714c52dcf1846491c53cdc (#2778)
