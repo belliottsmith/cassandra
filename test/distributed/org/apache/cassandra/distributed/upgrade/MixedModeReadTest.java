@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.api.Feature;
@@ -32,6 +33,12 @@ import static org.apache.cassandra.distributed.test.ReadDigestConsistencyTest.te
 
 public class MixedModeReadTest extends UpgradeTestBase
 {
+    // This test has been subsumed by the MixedModeColumnFilterTest added for
+    // rdar://91627099 (ISE on SELECT during 3.0-4.0 upgrade).  Possible digest differences
+    // mixed mode 3.0/4.0 clusters are an acceptable trade-off of the fix so that
+    // queries can be prepared and executed safely.  The MixedModeColumnFilterTest
+    // checks that no read repair is actually sent.
+    @Ignore
     @Test
     public void mixedModeReadColumnSubsetDigestCheck() throws Throwable
     {

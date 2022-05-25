@@ -36,7 +36,6 @@ import javax.management.openmbean.TabularData;
 import org.apache.cassandra.db.ColumnFamilyStoreMBean;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.BreaksJMX;
-import org.apache.cassandra.utils.Pair;
 
 public interface StorageServiceMBean extends NotificationEmitter
 {
@@ -956,6 +955,11 @@ public interface StorageServiceMBean extends NotificationEmitter
     int getKeyspaceCountWarnThreshold();
     @Deprecated
     void setKeyspaceCountWarnThreshold(int value);
+
+    // See CASSANDRA-17601 - ACI internal version may differ from upstream fix
+    // as not commited yet.
+    public boolean getAllRegularAndQueriedStaticColumnFilterEnabled();
+    public void setAllRegularAndQueriedStaticColumnFilterEnabled(boolean value);
 
     public void setCompactionTombstoneWarningThreshold(int count);
     public int getCompactionTombstoneWarningThreshold();

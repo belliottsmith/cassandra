@@ -4430,7 +4430,21 @@ public class DatabaseDescriptor
             conf.force_new_prepared_statement_behaviour = value;
         }
     }
-    
+
+    public static boolean getAllRegularAndQueriedStaticColumnFilterEnabled()
+    {
+        return conf.all_regular_and_queried_static_column_filter_enabled;
+    }
+
+    public static void setAllRegularAndQueriedStaticColumnFilterEnabled(boolean value)
+    {
+        if (value != conf.all_regular_and_queried_static_column_filter_enabled)
+        {
+            logger.info("Setting all_regular_and_queried_column_filter_enabled to {}", value);
+            conf.all_regular_and_queried_static_column_filter_enabled = value;
+        }
+    }
+
     public static boolean getSStableReadRatePersistenceEnabled()
     {
         return conf.sstable_read_rate_persistence_enabled;
