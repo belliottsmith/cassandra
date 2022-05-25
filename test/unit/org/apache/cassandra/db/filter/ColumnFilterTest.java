@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.function.Consumer;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -30,7 +31,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import org.apache.cassandra.Util;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.RegularAndStaticColumns;
@@ -58,7 +58,7 @@ public class ColumnFilterTest
     private static final ColumnFilter.Serializer serializer = new ColumnFilter.Serializer();
 
     @Parameterized.Parameter
-    public String clusterMinVersion;
+    public boolean allRegularAndQueriedColumnFilterEnabled;
 
     private final TableMetadata metadata = TableMetadata.builder("ks", "table")
                                                         .partitioner(Murmur3Partitioner.instance)
@@ -83,10 +83,10 @@ public class ColumnFilterTest
     private final CellPath path4 = CellPath.create(ByteBufferUtil.bytes(4));
 
 
-    @Parameterized.Parameters(name = "{index}: clusterMinVersion={0}")
-    public static Collection<Object[]> data()
+    @Parameterized.Parameters(name = "{index}: allRegularAndQueriedColumnFilterEnabled={0}")
+    public static Collection<Boolean> data()
     {
-        return Arrays.asList(new Object[]{ "3.0" }, new Object[]{ "3.11" }, new Object[]{ "4.0-rc1" }, new Object[]{ "4.0" });
+        return ImmutableList.of(false, true);
     }
 
     @BeforeClass
@@ -104,7 +104,7 @@ public class ColumnFilterTest
     @Before
     public void before()
     {
-        Util.setUpgradeFromVersion(clusterMinVersion);
+        DatabaseDescriptor.setAllRegularAndQueriedStaticColumnFilterEnabled(allRegularAndQueriedColumnFilterEnabled);
     }
 
     // Select all
@@ -341,28 +341,29 @@ public class ColumnFilterTest
         Consumer<ColumnFilter> check = filter -> {
             testRoundTrips(filter);
             assertFetchedQueried(true, true, filter, v1);
-            if ("3.0".equals(clusterMinVersion))
-            {
-                assertEquals("*/*", filter.toString());
-                assertEquals("*", filter.toCQLString());
-                assertFetchedQueried(true, true, filter, s1, s2, v2);
-                assertCellFetchedQueried(true, true, filter, v2, path0, path1, path2, path3, path4);
-                assertCellFetchedQueried(true, true, filter, s2, path0, path1, path2, path3, path4);
-            }
-            else if ("3.11".equals(clusterMinVersion) || (returnStaticContentOnPartitionWithNoRows && "4.0".equals(clusterMinVersion)))
+            if (!allRegularAndQueriedColumnFilterEnabled)
             {
                 assertEquals("*/[v1]", filter.toString());
                 assertEquals("v1", filter.toCQLString());
-                assertFetchedQueried(true, false, filter, s1, s2, v2);
+                assertFetchedQueried(true, false, filter, s1, s2);
                 assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
                 assertCellFetchedQueried(true, false, filter, s2, path0, path1, path2, path3, path4);
             }
-            else
+            else if (!returnStaticContentOnPartitionWithNoRows)
             {
                 assertEquals("<all regulars>/[v1]", filter.toString());
                 assertEquals("v1", filter.toCQLString());
                 assertFetchedQueried(true, false, filter, v2);
                 assertFetchedQueried(false, false, filter, s1, s2);
+                assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
+                assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
+            }
+            else
+            {
+                assertEquals("*/[v1]", filter.toString());
+                assertEquals("v1", filter.toCQLString());
+                assertFetchedQueried(true, false, filter, v2);
+                assertFetchedQueried(true, false, filter, s1, s2);
                 assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
                 assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
             }
@@ -389,28 +390,29 @@ public class ColumnFilterTest
         Consumer<ColumnFilter> check = filter -> {
             testRoundTrips(filter);
             assertFetchedQueried(true, true, filter, s1);
-            if ("3.0".equals(clusterMinVersion))
-            {
-                assertEquals("*/*", filter.toString());
-                assertEquals("*", filter.toCQLString());
-                assertFetchedQueried(true, true, filter, v1, v2, s2);
-                assertCellFetchedQueried(true, true, filter, v2, path0, path1, path2, path3, path4);
-                assertCellFetchedQueried(true, true, filter, s2, path0, path1, path2, path3, path4);
-            }
-            else if ("3.11".equals(clusterMinVersion) || (returnStaticContentOnPartitionWithNoRows && "4.0".equals(clusterMinVersion)))
+            if (!allRegularAndQueriedColumnFilterEnabled)
             {
                 assertEquals("*/[s1]", filter.toString());
                 assertEquals("s1", filter.toCQLString());
                 assertFetchedQueried(true, false, filter, v1, v2, s2);
                 assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
-                assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
+                assertCellFetchedQueried(true, false, filter, s2, path0, path1, path2, path3, path4);
             }
-            else
+            else if (!returnStaticContentOnPartitionWithNoRows)
             {
                 assertEquals("<all regulars>+[s1]/[s1]", filter.toString());
                 assertEquals("s1", filter.toCQLString());
                 assertFetchedQueried(true, false, filter, v1, v2);
                 assertFetchedQueried(false, false, filter, s2);
+                assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
+                assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
+            }
+            else
+            {
+                assertEquals("*/[s1]", filter.toString());
+                assertEquals("s1", filter.toCQLString());
+                assertFetchedQueried(true, false, filter, v1, v2);
+                assertFetchedQueried(true, false, filter, s2);
                 assertCellFetchedQueried(true, false, filter, v2, path0, path1, path2, path3, path4);
                 assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
             }
@@ -439,29 +441,32 @@ public class ColumnFilterTest
                                           .build();
         testRoundTrips(filter);
         assertFetchedQueried(true, true, filter, v2);
-        if ("3.0".equals(clusterMinVersion))
-        {
-            assertEquals("*/*", filter.toString());
-            assertEquals("*", filter.toCQLString());
-            assertFetchedQueried(true, true, filter, s1, s2, v1);
-            assertCellFetchedQueried(true, true, filter, v2, path0, path1, path2, path3, path4);
-            assertCellFetchedQueried(true, true, filter, s2, path0, path1, path2, path3, path4);
-        }
-        else if ("3.11".equals(clusterMinVersion) || (returnStaticContentOnPartitionWithNoRows && "4.0".equals(clusterMinVersion)))
+        if (!allRegularAndQueriedColumnFilterEnabled)
         {
             assertEquals("*/[v2[1]]", filter.toString());
             assertEquals("v2[1]", filter.toCQLString());
-            assertFetchedQueried(true, false, filter, s1, s2, v1);
+            assertFetchedQueried(true, false, filter, v1);
+            assertFetchedQueried(true, false, filter, s1, s2);
             assertCellFetchedQueried(true, true, filter, v2, path1);
             assertCellFetchedQueried(true, false, filter, v2, path0, path2, path3, path4);
             assertCellFetchedQueried(true, false, filter, s2, path0, path1, path2, path3, path4);
         }
-        else
+        else if (!returnStaticContentOnPartitionWithNoRows)
         {
             assertEquals("<all regulars>/[v2[1]]", filter.toString());
             assertEquals("v2[1]", filter.toCQLString());
             assertFetchedQueried(true, false, filter, v1);
             assertFetchedQueried(false, false, filter, s1, s2);
+            assertCellFetchedQueried(true, true, filter, v2, path1);
+            assertCellFetchedQueried(true, false, filter, v2, path0, path2, path3, path4);
+            assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
+        }
+        else
+        {
+            assertEquals("*/[v2[1]]", filter.toString());
+            assertEquals("v2[1]", filter.toCQLString());
+            assertFetchedQueried(true, false, filter, v1);
+            assertFetchedQueried(true, false, filter, s1, s2);
             assertCellFetchedQueried(true, true, filter, v2, path1);
             assertCellFetchedQueried(true, false, filter, v2, path0, path2, path3, path4);
             assertCellFetchedQueried(false, false, filter, s2, path0, path1, path2, path3, path4);
@@ -487,15 +492,7 @@ public class ColumnFilterTest
                                           .build();
         testRoundTrips(filter);
         assertFetchedQueried(true, true, filter, s2);
-        if ("3.0".equals(clusterMinVersion))
-        {
-            assertEquals("*/*", filter.toString());
-            assertEquals("*", filter.toCQLString());
-            assertFetchedQueried(true, true, filter, v1, v2, s1);
-            assertCellFetchedQueried(true, true, filter, v2, path0, path1, path2, path3, path4);
-            assertCellFetchedQueried(true, true, filter, s2, path1, path0, path2, path3, path4);
-        }
-        else if ("3.11".equals(clusterMinVersion) || (returnStaticContentOnPartitionWithNoRows && "4.0".equals(clusterMinVersion)))
+        if (!allRegularAndQueriedColumnFilterEnabled)
         {
             assertEquals("*/[s2[1]]", filter.toString());
             assertEquals("s2[1]", filter.toCQLString());
@@ -504,7 +501,7 @@ public class ColumnFilterTest
             assertCellFetchedQueried(true, true, filter, s2, path1);
             assertCellFetchedQueried(true, false, filter, s2, path0, path2, path3, path4);
         }
-        else
+        else if (!returnStaticContentOnPartitionWithNoRows)
         {
             assertEquals("<all regulars>+[s2[1]]/[s2[1]]", filter.toString());
             assertEquals("s2[1]", filter.toCQLString());
@@ -513,6 +510,16 @@ public class ColumnFilterTest
             assertCellFetchedQueried(false, false, filter, v2, path0, path1, path2, path3, path4);
             assertCellFetchedQueried(true, true, filter, s2, path1);
             assertCellFetchedQueried(false, false, filter, s2, path0, path2, path3, path4);
+        }
+        else
+        {
+            assertEquals("*/[s2[1]]", filter.toString());
+            assertEquals("s2[1]", filter.toCQLString());
+            assertFetchedQueried(true, false, filter, v1, v2);
+            assertFetchedQueried(true, false, filter, s1);
+            assertCellFetchedQueried(false, false, filter, v2, path0, path1, path2, path3, path4);
+            assertCellFetchedQueried(true, true, filter, s2, path1);
+            assertCellFetchedQueried(true, false, filter, s2, path0, path2, path3, path4);
         }
     }
 
@@ -533,9 +540,9 @@ public class ColumnFilterTest
             DataInputPlus input = new DataInputBuffer(output.buffer(), false);
             ColumnFilter deserialized = serializer.deserialize(input, version, metadata);
 
-            if (version == MessagingService.VERSION_30 && columnFilter.fetchesAllColumns(false))
+            if (version < MessagingService.VERSION_40 && columnFilter.fetchesAllColumns(false))
             {
-                Assert.assertEquals(metadata.regularAndStaticColumns(), deserialized.fetchedColumns());
+                Assert.assertTrue(deserialized.isWildcard());
             }
             else
             {

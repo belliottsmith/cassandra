@@ -208,7 +208,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     private static final ExpiringMemoizingSupplier.Memoized<CassandraVersion> NO_UPGRADE_IN_PROGRESS = new ExpiringMemoizingSupplier.Memoized<>(null);
     private static final ExpiringMemoizingSupplier.NotMemoized<CassandraVersion> CURRENT_NODE_VERSION = new ExpiringMemoizingSupplier.NotMemoized<>(SystemKeyspace.CURRENT_VERSION);
-    final Supplier<ExpiringMemoizingSupplier.ReturnValue<CassandraVersion>> upgradeFromVersionSupplier = () ->
+
+    @VisibleForTesting
+    public ExpiringMemoizingSupplier.ReturnValue<CassandraVersion> upgradeFromVersion()
     {
         // Once there are no prior version nodes we don't need to keep rechecking
         if (!upgradeInProgressPossible)
@@ -249,7 +251,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         return NO_UPGRADE_IN_PROGRESS;
     };
 
-    private final Supplier<CassandraVersion> upgradeFromVersionMemoized = ExpiringMemoizingSupplier.memoizeWithExpiration(upgradeFromVersionSupplier, 1, TimeUnit.MINUTES);
+    private final Supplier<CassandraVersion> upgradeFromVersionMemoized = ExpiringMemoizingSupplier.memoizeWithExpiration(this::upgradeFromVersion, 1, TimeUnit.MINUTES);
 
     @VisibleForTesting
     public void expireUpgradeFromVersion()
