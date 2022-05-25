@@ -898,6 +898,16 @@ public class Config
 
     public volatile int consecutive_message_errors_threshold = 1;
 
+    /**
+     * Allow column filters to only retrieve queried static columns vs all columns.
+     * This is not supported by 3.0/3.11 and may cause an IllegalStateException on queries
+     * that select a subset of static columns. It can be defaulted true and/or removed
+     * once mixed clusters before 4.0 are no longer supported.
+     *
+     * See CASSANDRA-17601
+     */
+    boolean all_regular_and_queried_static_column_filter_enabled = false;
+
     public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
     public volatile SubnetGroups internode_error_reporting_exclusions = new SubnetGroups();
 
