@@ -6879,6 +6879,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setKeyspaceCountWarnThreshold(value);
     }
 
+    public boolean getAllRegularAndQueriedStaticColumnFilterEnabled()
+    {
+        return DatabaseDescriptor.getAllRegularAndQueriedStaticColumnFilterEnabled();
+    }
+
+    public void setAllRegularAndQueriedStaticColumnFilterEnabled(boolean value)
+    {
+        DatabaseDescriptor.setAllRegularAndQueriedStaticColumnFilterEnabled(value);
+    }
+
     public void setCompactionTombstoneWarningThreshold(int count)
     {
         if (count < 0)
