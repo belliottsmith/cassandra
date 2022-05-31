@@ -342,7 +342,7 @@ public class BufferPool
         /**
          * Recycle a fully freed chunk
          */
-        void recycle(Chunk chunk);
+        void recycle(Chunk chunk, boolean isOwner);
 
         /**
          * @return true if chunk can be reused before fully freed.
@@ -466,7 +466,7 @@ public class BufferPool
         }
 
         @Override
-        public void recycle(Chunk chunk)
+        public void recycle(Chunk chunk, boolean isOwner)
         {
             Chunk recycleAs = new Chunk(chunk);
             debug.recycleNormal(chunk, recycleAs);
@@ -751,9 +751,6 @@ public class BufferPool
         private final LocalPoolRef leakRef;
 
         private final MicroQueueOfChunks chunks = new MicroQueueOfChunks();
-
-        private final Thread owningThread = Thread.currentThread();
-
         /**
          * If we are on outer LocalPool, whose chunks are == NORMAL_CHUNK_SIZE, we may service allocation requests
          * for buffers much smaller than
@@ -813,43 +810,51 @@ public class BufferPool
             LocalPool owner = chunk.owner;
             if (owner != null && owner == tinyPool)
             {
-                tinyPool.put(buffer, chunk);
+                tinyPool.put(buffer, chunk, true);
                 return;
             }
 
-            long free = chunk.free(buffer);
+            put(buffer, chunk, owner == this);
+        }
 
-            if (free == -1L && owner == this && owningThread == Thread.currentThread() && recycleWhenFree)
+        private void put(ByteBuffer buffer, Chunk chunk, boolean isOwner)
+        {
+
+            // ask the free method to take exclusive ownership of the act of recycling if chunk is owned by ourselves
+            long free = chunk.free(buffer, isOwner && recycleWhenFree);
+            // free:
+            // *     0L: current pool must be the owner. we can fully recyle the chunk.
+            // *    -1L:
+            //          * for normal chunk:
+            //              a) if it has owner, do nothing.
+            //              b) if it not owner, try to recyle it either fully or partially if not already recyled.
+            //          * for tiny chunk:
+            //              a) if it has owner, do nothing.
+            //              b) if it has not owner, recycle the tiny chunk back to parent chunk
+            // * others:
+            //          * for normal chunk:  partial recycle the chunk if it can be partially recycled but not yet recycled.
+            //          * for tiny chunk: do nothing.
+            if (free == 0L)
             {
-                // The chunk was fully freed, and we're the owner - let's release the chunk from this pool
-                // and give it back to the parent.
-                //
-                // We can remove the chunk from our local queue only if we're the owner of the chunk,
-                // and we're running this code on the thread that owns this local pool
-                // because the local queue is not thread safe.
-                //
-                // Please note that we may end up running `put` on a different thread when we're called
-                // from chunk.tryRecycle() on a child chunk which was previously owned by tinyPool of this pool.
-                // Such tiny chunk will point to this pool with its recycler reference. Thanks to the recycler, a thread
-                // that returns the tiny chunk can end up here in a LocalPool that's not neccessarily local to the
-                // calling thread, as there is no guarantee a child chunk is returned to the pool
-                // by the same thread that originally allocated it.
-                // It is ok we skip recycling in such case, and it does not cause
-                // a leak because those chunks are still referenced by the local pool.
+                assert isOwner;
+                // 0L => we own recycling responsibility, so must recycle;
+                // We must remove the Chunk from our local queue
                 remove(chunk);
-                chunk.release();
+                chunk.recycle(true);
             }
-            else if (chunk.owner == null)
+            else if (free == -1L && !isOwner && chunk.owner == null && !chunk.recycler.canRecyclePartially())
             {
-                // The chunk has no owner, so we can attempt to recycle it from any thread because we don't need
-                // to remove it from the local pool.
-                // For normal chunk this would recycle the chunk fully or partially if not already recycled.
-                // For tiny chunk, this would recycle the tiny chunk back to the parent chunk,
-                // if this chunk is completely free.
-                chunk.tryRecycle();
+                // although we try to take recycle ownership cheaply, it is not always possible to do so if the owner is racing to unset.
+                // we must also check after completely freeing if the owner has since been unset, and try to recycle
+                chunk.tryRecycle(false);
+            }
+            else if (chunk.owner == null && chunk.recycler.canRecyclePartially() && chunk.setInUse(Chunk.Status.EVICTED))
+            {
+                // re-cirlate partially freed normal chunk to global list
+                chunk.partiallyRecycle();
             }
 
-            if (owner == this && owningThread == Thread.currentThread())
+            if (isOwner)
             {
                 MemoryUtil.setAttachment(buffer, null);
                 MemoryUtil.setDirectByteBuffer(buffer, 0, 0);
@@ -886,7 +891,11 @@ public class BufferPool
         {
             ByteBuffer ret = tryGet(size, sizeIsLowerBound);
             if (ret != null)
+            {
+                metrics.hits.mark();
+                memoryInUse.add(ret.capacity());
                 return ret;
+            }
 
             if (size > NORMAL_CHUNK_SIZE)
             {
@@ -901,6 +910,7 @@ public class BufferPool
                     logger.trace("Requested buffer size {} has been allocated directly due to lack of capacity", prettyPrintMemory(size));
             }
 
+            metrics.misses.mark();
             return allocate(size, BufferType.OFF_HEAP);
         }
 
@@ -920,21 +930,10 @@ public class BufferPool
             }
             else if (size > NORMAL_CHUNK_SIZE)
             {
-                metrics.misses.mark();
                 return null;
             }
 
-            ByteBuffer ret = pool.tryGetInternal(size, sizeIsLowerBound);
-            if (ret != null)
-            {
-                metrics.hits.mark();
-                memoryInUse.add(ret.capacity());
-            }
-            else
-            {
-                metrics.misses.mark();
-            }
-            return ret;
+            return pool.tryGetInternal(size, sizeIsLowerBound);
         }
 
         @Inline
@@ -963,12 +962,11 @@ public class BufferPool
 
         // recycle entire tiny chunk from tiny pool back to local pool
         @Override
-        public void recycle(Chunk chunk)
+        public void recycle(Chunk chunk, boolean isOwner)
         {
             ByteBuffer buffer = chunk.slab;
             Chunk parentChunk = Chunk.getParentChunk(buffer);
-            assert parentChunk != null;  // tiny chunk always has a parent chunk
-            put(buffer, parentChunk);
+            put(buffer, parentChunk, isOwner);
         }
 
         @Override
@@ -1012,18 +1010,19 @@ public class BufferPool
                     // releasing tiny chunks may result in releasing current evicted chunk
                     tinyPool.chunks.removeIf((child, parent) -> Chunk.getParentChunk(child.slab) == parent, evict);
                 evict.release();
+                // Mark it as evicted and will be eligible for partial recyle if recycler allows
+                evict.setEvicted(Chunk.Status.IN_USE);
             }
         }
 
         public void release()
         {
-            if (tinyPool != null)
-                tinyPool.release();
-
             chunks.release();
             reuseObjects.clear();
             localPoolReferences.remove(leakRef);
             leakRef.clear();
+            if (tinyPool != null)
+                tinyPool.release();
         }
 
         @VisibleForTesting
@@ -1168,7 +1167,8 @@ public class BufferPool
         }
 
         /**
-         * Acquire the chunk for future allocations: set the owner
+         * Acquire the chunk for future allocations: set the owner and prep
+         * the free slots mask.
          */
         void acquire(LocalPool owner)
         {
@@ -1184,92 +1184,26 @@ public class BufferPool
         void release()
         {
             this.owner = null;
-            boolean statusUpdated = setEvicted();
-            assert statusUpdated : "Status of chunk " + this + " was not IN_USE.";
-            tryRecycle();
+            tryRecycle(true);
         }
 
-        /**
-         * If the chunk is free, changes the chunk's status to IN_USE and returns the chunk to the pool
-         * that it was acquired from.
-         *
-         * Can recycle the chunk partially if the recycler supports it.
-         * This method can be called from multiple threads safely.
-         *
-         * Calling this method on a chunk that's currently in use (either owned by a LocalPool or already recycled)
-         * has no effect.
-         */
-        void tryRecycle()
-        {
-            // Note that this may race with release(), therefore the order of those checks does matter.
-            // The EVICTED check may fail if the chunk was already partially recycled.
-            if (status != Status.EVICTED)
-                return;
-            if (owner != null)
-                return;
-
-            // We must use consistently either tryRecycleFully or tryRecycleFullyOrPartially,
-            // but we must not mix those for a single chunk, because they use a different mechanism for guarding
-            // that the chunk would be recycled at most once until the next acquire.
-            //
-            // If the recycler cannot recycle blocks partially, we have to make sure freeSlots was zeroed properly.
-            // Only one thread can transition freeSlots from -1 to 0 atomically, so this is a good way
-            // of ensuring only one thread recycles the block. In this case the chunk's status is
-            // updated only after freeSlots CAS succeeds.
-            //
-            // If the recycler can recycle blocks partially, we use the status field
-            // to guard at-most-once recycling. We cannot rely on atomically updating freeSlots from -1 to 0, because
-            // in this case we cannot expect freeSlots to be -1 (if it was, it wouldn't be partial).
-            if (recycler.canRecyclePartially())
-                tryRecycleFullyOrPartially();
-            else
-                tryRecycleFully();
-        }
-
-        /**
-         * Returns this chunk to the pool where it was acquired from, if it wasn't returned already.
-         * The chunk does not have to be totally free, but should have some free bits.
-         * However, if the chunk is fully free, it is released fully, not partially.
-         */
-        private void tryRecycleFullyOrPartially()
-        {
-            assert recycler.canRecyclePartially();
-            if (free() > 0 && setInUse())
-            {
-                assert owner == null;
-                if (!tryRecycleFully())   // prefer to recycle fully, as fully free chunks are returned to a higher priority queue
-                    recyclePartially();
-            }
-        }
-
-        private boolean tryRecycleFully()
-        {
-            if (!isFree() || !freeSlotsUpdater.compareAndSet(this, -1L, 0L))
-                return false;
-
-            recycleFully();
-            return true;
-        }
-
-        private void recyclePartially()
+        void tryRecycle(boolean isOwner)
         {
             assert owner == null;
-            assert status == Status.IN_USE;
-
-            recycler.recyclePartially(this);
+            if (isFree() && freeSlotsUpdater.compareAndSet(this, -1L, 0L))
+                recycle(isOwner);
         }
 
-        private void recycleFully()
+        void recycle(boolean isOwner)
         {
-            assert owner == null;
             assert freeSlots == 0L;
+            recycler.recycle(this, isOwner);
+        }
 
-            Status expectedStatus = recycler.canRecyclePartially() ? Status.IN_USE : Status.EVICTED;
-            boolean statusUpdated = setStatus(expectedStatus, Status.IN_USE);
-            // impossible: could only happen if another thread updated the status in the meantime
-            assert statusUpdated : "Status of chunk " + this + " was not " + expectedStatus;
-
-            recycler.recycle(this);
+        public void partiallyRecycle()
+        {
+            assert owner == null;
+            recycler.recyclePartially(this);
         }
 
         /**
@@ -1447,10 +1381,11 @@ public class BufferPool
 
         /**
          * Release a buffer. Return:
+         *    0L if the buffer must be recycled after the call;
          *   -1L if it is free (and so we should tryRecycle if owner is now null)
          *    some other value otherwise
          **/
-        long free(ByteBuffer buffer)
+        long free(ByteBuffer buffer, boolean tryRelease)
         {
             if (!releaseAttachment(buffer))
                 return 1L;
@@ -1471,6 +1406,8 @@ public class BufferPool
                 long cur = freeSlots;
                 next = cur | shiftedSlotBits;
                 assert next == (cur ^ shiftedSlotBits); // ensure no double free
+                if (tryRelease && (next == -1L))
+                    next = 0L;
                 if (freeSlotsUpdater.compareAndSet(this, cur, next))
                     return next;
             }
@@ -1508,7 +1445,7 @@ public class BufferPool
         @Override
         public String toString()
         {
-            return String.format("[slab %s, slots bitmap %s, capacity %d, free %d, owner %s, recycler %s]", slab, Long.toBinaryString(freeSlots), capacity(), free(), owner, recycler);
+            return String.format("[slab %s, slots bitmap %s, capacity %d, free %d]", slab, Long.toBinaryString(freeSlots), capacity(), free());
         }
 
         @VisibleForTesting
@@ -1522,7 +1459,7 @@ public class BufferPool
         {
             Chunk parent = getParentChunk(slab);
             if (parent != null)
-                parent.free(slab);
+                parent.free(slab, false);
             else
                 FileUtils.clean(slab);
         }
@@ -1533,7 +1470,7 @@ public class BufferPool
             {
                 chunk.owner = null;
                 chunk.freeSlots = 0L;
-                chunk.recycleFully();
+                chunk.recycle(true);
             }
         }
 
@@ -1547,14 +1484,14 @@ public class BufferPool
             return statusUpdater.compareAndSet(this, current, update);
         }
 
-        private boolean setInUse()
+        boolean setInUse(Status prev)
         {
-            return setStatus(Status.EVICTED, Status.IN_USE);
+            return setStatus(prev, Status.IN_USE);
         }
 
-        private boolean setEvicted()
+        boolean setEvicted(Status prev)
         {
-            return setStatus(Status.IN_USE, Status.EVICTED);
+            return setStatus(prev, Status.EVICTED);
         }
     }
 
