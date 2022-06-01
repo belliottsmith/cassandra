@@ -110,7 +110,7 @@ public class ApnsCoalescingMapQtTest extends CQLTester
     static class ApnsEvent
     {
         final UUID eventId;
-        final ByteBuffer coalescingKey;
+        ByteBuffer coalescingKey; // reset on ack
         ByteBuffer message;
         Optional<Date> deliverableAfter;
         Optional<Integer> deliveriesLeft;
@@ -143,6 +143,7 @@ public class ApnsCoalescingMapQtTest extends CQLTester
         void setAcknowledgedAt()
         {
             message = null;
+            coalescingKey = null;
         }
 
         boolean isDeliverable()
@@ -237,7 +238,8 @@ public class ApnsCoalescingMapQtTest extends CQLTester
             // remove it before adding the new one and trimming.  When a key is acknowledged the message/coalescing
             // key tuple deleted which means the cell resolver cannot spot older dupes.
             Set<ApnsEvent> matchingEvents = events.values().stream()
-                                                  .filter(e -> event.coalescingKey.equals(e.coalescingKey) &&
+                                                  .filter(e -> e.coalescingKey != null &&
+                                                               event.coalescingKey.equals(e.coalescingKey) &&
                                                                e.message != null)
                                                   .collect(Collectors.toSet());
             assert(matchingEvents.size() <= 1);
@@ -245,6 +247,11 @@ public class ApnsCoalescingMapQtTest extends CQLTester
 
             events.put(event.eventId, event);
 
+            trimEvents();
+        }
+
+        private void trimEvents()
+        {
             while (events.size() > queueLen)
             {
                 //noinspection OptionalGetWithoutIsPresent events size is guaranteed non-zero
@@ -253,6 +260,13 @@ public class ApnsCoalescingMapQtTest extends CQLTester
                 assertEquals(lowestKey, droppedEvent.eventId);
                 events.remove(droppedEvent.eventId);
             }
+        }
+
+        void ack(ApnsEvent ackedEvent)
+        {
+            events.putIfAbsent(ackedEvent.eventId, ackedEvent);
+            events.get(ackedEvent.eventId).setAcknowledgedAt();
+            trimEvents();
         }
 
         boolean anyDeliverable()
@@ -642,14 +656,9 @@ public class ApnsCoalescingMapQtTest extends CQLTester
                     lastGroup,
                     lastTopicId);
 
-            // Update model event to mark acknowledgment
-            ApnsEvent modelEvent = topic.events.get(lastEvent.eventId);
-            if (modelEvent != null)
-            {
-                // modelEvent may have been pushed out of the queue, in which case the TQT query
-                // will be a no-op, so no need to track anything in the model.
-                modelEvent.setAcknowledgedAt();
-            }
+            // Update the model to remove the coalescing key for the timestamp so that the tombstone is counted against
+            // the number of active cells separate from the coalesced key.
+            topic.ack(lastEvent);
         }
 
         void cleanupCheck()
@@ -702,6 +711,7 @@ public class ApnsCoalescingMapQtTest extends CQLTester
     {
         // for use in IDE, update the path to the counterexample of interest
         // Seed was 2628013606530882
-        qt().withCounterExample("/var/folders/jb/x8npdrt178z31ltm4fv6140c0000gn/T/qt.2557544648719511705.shrunk.counterex").stateful(Model::new); // 34 steps
+//        qt().withFixedSeed(568812520048558L).withStatefulModel(Model::new).withUnlimitedExamples().withTestingTime(1, TimeUnit.MINUTES).checkStateful();
+        qt().withCounterExample("/var/folders/jb/x8npdrt178z31ltm4fv6140c0000gn/T/qt.6665189370222537139.shrunk.counterex").stateful(Model::new); // 34 steps
     }
 }
