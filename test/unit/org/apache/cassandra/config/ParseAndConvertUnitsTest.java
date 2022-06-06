@@ -62,11 +62,11 @@ public class ParseAndConvertUnitsTest
         assertEquals(DurationSpec.inMilliseconds(1000), config.gc_warn_threshold);
         assertEquals(DurationSpec.inSeconds(86400), config.trace_type_query_ttl);
         assertEquals(DurationSpec.inSeconds(604800), config.trace_type_repair_ttl);
-        assertEquals(DurationSpec.inMilliseconds(2000), config.permissions_validity);
-        assertEquals(DurationSpec.inMilliseconds(0), config.permissions_update_interval);
-        assertEquals(DurationSpec.inMilliseconds(2000), config.roles_validity);
-        assertEquals(DurationSpec.inMilliseconds(0), config.roles_update_interval);
-        assertEquals(DurationSpec.inMilliseconds(2000), config.credentials_validity);
+        assertEquals(DurationSpec.inSeconds(43200), config.permissions_validity); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+        assertEquals(DurationSpec.inSeconds(600), config.permissions_update_interval);
+        assertEquals(DurationSpec.inSeconds(86400), config.roles_validity);
+        assertEquals(DurationSpec.inSeconds(600), config.roles_update_interval);
+        assertEquals(DurationSpec.inSeconds(86400), config.credentials_validity);
         assertEquals(DurationSpec.inMilliseconds(0), config.credentials_update_interval);
         assertEquals(DurationSpec.inMinutes(60), config.index_summary_resize_interval);
         assertEquals(DurationSpec.inHours(4), config.key_cache_save_period);
@@ -81,7 +81,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DataStorageSpec("4194304B"), config.internode_application_receive_queue_capacity);
         assertEquals(new DataStorageSpec("134217728B"), config.internode_application_receive_queue_reserve_endpoint_capacity);
         assertEquals(new DataStorageSpec("536870912B"), config.internode_application_receive_queue_reserve_global_capacity);
-        assertEquals(new DataStorageSpec("16MiB"), config.native_transport_max_frame_size);
+        assertEquals(new DataStorageSpec("64MiB"), config.native_transport_max_frame_size); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
         assertEquals(new DataStorageSpec("256MiB"), config.max_value_size);
         assertEquals(new DataStorageSpec("4KiB"), config.column_index_size);
         assertEquals(new DataStorageSpec("2KiB"), config.column_index_cache_size);
@@ -95,7 +95,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DataStorageSpec("1024KiB"), config.hinted_handoff_throttle);
         assertEquals(new DataStorageSpec("1024KiB"), config.batchlog_replay_throttle);
         assertEquals(new DataStorageSpec("10240KiB"), config.trickle_fsync_interval);
-        assertEquals(new DataStorageSpec("50MiB"), config.sstable_preemptive_open_interval);
+        assertEquals(new DataStorageSpec("8796093022207MiB"), config.sstable_preemptive_open_interval); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
         assertNull(config.counter_cache_size);
         assertNull(config.file_cache_size);
         assertNull(config.index_summary_capacity);
