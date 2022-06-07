@@ -30,6 +30,7 @@ public enum OperationType
     MAJOR_COMPACTION("Major compaction", 1),
     RELOCATE("Relocate sstables to correct disk", 1),
     GARBAGE_COLLECT("Remove deleted data", 1),
+    INC_REPAIR_MIGRATION("Incremental repair migration", 1),
 
     // Internal SSTable writing
     FLUSH("Flush", 1),

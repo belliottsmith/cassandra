@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.xmas;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -152,6 +153,28 @@ public class SuccessfulRepairTimeHolder
         }
 
         return Integer.MIN_VALUE;
+    }
+
+    public boolean wasFullyRepairedAfter(Collection<Range<Token>> ranges, int timeSeconds)
+    {
+        // note difference from `getFullyRepairedTimeFor` - sstables are never wrapping, but here we might get a wrapping range:
+        ranges = Range.normalize(ranges);
+        List<AbstractBounds<Token>> sstableBounds = new ArrayList<>(ranges);
+        for (int i = 0, isize = successfulRepairs.size(); i < isize; i++)
+        {
+            Pair<Range<Token>, Integer> intersectingRepair = successfulRepairs.get(i);
+            Range<Token> repairedRange = intersectingRepair.left;
+            int repairTime = intersectingRepair.right;
+            if (repairTime < timeSeconds)
+                return false;
+
+            for (Range<Token> unwrappedRange : repairedRange.unwrap()) // avoid handling wrapping ranges in subtract below
+                sstableBounds = subtract(sstableBounds, unwrappedRange);
+
+            if (sstableBounds.isEmpty())
+                return repairTime > timeSeconds;
+        }
+        return false;
     }
 
     @VisibleForTesting

@@ -89,6 +89,13 @@ public class RepairMessageVerbHandler implements IVerbHandler<RepairMessage>
                         }
                         columnFamilyStores.add(columnFamilyStore);
                     }
+
+                    if (!ActiveRepairService.verifyNoIncRepairMigration(prepareMessage.parentRepairSession, columnFamilyStores, prepareMessage.isIncremental, prepareMessage.previewKind, prepareMessage.ranges))
+                    {
+                        sendFailureResponse(message);
+                        return;
+                    }
+
                     ActiveRepairService.instance.registerParentRepairSession(prepareMessage.parentRepairSession,
                                                                              message.from(),
                                                                              columnFamilyStores,

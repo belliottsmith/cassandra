@@ -693,5 +693,32 @@ and it will update the (400, 500] one with a new invalidatedAtSeconds
         long endL =  (long) sstable.last.getToken().getTokenValue();
         return range(startL, endL);
     }
+
+    @Test
+    public void testWasFullyRepairedAfter()
+    {
+        ImmutableList.Builder<Pair<Range<Token>, Integer>> repairedRanges = ImmutableList.builder();
+        repairedRanges.add(Pair.create(range(0, 10), 10));
+        repairedRanges.add(Pair.create(range(10, 20), 20));
+
+        SuccessfulRepairTimeHolder srth = new SuccessfulRepairTimeHolder(repairedRanges.build(), ImmutableList.of());
+
+        assertTrue(srth.wasFullyRepairedAfter(Collections.singletonList(range(0, 10)), 9));
+        assertFalse(srth.wasFullyRepairedAfter(Collections.singletonList(range(0, 10)), 10));
+        assertFalse(srth.wasFullyRepairedAfter(Collections.singletonList(range(5, 15)), 15));
+        // wrap
+        assertFalse(srth.wasFullyRepairedAfter(Collections.singletonList(range(25, 5)), 9));
+    }
+
+    @Test
+    public void testWasFullyRepairedAfterWrapping()
+    {
+        ImmutableList.Builder<Pair<Range<Token>, Integer>> repairedRanges = ImmutableList.builder();
+        repairedRanges.add(Pair.create(range(20, 5), 10));
+        SuccessfulRepairTimeHolder srth = new SuccessfulRepairTimeHolder(repairedRanges.build(), ImmutableList.of());
+        assertFalse(srth.wasFullyRepairedAfter(Collections.singletonList(range(10, 15)), 0));
+        assertFalse(srth.wasFullyRepairedAfter(Collections.singletonList(range(25, 7)), 0));
+        assertTrue(srth.wasFullyRepairedAfter(Collections.singletonList(range(25, 3)), 0));
+    }
 }
 
