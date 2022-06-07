@@ -2,7 +2,6 @@
  * Streaming sessions longer than 3 minutes fail with timeout (CASSANDRA-17510)
  * Add ability to track state in repair (CASSANDRA-15399)
  * Remove unused 'parse' module (CASSANDRA-17484)
- * change six functions in cqlshlib to native Python 3 (CASSANDRA-17417)
  * reduce hot-path object allocations required to record local/remote requests against the client request metrics (CASSANDRA-17424)
  * Disallow removing DC from system_auth while nodes are active in the DC (CASSANDRA-17478)
  * Add guardrail for the number of fields per UDT (CASSANDRA-17385)
