@@ -47,6 +47,7 @@ import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DurationSpec;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.EndpointsByRange;
 import org.apache.cassandra.locator.EndpointsForRange;
@@ -63,6 +64,11 @@ import org.apache.cassandra.streaming.PreviewKind;
 import org.apache.cassandra.utils.Simulate;
 import org.apache.cassandra.utils.TimeUUID;
 import org.apache.cassandra.utils.concurrent.CountDownLatch;
+import com.google.common.primitives.Ints;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.db.xmas.SuccessfulRepairTimeHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -262,6 +268,10 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         this.irCleanup = ScheduledExecutors.optionalTasks.scheduleAtFixedRate(consistent.local::cleanup, 0,
                                                                               LocalSessions.CLEANUP_INTERVAL,
                                                                               TimeUnit.SECONDS);
+        ScheduledExecutors.optionalTasks.scheduleAtFixedRate(ActiveRepairService::clearIncRepairMigrations,
+                                                             60,
+                                                             60,
+                                                             TimeUnit.MINUTES);
     }
 
     @VisibleForTesting
@@ -623,10 +633,33 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
         return true;
     }
 
+    public static boolean verifyNoIncRepairMigration(TimeUUID parentRepairSession, List<ColumnFamilyStore> columnFamilyStores, boolean isIncremental, PreviewKind previewKind, Collection<Range<Token>> ranges)
+    {
+        if (previewKind == PreviewKind.REPAIRED || isIncremental)
+        {
+            for (ColumnFamilyStore cfs : columnFamilyStores)
+            {
+                int repairedAt = SystemKeyspace.getIncRepairMigration(cfs.keyspace.getName(), cfs.getTableName());
+                if (repairedAt == Integer.MIN_VALUE) // no migration
+                    continue;
+                SuccessfulRepairTimeHolder repairTimeHolder = cfs.getRepairTimeSnapshot();
+                if (!repairTimeHolder.wasFullyRepairedAfter(ranges, repairedAt))
+                {
+                    logger.warn("[{}] Rejecting incoming repair (incremental = {}, previewKind = {}, repairedAt = {}) since there is an ongoing inc repair migration",
+                                previewKind.logPrefix(parentRepairSession), isIncremental, previewKind, repairedAt);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     public TimeUUID prepareForRepair(TimeUUID parentRepairSession, InetAddressAndPort coordinator, Set<InetAddressAndPort> endpoints, RepairOption options, boolean isForcedRepair, List<ColumnFamilyStore> columnFamilyStores)
     {
         if (!verifyCompactionsPendingThreshold(parentRepairSession, options.getPreviewKind()))
             failRepair(parentRepairSession, "Rejecting incoming repair, pending compactions above threshold"); // failRepair throws exception
+        if (!verifyNoIncRepairMigration(parentRepairSession, columnFamilyStores, options.isIncremental(), options.getPreviewKind(), options.getRanges()))
+            failRepair(parentRepairSession, "Rejecting incoming repair, inc repair migration in progress");
 
         long repairedAt = getRepairedAt(options, isForcedRepair);
         registerParentRepairSession(parentRepairSession, coordinator, columnFamilyStores, options.getRanges(), options.isIncremental(), repairedAt, options.isGlobal(), options.getPreviewKind());
@@ -1195,5 +1228,115 @@ public class ActiveRepairService implements IEndpointStateChangeSubscriber, IFai
     public long getRepairMessageTimeoutMillis()
     {
         return DatabaseDescriptor.getRepairMessageTimeout(TimeUnit.MILLISECONDS);
+    }
+
+    @Override
+    public void setIncRepairedAtUnsafe(long repairedAtMs, boolean startMigration, boolean force)
+    {
+        if (startMigration && repairedAtMs == UNREPAIRED_SSTABLE)
+            throw new IllegalArgumentException("Can't start a migration when setting repairedAt to 0");
+
+        if (!force)
+        {
+            if (DatabaseDescriptor.getIncrementalUpdatesLastRepaired())
+                throw new IllegalStateException("incremental_updates_last_repaired is true - this could result in the repaired data staying inconsistent. Disable this flag or run this method with force=true");
+
+            Set<String> oprt = new HashSet<>();
+            for (Keyspace ks : Keyspace.nonSystem())
+                for (ColumnFamilyStore cfs : ks.getColumnFamilyStores())
+                    if (cfs.getCompactionStrategyManager().onlyPurgeRepairedTombstones())
+                        oprt.add(String.format("%s.%s", ks.getName(), cfs.getTableName()));
+
+            if (!oprt.isEmpty())
+                throw new IllegalStateException("Can't set repairedAt with only_purge_repaired_tombstones enabled on any table, disable on these tables and retry: " + String.join(",", oprt));
+        }
+        logger.info("Start setting repairedAt to {} for all tables (startMigration = {}, force = {})", repairedAtMs, startMigration, force);
+        AtomicBoolean failed = new AtomicBoolean(false);
+        for (Keyspace ks : Keyspace.nonSystem())
+        {
+            for (ColumnFamilyStore cfs : ks.getColumnFamilyStores())
+            {
+                logger.info("Setting repairedAt to {} on all sstables in {}.{}", repairedAtMs, ks.getName(), cfs.getTableName());
+                cfs.withAllSSTables(OperationType.INC_REPAIR_MIGRATION, (txn) -> {
+                    if (startMigration)
+                        SystemKeyspace.startIncRepairMigration(cfs.keyspace.getName(), cfs.getTableName(), Ints.checkedCast(TimeUnit.SECONDS.convert(repairedAtMs, TimeUnit.MILLISECONDS)));
+                    if (repairedAtMs == UNREPAIRED_SSTABLE)
+                        SystemKeyspace.stopIncRepairMigration(cfs.keyspace.getName(), cfs.getTableName());
+                    Set<SSTableReader> toCancel = new HashSet<>();
+                    for (SSTableReader sstable : txn.originals())
+                    {
+                        try
+                        {
+                            sstable.mutateRepairedAndReload(repairedAtMs, null, sstable.isTransient());
+                        }
+                        catch (IOException e)
+                        {
+                            toCancel.add(sstable);
+                            logger.error("Could not mutate sstable metadata for {}", sstable, e);
+                            failed.set(true);
+                        }
+                    }
+                    toCancel.forEach(txn::cancel);
+                    cfs.getTracker().notifySSTableRepairedStatusChanged(txn.originals());
+                    return null;
+                });
+                logger.info("Finished setting repairedAt for {}.{}", ks.getName(), cfs.getTableName());
+            }
+        }
+
+        if (failed.get())
+            throw new RuntimeException("Failed setting repairedAt on some sstables, check server logs for more information");
+        logger.info("Done marking sstables repaired: repairedAt = {} startMigration = {} force = {}.", repairedAtMs, startMigration, force);
+    }
+
+    @Override
+    public void startIncRepairMigrationUnsafe(boolean force)
+    {
+        setIncRepairedAtUnsafe(currentTimeMillis(), true, force);
+    }
+
+    @Override
+    public void markAllUnrepairedUnsafe(boolean force)
+    {
+        setIncRepairedAtUnsafe(UNREPAIRED_SSTABLE, false, force);
+    }
+
+    @Override
+    public void stopAllIncRepairMigrations()
+    {
+        for (Keyspace ks : Keyspace.nonSystem())
+            for (ColumnFamilyStore cfs : ks.getColumnFamilyStores())
+                SystemKeyspace.stopIncRepairMigration(ks.getName(), cfs.getTableName());
+    }
+
+    @VisibleForTesting
+    public static void clearIncRepairMigrations()
+    {
+        Map<String, Collection<Range<Token>>> keyspaceRanges = new HashMap<>();
+        List<SystemKeyspace.IncRepairMigration> migrations = SystemKeyspace.getIncRepairMigrations();
+        if (!migrations.isEmpty())
+            logger.info("Checking if any incremental repair migrations can be removed, {} migrations in progress", migrations.size());
+        for (SystemKeyspace.IncRepairMigration migration : migrations)
+        {
+            ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(migration.keyspace, migration.table);
+            boolean stop = false;
+            if (cfs == null)
+            {
+                logger.info("Stopping inc repair migration for {}.{} - table has been dropped", migration.keyspace, migration.table);
+                stop = true;
+            }
+            else
+            {
+                Collection<Range<Token>> localRanges = keyspaceRanges.computeIfAbsent(migration.keyspace,
+                                                                                      (ks) -> StorageService.instance.getLocalReplicas(migration.keyspace).ranges());
+                if (!localRanges.isEmpty() && cfs.getRepairTimeSnapshot().wasFullyRepairedAfter(localRanges, migration.repairedAt))
+                {
+                    logger.info("Stopping inc repair migration for {}.{} - all local ranges have been repaired", migration.keyspace, migration.table);
+                    stop = true;
+                }
+            }
+            if (stop)
+                SystemKeyspace.stopIncRepairMigration(migration.keyspace, migration.table);
+        }
     }
 }

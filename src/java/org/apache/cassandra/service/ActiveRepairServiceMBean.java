@@ -60,4 +60,8 @@ public interface ActiveRepairServiceMBean
 
     void setRepairMessageTimeoutMillis(long timeoutMillis);
     long getRepairMessageTimeoutMillis();
+    void setIncRepairedAtUnsafe(long value, boolean startMigration, boolean force);
+    void startIncRepairMigrationUnsafe(boolean force);
+    void markAllUnrepairedUnsafe(boolean force);
+    void stopAllIncRepairMigrations();
 }

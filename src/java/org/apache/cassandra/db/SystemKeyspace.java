@@ -172,7 +172,7 @@ public final class SystemKeyspace
     public static final String REPAIR_HISTORY_INVALIDATION_CF = "repair_history_invalidations";
     public static final String SCHEDULED_COMPACTIONS_V2 = "scheduled_compactions_v2";
     public static final String TOP_PARTITIONS = "top_partitions";
-
+    public static final String INC_REPAIR_MIGRATIONS = "inc_repair_migrations";
     /**
      * By default the system keyspace tables should be stored in a single data directory to allow the server
      * to handle more gracefully disk failures. Some tables through can be split accross multiple directories
@@ -199,6 +199,7 @@ public final class SystemKeyspace
                                                                       TABLE_ESTIMATES, AVAILABLE_RANGES_V2, TRANSFERRED_RANGES_V2,
                                                                       VIEW_BUILDS_IN_PROGRESS, BUILT_VIEWS, PREPARED_STATEMENTS,
                                                                       REPAIRS, SCHEDULED_COMPACTIONS_V2,  REPAIR_HISTORY_CF, REPAIR_HISTORY_INVALIDATION_CF,
+                                                                      TOP_PARTITIONS, INC_REPAIR_MIGRATIONS,
 
                                                                       LEGACY_PEERS, LEGACY_PEER_EVENTS, LEGACY_TRANSFERRED_RANGES,
                                                                       LEGACY_AVAILABLE_RANGES, LEGACY_SIZE_ESTIMATES, LEGACY_SSTABLE_ACTIVITY,
@@ -500,6 +501,15 @@ public final class SystemKeyspace
               + "start_time bigint,"
               + "PRIMARY KEY (keyspace_name, table_name, repaired, data_directory))").build();
 
+    private static final TableMetadata IncRepairMigrations =
+    parse(INC_REPAIR_MIGRATIONS,
+          "Incremental repair migrations",
+          "CREATE TABLE %s ("
+          + "keyspace_name text,"
+          + "table_name text,"
+          + "repaired_at int, PRIMARY KEY (keyspace_name, table_name))")
+    .build();
+
     @Deprecated
     private static final TableMetadata LegacyScheduledCompactionsCf =
         parse(LEGACY_SCHEDULED_COMPACTIONS_CF,
@@ -603,7 +613,8 @@ public final class SystemKeyspace
                          RepairHistoryInvalidationCf,
                          ScheduledCompactionsV2,
                          TopPartitions,
-                         LegacyScheduledCompactionsCf);
+                         LegacyScheduledCompactionsCf,
+                         IncRepairMigrations);
     }
 
     private static Functions functions()
@@ -2119,6 +2130,52 @@ public final class SystemKeyspace
         {
             logger.warn("Could not load stored top {} partitions for {}.{}", topType, metadata.keyspace, metadata.name, e);
             return TopPartitionTracker.StoredTopPartitions.EMPTY;
+        }
+    }
+
+    public static void startIncRepairMigration(String keyspace, String table, int repairedAtSeconds)
+    {
+        String cql = String.format("INSERT INTO %s.%s (keyspace_name, table_name, repaired_at) VALUES (?, ?, ?)", SchemaConstants.SYSTEM_KEYSPACE_NAME, INC_REPAIR_MIGRATIONS);
+        executeInternal(cql, keyspace, table, repairedAtSeconds);
+    }
+
+    public static void stopIncRepairMigration(String keyspace, String table)
+    {
+        String cql = String.format("DELETE FROM %s.%s WHERE keyspace_name = ? AND table_name = ?", SchemaConstants.SYSTEM_KEYSPACE_NAME, INC_REPAIR_MIGRATIONS);
+        executeInternal(cql, keyspace, table);
+    }
+
+    public static int getIncRepairMigration(String keyspace, String table)
+    {
+        String cql = String.format("SELECT repaired_at FROM %s.%s WHERE keyspace_name=? and table_name=?", SchemaConstants.SYSTEM_KEYSPACE_NAME, INC_REPAIR_MIGRATIONS);
+        UntypedResultSet res = executeInternal(cql, keyspace, table);
+        if (res != null && !res.isEmpty())
+            return res.one().getInt("repaired_at");
+        return Integer.MIN_VALUE;
+    }
+
+    public static List<IncRepairMigration> getIncRepairMigrations()
+    {
+        String cql = String.format("SELECT keyspace_name, table_name, repaired_at FROM %s.%s", SchemaConstants.SYSTEM_KEYSPACE_NAME, INC_REPAIR_MIGRATIONS);
+        List<IncRepairMigration> migrations = new ArrayList<>();
+        UntypedResultSet res = executeInternal(cql);
+        if (res != null)
+            for (UntypedResultSet.Row r : res)
+                migrations.add(new IncRepairMigration(r.getString("keyspace_name"), r.getString("table_name"), r.getInt("repaired_at")));
+        return migrations;
+    }
+
+    public static final class IncRepairMigration
+    {
+        public final String keyspace;
+        public final String table;
+        public final int repairedAt;
+
+        private IncRepairMigration(String keyspace, String table, int repairedAt)
+        {
+            this.keyspace = keyspace;
+            this.table = table;
+            this.repairedAt = repairedAt;
         }
     }
 }
