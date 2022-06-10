@@ -503,22 +503,22 @@ public class MigrationCoordinator
         SchemaDiagnostics.versionAnnounced(Schema.instance);
     }
 
-    private static Future<?> submitToMigrationIfNotShutdown(Runnable task)
+    private Future<?> submitToMigrationIfNotShutdown(Runnable task)
     {
         boolean skipped = false;
         try
         {
-            if (Stage.MIGRATION.executor().isShutdown() || Stage.MIGRATION.executor().isTerminated())
+            if (executor.isShutdown() || executor.isTerminated())
             {
                 skipped = true;
-                return null;
+                return ImmediateFuture.success(null);
             }
-            return Stage.MIGRATION.submit(task);
+            return executor.submit(task);
         }
         catch (RejectedExecutionException ex)
         {
             skipped = true;
-            return null;
+            return ImmediateFuture.success(null);
         }
         finally
         {
