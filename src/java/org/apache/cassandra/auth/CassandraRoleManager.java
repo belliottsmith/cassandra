@@ -48,6 +48,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.mindrot.jbcrypt.BCrypt;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_HASHED_PASSWORDS;
 import static org.apache.cassandra.service.QueryState.forInternalCalls;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
@@ -135,10 +136,12 @@ public class CassandraRoleManager implements IRoleManager
     public CassandraRoleManager()
     {
         supportedOptions = DatabaseDescriptor.getAuthenticator() instanceof PasswordAuthenticator
-                         ? ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD, Option.HASHED_PASSWORD)
+                         ? ALLOW_HASHED_PASSWORDS.getBoolean() ? ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD, Option.HASHED_PASSWORD)
+                                                               : ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD) 
                          : ImmutableSet.of(Option.LOGIN, Option.SUPERUSER);
         alterableOptions = DatabaseDescriptor.getAuthenticator() instanceof PasswordAuthenticator
-                         ? ImmutableSet.of(Option.PASSWORD, Option.HASHED_PASSWORD)
+                         ? ALLOW_HASHED_PASSWORDS.getBoolean() ? ImmutableSet.of(Option.PASSWORD, Option.HASHED_PASSWORD)
+                                                               : ImmutableSet.of(Option.PASSWORD)
                          : ImmutableSet.<Option>of();
     }
 
