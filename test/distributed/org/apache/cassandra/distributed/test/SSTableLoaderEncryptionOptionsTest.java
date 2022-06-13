@@ -55,12 +55,14 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
     @BeforeClass
     public static void setupCluster() throws IOException
     {
+        System.setProperty("cie_internal_rf", "1");
         CLUSTER = Cluster.build().withNodes(1).withConfig(c -> {
             c.with(Feature.NATIVE_PROTOCOL, Feature.NETWORK, Feature.GOSSIP); // need gossip to get hostid for java driver
             c.set("server_encryption_options",
                   ImmutableMap.builder().putAll(validKeystore)
                               .put("internode_encryption", "all")
                               .put("optional", false)
+                              .put("legacy_ssl_storage_port_enabled", true)
                               .build());
             c.set("client_encryption_options",
                   ImmutableMap.builder().putAll(validKeystore)
