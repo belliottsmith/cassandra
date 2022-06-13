@@ -324,6 +324,8 @@ public enum CassandraRelevantProperties
     LOOSE_DEF_OF_EMPTY_ENABLED(Config.PROPERTY_PREFIX + "gossiper.loose_empty_enabled"),
 
     HOST_REPLACE_TOKENS(Config.PROPERTY_PREFIX + "replace_addresses_token"),
+
+    ALLOW_HASHED_PASSWORDS(Config.PROPERTY_PREFIX + "allow_hashed_passwords", "false"),
     ;
 
     CassandraRelevantProperties(String key, String defaultVal)

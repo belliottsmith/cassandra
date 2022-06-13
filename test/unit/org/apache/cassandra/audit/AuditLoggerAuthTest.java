@@ -34,6 +34,7 @@ import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.SyntaxError;
 import com.datastax.driver.core.exceptions.UnauthorizedException;
 
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OverrideConfigurationLoader;
 import org.apache.cassandra.config.ParameterizedClass;
@@ -68,6 +69,9 @@ public class AuditLoggerAuthTest
     @BeforeClass
     public static void setup() throws Exception
     {
+        // Apple Internal: Explicitly enable pre-hashed passwords.
+        CassandraRelevantProperties.ALLOW_HASHED_PASSWORDS.setBoolean(true);
+
         OverrideConfigurationLoader.override((config) -> {
             config.authenticator = "PasswordAuthenticator";
             config.role_manager = "CassandraRoleManager";
