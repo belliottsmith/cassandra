@@ -300,6 +300,8 @@ public enum CassandraRelevantProperties
     MANAGEMENT_DSID_OF_ROOT(Config.PROPERTY_PREFIX + "issueingcertificate.dsid", "1399644"),
 
     HOST_REPLACE_TOKENS(Config.PROPERTY_PREFIX + "replace_addresses_token"),
+
+    ALLOW_HASHED_PASSWORDS(Config.PROPERTY_PREFIX + "allow_hashed_passwords", "false"),
     ;
 
     CassandraRelevantProperties(String key, String defaultVal)

@@ -23,6 +23,7 @@ import org.junit.Test;
 
 import com.datastax.driver.core.exceptions.AuthenticationException;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.cql3.CQLTester;
 
 import static org.junit.Assert.assertTrue;
@@ -34,6 +35,9 @@ public class CreateAndAlterRoleTest extends CQLTester
     @BeforeClass
     public static void setUpClass()
     {
+        // Apple Internal: Explicitly enable pre-hashed passwords.
+        CassandraRelevantProperties.ALLOW_HASHED_PASSWORDS.setBoolean(true);
+
         CQLTester.setUpClass();
         requireAuthentication();
         requireNetwork();
