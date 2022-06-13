@@ -114,7 +114,7 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
                                                             "--truststore-password", validTrustStorePassword,
                                                             "test/data/legacy-sstables/na/legacy_tables/legacy_na_clust");
         assertNotEquals(0, tool.getExitCode());
-        assertTrue(tool.getStdout().contains("SSLHandshakeException"));
+        assertTrue(tool.getStdout().contains("SslHandler.setHandshakeFailure")); //temporary fix until caught up with CASSANDRA-17602
     }
 
     private static File prepareSstablesForUpload() throws IOException
