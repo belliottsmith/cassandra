@@ -123,10 +123,10 @@ public class CompactionStatsTest extends CQLTester
         tool.assertOnCleanExit();
         String stdout = tool.getStdout();
         assertThat(stdout).contains("pending tasks: 1");
-        Assertions.assertThat(stdout).containsPattern("keyspace\\s+table\\s+task id\\s+completion ratio\\s+kind\\s+progress\\s+sstables\\s+total\\s+unit");
-        String expectedStatsPattern = String.format("%s\\s+%s\\s+%s\\s+%.2f%%\\s+%s\\s+%s\\s+%s\\s+%s\\s+%s",
+        Assertions.assertThat(stdout).containsPattern("keyspace\\s+table\\s+task id\\s+completion ratio\\s+kind\\s+progress\\s+total\\s+unit");
+        String expectedStatsPattern = String.format("%s\\s+%s\\s+%s\\s+%.2f%%\\s+%s\\s+%s\\s+%s\\s+%s",
                 CQLTester.KEYSPACE, currentTable(), compactionId, (double) bytesCompacted / bytesTotal * 100,
-                OperationType.COMPACTION, bytesCompacted, sstables.size(), bytesTotal, CompactionInfo.Unit.BYTES);
+                OperationType.COMPACTION, bytesCompacted, bytesTotal, CompactionInfo.Unit.BYTES);
         Assertions.assertThat(stdout).containsPattern(expectedStatsPattern);
 
         CompactionManager.instance.active.finishCompaction(compactionHolder);
@@ -166,10 +166,10 @@ public class CompactionStatsTest extends CQLTester
         tool.assertOnCleanExit();
         String stdout = tool.getStdout();
         assertThat(stdout).contains("pending tasks: 1");
-        Assertions.assertThat(stdout).containsPattern("keyspace\\s+table\\s+task id\\s+completion ratio\\s+kind\\s+progress\\s+sstables\\s+total\\s+unit");
-        String expectedStatsPattern = String.format("%s\\s+%s\\s+%s\\s+%.2f%%\\s+%s\\s+%s\\s+%s\\s+%s\\s+%s",
+        Assertions.assertThat(stdout).containsPattern("keyspace\\s+table\\s+task id\\s+completion ratio\\s+kind\\s+progress\\s+total\\s+unit");
+        String expectedStatsPattern = String.format("%s\\s+%s\\s+%s\\s+%.2f%%\\s+%s\\s+%s\\s+%s\\s+%s",
                 CQLTester.KEYSPACE, currentTable(), compactionId, (double) bytesCompacted / bytesTotal * 100,
-                OperationType.COMPACTION, "123 bytes", sstables.size(), "120.56 KiB", CompactionInfo.Unit.BYTES);
+                OperationType.COMPACTION, "123 bytes", "120.56 KiB", CompactionInfo.Unit.BYTES);
         Assertions.assertThat(stdout).containsPattern(expectedStatsPattern);
 
         CompactionManager.instance.active.finishCompaction(compactionHolder);
