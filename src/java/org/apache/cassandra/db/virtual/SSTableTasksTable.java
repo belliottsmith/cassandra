@@ -20,7 +20,6 @@ package org.apache.cassandra.db.virtual;
 import org.apache.cassandra.db.compaction.CompactionInfo;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.marshal.DoubleType;
-import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.marshal.TimeUUIDType;
 import org.apache.cassandra.db.marshal.UTF8Type;
@@ -35,7 +34,6 @@ final class SSTableTasksTable extends AbstractVirtualTable
     private final static String COMPLETION_RATIO = "completion_ratio";
     private final static String KIND = "kind";
     private final static String PROGRESS = "progress";
-    private final static String SSTABLES = "sstables";
     private final static String TOTAL = "total";
     private final static String UNIT = "unit";
 
@@ -51,7 +49,6 @@ final class SSTableTasksTable extends AbstractVirtualTable
                            .addRegularColumn(COMPLETION_RATIO, DoubleType.instance)
                            .addRegularColumn(KIND, UTF8Type.instance)
                            .addRegularColumn(PROGRESS, LongType.instance)
-                           .addRegularColumn(SSTABLES, Int32Type.instance)
                            .addRegularColumn(TOTAL, LongType.instance)
                            .addRegularColumn(UNIT, UTF8Type.instance)
                            .build());
@@ -74,7 +71,6 @@ final class SSTableTasksTable extends AbstractVirtualTable
                   .column(COMPLETION_RATIO, completionRatio)
                   .column(KIND, task.getTaskType().toString().toLowerCase())
                   .column(PROGRESS, completed)
-                  .column(SSTABLES, task.getSSTables().size())
                   .column(TOTAL, total)
                   .column(UNIT, task.getUnit().toString().toLowerCase());
         }
