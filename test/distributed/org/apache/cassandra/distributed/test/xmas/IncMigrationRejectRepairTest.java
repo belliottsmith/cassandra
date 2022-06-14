@@ -19,7 +19,6 @@
 package org.apache.cassandra.distributed.test.xmas;
 
 import java.io.IOException;
-import java.util.UUID;
 
 import org.junit.Test;
 
@@ -33,6 +32,7 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.metadata.MetadataSerializer;
 import org.apache.cassandra.service.ActiveRepairService;
+import org.apache.cassandra.utils.TimeUUID;
 
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
@@ -164,7 +164,7 @@ public class IncMigrationRejectRepairTest extends TestBaseImpl
                            .load(cl, ClassLoadingStrategy.Default.INJECTION);
         }
 
-        public static void mutateRepaired(Descriptor descriptor, long newRepairedAt, UUID newPendingRepair, boolean isTransient) throws IOException
+        public static void mutateRepairMetadata(Descriptor descriptor, long newRepairedAt, TimeUUID newPendingRepair, boolean isTransient) throws IOException
         {
             throw new IOException("test");
         }
