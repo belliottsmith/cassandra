@@ -2040,20 +2040,17 @@
       </jar>
   </target>
 
-  <target name="dtest-jar" depends="build-test, build" description="Create dtest-compatible jar, including all dependencies">
-      <jar jarfile="${build.dir}/dtest-${base.version}.jar" duplicate="preserve">
-          <!-- excluding ACCP as it includes META-INF/JKS.RSA which causes a security exception - just want it packaged for final jar anyway -->
-          <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="AmazonCorrettoCryptoProvider-*"/>
-          <zipgroupfileset dir="${build.test.dir}/lib/jars" includes="javassist-*.jar,reflections-*.jar" excludes="META-INF/*.SF"/>
-          <zipgroupfileset dir="${build.test.dir}/lib/jars" includes="jimfs-1.1.jar" excludes="META-INF/*.SF"/>
-          <fileset dir="${build.classes.main}"/>
-          <fileset dir="${test.classes}"/>
-          <fileset dir="${test.conf}" />
-          <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF"/>
-          <zipgroupfileset dir="${test.lib}/jars" includes="jimfs-1.1.jar,dtest-api-*.jar,asm-*.jar,javassist-*.jar,reflections-*.jar,semver4j-*.jar" excludes="META-INF/*.SF"/>
-          <zipgroupfileset dir="${build.dir.lib}/jars" includes="asm-*.jar" excludes="META-INF/*.SF"/>
-      </jar>
-  </target>
+    <target name="dtest-jar" depends="build-test, build" description="Create dtest-compatible jar, including all dependencies">
+        <jar jarfile="${build.dir}/dtest-${base.version}.jar" duplicate="preserve">
+            <fileset dir="${build.classes.main}"/>
+            <fileset dir="${test.classes}"/>
+            <fileset dir="${test.conf}" />
+            <!-- excluding ACCP as it includes META-INF/JKS.RSA which causes a security exception - just want it packaged for final jar anyway -->
+            <zipgroupfileset dir="${build.lib}" includes="*.jar" excludes="META-INF/*.SF,AmazonCorrettoCryptoProvider-*"/>
+            <zipgroupfileset dir="${test.lib}/jars" includes="jimfs-1.1.jar,dtest-api-*.jar,asm-*.jar,javassist-*.jar,reflections-*.jar,semver4j-*.jar" excludes="META-INF/*.SF"/>
+            <zipgroupfileset dir="${build.dir.lib}/jars" includes="asm-*.jar" excludes="META-INF/*.SF,AmazonCorrettoCryptoProvider-*"/>
+        </jar>
+    </target>
 
   <target name="test-jvm-dtest" depends="build-test" description="Execute in-jvm dtests">
     <testmacro inputdir="${test.distributed.src}" timeout="${test.distributed.timeout}" forkmode="once" showoutput="true" filter="**/test/${test.name}.java">
