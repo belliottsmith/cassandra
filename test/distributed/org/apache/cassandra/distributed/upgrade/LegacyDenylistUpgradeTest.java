@@ -74,7 +74,7 @@ public class LegacyDenylistUpgradeTest extends UpgradeTestBase
     {
         new UpgradeTestBase.TestCase()
         .nodes(NUM_NODES)
-        .upgrades(v30, v40) // CIE versions
+        .singleUpgrade(v30)
         .withConfig(config -> config.with(Feature.GOSSIP, Feature.NETWORK)
                                     .set("key_cache_size_in_mb", 0)
                                     .set("blacklist_refresh_period_seconds", 1)
