@@ -101,24 +101,7 @@ public final class HeapUtils
             {
                 if (DatabaseDescriptor.getDumpHeapOnUncaughtException())
                 {
-                    MBeanServer server = ManagementFactory.getPlatformMBeanServer();
-
-                    Path absoluteBasePath = getHeapDumpPath();
-
-                    long maxMemoryBytes = Runtime.getRuntime().maxMemory();
-                    long freeSpaceBytes = PathUtils.tryGetSpace(absoluteBasePath, FileStore::getUnallocatedSpace);
-
-                    // Abort if there isn't enough room on the target disk to dump the entire heap and then copy it.
-                    if (freeSpaceBytes < 2 * maxMemoryBytes)
-                        throw new RuntimeException("There are only " + freeSpaceBytes + " bytes free at " + absoluteBasePath + '.');
-
-                    HotSpotDiagnosticMXBean mxBean = ManagementFactory.newPlatformMXBeanProxy(server, "com.sun.management:type=HotSpotDiagnostic", HotSpotDiagnosticMXBean.class);
-                    String filename = String.format("pid%s-epoch%s.hprof", HeapUtils.getProcessId().toString(), currentTimeMillis());
-                    String fullPath = Paths.get(absoluteBasePath.toString(), filename).toString();
-
-                    logger.info("Writing heap dump to {} on partition w/ {} free bytes...", absoluteBasePath, freeSpaceBytes);
-                    mxBean.dumpHeap(fullPath, false);
-                    logger.info("Heap dump written to {}", fullPath);
+                    String fullPath = createHeapDump();
 
                     // Disable further heap dump creations until explicitly re-enabled.
                     DatabaseDescriptor.setDumpHeapOnUncaughtException(false);
@@ -145,6 +128,29 @@ public final class HeapUtils
         }
 
         return null;
+    }
+
+    public static String createHeapDump() throws IOException
+    {
+        MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+
+        Path absoluteBasePath = getHeapDumpPath();
+
+        long maxMemoryBytes = Runtime.getRuntime().maxMemory();
+        long freeSpaceBytes = PathUtils.tryGetSpace(absoluteBasePath, FileStore::getUnallocatedSpace);
+
+        // Abort if there isn't enough room on the target disk to dump the entire heap and then copy it.
+        if (freeSpaceBytes < 2 * maxMemoryBytes)
+            throw new RuntimeException("There are only " + freeSpaceBytes + " bytes free at " + absoluteBasePath + '.');
+
+        HotSpotDiagnosticMXBean mxBean = ManagementFactory.newPlatformMXBeanProxy(server, "com.sun.management:type=HotSpotDiagnostic", HotSpotDiagnosticMXBean.class);
+        String filename = String.format("pid%s-epoch%s.hprof", HeapUtils.getProcessId().toString(), currentTimeMillis());
+        String fullPath = Paths.get(absoluteBasePath.toString(), filename).toString();
+
+        logger.info("Writing heap dump to {} on partition w/ {} free bytes...", absoluteBasePath, freeSpaceBytes);
+        mxBean.dumpHeap(fullPath, false);
+        logger.info("Heap dump written to {}", fullPath);
+        return fullPath;
     }
 
     private static Path getHeapDumpPath()

@@ -90,6 +90,7 @@ import org.apache.cassandra.distributed.shared.Versions;
 import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.HeapUtils;
 import org.apache.cassandra.utils.Isolated;
 import org.apache.cassandra.utils.Shared;
 import org.apache.cassandra.utils.Shared.Recursive;
@@ -962,12 +963,29 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     @Override
     public void close()
     {
-        FBUtilities.waitOnFutures(instances.stream()
-                                           .filter(i -> !i.isShutdown())
-                                           .map(IInstance::shutdown)
-                                           .collect(Collectors.toList()),
-                                  1L, TimeUnit.MINUTES);
-
+        try
+        {
+            FBUtilities.waitOnFutures(instances.stream()
+                                               .filter(i -> !i.isShutdown())
+                                               .map(IInstance::shutdown)
+                                               .collect(Collectors.toList()),
+                                      1L, TimeUnit.MINUTES);
+        }
+        catch (RuntimeException ex)
+        {
+            try
+            {
+                // Not guarded by any lock - risk that an uncaught exception is triggering a heap dump at the
+                // same time.
+                logger.info("Exception closing in-JVM dtest cluster - creating heap dump", ex);
+                HeapUtils.createHeapDump();
+            }
+            catch (Throwable e)
+            {
+                logger.warn("Unable to create heap dump for cluster close timeout.", e);
+            }
+            throw ex;
+        }
         instances.clear();
         instanceMap.clear();
         PathUtils.setDeletionListener(ignore -> {});
