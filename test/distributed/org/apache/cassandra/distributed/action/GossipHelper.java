@@ -93,7 +93,9 @@ public class GossipHelper
      */
     public static void unsafeStatusToNormal(IInvokableInstance target, IInstance peer)
     {
-        int messagingVersion = peer.getMessagingVersion();
+        int peerVersion = peer.getMessagingVersion();
+        final int messagingVersion = peerVersion == 0 ? target.getMessagingVersion() :  peerVersion;
+
         changeGossipState(target,
                           peer,
                           Arrays.asList(unsafeVersionedValue(target,
@@ -418,7 +420,8 @@ public class GossipHelper
     {
         InetSocketAddress addr = peer.broadcastAddress();
         UUID hostId = peer.config().hostId();
-        int netVersion = peer.getMessagingVersion();
+        int peerVersion = peer.getMessagingVersion();
+        final int netVersion = peerVersion == 0 ? target.getMessagingVersion() :  peerVersion;
         target.runOnInstance(() -> {
             InetAddressAndPort endpoint = toCassandraInetAddressAndPort(addr);
             StorageService storageService = StorageService.instance;

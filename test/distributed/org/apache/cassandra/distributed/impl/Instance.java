@@ -167,6 +167,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
     public final IInstanceConfig config;
     private volatile boolean initialized = false;
+    private volatile boolean listeningInternode = false;
     private final AtomicLong startedAt = new AtomicLong();
 
     @Deprecated
@@ -325,6 +326,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     private void registerMockMessaging(ICluster<?> cluster)
     {
         MessagingService.instance().outboundSink.add((message, to) -> {
+            if (!listeningInternode)
+                return false;
             cluster.deliverMessage(to, serializeMessage(message.from(), to, message));
             return false;
         });
@@ -473,6 +476,8 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     private SerializableConsumer<Boolean> receiveMessageRunnable(IMessage message)
     {
         return runOnCaller -> {
+            if (!listeningInternode)
+                return;
             if (message.version() > MessagingService.current_version)
             {
                 throw new IllegalStateException(String.format("Node%d received message version %d but current version is %d",
@@ -480,7 +485,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                                               message.version(),
                                                               MessagingService.current_version));
             }
-
             Message<?> messageIn = deserializeMessage(message);
             Message.Header header = messageIn.header;
             TraceState state = Tracing.instance.initializeFromMessage(header);
@@ -503,13 +507,17 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     public int getMessagingVersion()
     {
-        return MessagingService.current_version;
+        if (DatabaseDescriptor.isDaemonInitialized())
+            return MessagingService.current_version;
+        else
+            return 0;
     }
 
     @Override
     public void setMessagingVersion(InetSocketAddress endpoint, int version)
     {
-        MessagingService.instance().versions.set(toCassandraInetAddressAndPort(endpoint), version);
+        if (DatabaseDescriptor.isDaemonInitialized())
+            MessagingService.instance().versions.set(toCassandraInetAddressAndPort(endpoint), version);
     }
 
     @Override
@@ -645,11 +653,58 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
                 registerInboundFilter(cluster);
                 registerOutboundFilter(cluster);
+                if (config.has(NETWORK))
+                {
+                    // If networking/gossip used, listen now to get those messages.  For
+                    // mock messaging delay listening until TMD has been properly set up or
+                    // requests that were queued while the previous iteration of the instance
+                    // will fail with TMD related issues like 'Ring is empty'
+                    listeningInternode = true;
+                }
 
                 JVMStabilityInspector.replaceKiller(new InstanceKiller(Instance.this::shutdown));
 
                 // TODO: this is more than just gossip
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
+                if (!config.has(GOSSIP))
+                {
+                    Schema.instance.startSync();
+                    Stream peers = cluster.stream().filter(instance -> ((IInstance) instance).isValid());
+                    SystemKeyspace.setLocalHostId(config.hostId());
+                    if (config.has(BLANK_GOSSIP))
+                        peers.forEach(peer -> GossipHelper.statusToBlank((IInvokableInstance) peer).accept(this));
+                    else if (cluster instanceof Cluster)
+                        peers.forEach(peer -> GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this));
+                    else
+                        peers.forEach(peer -> GossipHelper.unsafeStatusToNormal(this, (IInstance) peer));
+
+                    StorageService.instance.setUpDistributedSystemKeyspaces();
+                    StorageService.instance.setNormalModeUnsafe();
+                    Gossiper.instance.register(StorageService.instance);
+
+                    StorageService.instance.populateTokenMetadata();
+                }
+
+            }
+            catch (Throwable t)
+            {
+                if (t instanceof RuntimeException)
+                    throw (RuntimeException) t;
+                throw new RuntimeException(t);
+            }
+        }).run();
+
+        if (!config.has(NETWORK))
+            propagateMessagingVersions(cluster);
+
+        sync(() -> {
+            try
+            {
+                // Unconditionally receive messages now that TMD and messaging versions are set correctly
+                // Any initialization that requires the messaging service to be operational should not
+                // be called before this block
+                listeningInternode = true;
+
                 if (config.has(GOSSIP))
                 {
                     MigrationCoordinator.setUptimeFn(() -> TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt.get()));
@@ -668,27 +723,11 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     StorageService.instance.removeShutdownHook();
 
                     Gossiper.waitToSettle();
-                }
-                else
-                {
-                    Schema.instance.startSync();
-                    Stream peers = cluster.stream().filter(instance -> ((IInstance) instance).isValid());
-                    SystemKeyspace.setLocalHostId(config.hostId());
-                    if (config.has(BLANK_GOSSIP))
-                        peers.forEach(peer -> GossipHelper.statusToBlank((IInvokableInstance) peer).accept(this));
-                    else if (cluster instanceof Cluster)
-                        peers.forEach(peer -> GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this));
-                    else
-                        peers.forEach(peer -> GossipHelper.unsafeStatusToNormal(this, (IInstance) peer));
 
-                    StorageService.instance.setUpDistributedSystemKeyspaces();
-                    StorageService.instance.setNormalModeUnsafe();
-                    Gossiper.instance.register(StorageService.instance);
+                    // Populate tokenMetadata for the second time,
+                    // see org.apache.cassandra.service.CassandraDaemon.setup
+                    StorageService.instance.populateTokenMetadata();
                 }
-
-                // Populate tokenMetadata for the second time,
-                // see org.apache.cassandra.service.CassandraDaemon.setup
-                StorageService.instance.populateTokenMetadata();
 
                 SchemaDropLog.initialize();
                 PartitionDenylist.maybeMigrate();
@@ -709,6 +748,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 StreamManager.instance.start();
                 CassandraDaemon.getInstanceForTesting().completeSetup();
                 CassandraDaemon.getInstanceForTesting().loadLastSuccessfulRepairTimes();
+
             }
             catch (Throwable t)
             {
@@ -717,8 +757,34 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 throw new RuntimeException(t);
             }
         }).run();
-
         initialized = true;
+    }
+
+    // Update the messaging versions for all instances
+    // that have initialized their configurations.
+    private void propagateMessagingVersions(ICluster cluster)
+    {
+        cluster.stream().forEach(reportToObj -> {
+            IInstance reportTo = (IInstance) reportToObj;
+            if (reportTo.isShutdown())
+                return;
+
+            int reportToVersion = reportTo.getMessagingVersion();
+            if (reportToVersion == 0)
+                return;
+
+            cluster.stream().forEach(reportFromObj -> {
+                IInstance reportFrom = (IInstance) reportFromObj;
+                if (reportFrom == reportTo || reportFrom.isShutdown())
+                    return;
+
+                int reportFromVersion = reportFrom.getMessagingVersion();
+                if (reportFromVersion == 0) // has not read configuration yet, no accessing messaging version
+                    return;
+                // TODO: decide if we need to take care of the minversion
+                reportTo.setMessagingVersion(reportFrom.broadcastAddress(), reportFromVersion);
+            });
+        });
     }
 
     @Override
