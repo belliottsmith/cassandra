@@ -1951,7 +1951,8 @@ public final class SystemKeyspace
         return rawRanges.stream().map(buf -> byteBufferToRange(buf, partitioner)).collect(Collectors.toSet());
     }
 
-    static ByteBuffer rangeToBytes(Range<Token> range)
+    @VisibleForTesting
+    public static ByteBuffer rangeToBytes(Range<Token> range)
     {
         try (DataOutputBuffer out = new DataOutputBuffer())
         {
@@ -1970,12 +1971,12 @@ public final class SystemKeyspace
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static Range<Token> byteBufferToRange(ByteBuffer rawRange, IPartitioner partitioner)
+    public static Range<Token> byteBufferToRange(ByteBuffer rawRange, IPartitioner partitioner)
     {
         try
         {
             // See rangeToBytes above for why version is 0.
+            //noinspection UnstableApiUsage
             return (Range<Token>) Range.tokenSerializer.deserialize(ByteStreams.newDataInput(ByteBufferUtil.getArray(rawRange)),
                                                                     partitioner,
                                                                     0);

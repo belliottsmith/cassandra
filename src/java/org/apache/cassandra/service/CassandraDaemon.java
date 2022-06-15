@@ -42,6 +42,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.addthis.metrics3.reporter.config.ReporterConfig;
+import com.apple.cie.db.virtual.CIEInternalSystemViewsKeyspace;
 import com.codahale.metrics.jvm.BufferPoolMetricSet;
 import com.codahale.metrics.jvm.FileDescriptorRatioGauge;
 import com.codahale.metrics.jvm.GarbageCollectorMetricSet;
@@ -594,6 +595,8 @@ public class CassandraDaemon
     {
         VirtualKeyspaceRegistry.instance.register(VirtualSchemaKeyspace.instance);
         VirtualKeyspaceRegistry.instance.register(SystemViewsKeyspace.instance);
+        // Apple-internal virtual keyspaces
+        VirtualKeyspaceRegistry.instance.register(CIEInternalSystemViewsKeyspace.instance);
     }
 
     public synchronized void initializeClientTransports()
