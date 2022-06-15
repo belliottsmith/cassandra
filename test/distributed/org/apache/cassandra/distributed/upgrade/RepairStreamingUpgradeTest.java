@@ -18,9 +18,12 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import org.junit.Assume;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.api.Feature;
+import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.utils.CassandraVersion;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -35,6 +38,8 @@ public class RepairStreamingUpgradeTest extends UpgradeTestBase
         .withConfig((cfg) -> cfg.with(Feature.NETWORK, Feature.GOSSIP).set("disable_incremental_repair", false))
         .singleUpgrade(v4_0_0_30) // was previously to 4.1
         .setup((cluster) -> {
+            Assume.assumeTrue("Upgrade from version must write sstables of an earlier format",
+                              BigFormat.latestVersion.supportedSince().compareTo(new CassandraVersion(cluster.get(1).getReleaseVersionString())) > 0);
             cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck)) with compaction={'class': 'SizeTieredCompactionStrategy', 'enabled': false};");
         })
         .runAfterNodeUpgrade((cluster, node) -> {
