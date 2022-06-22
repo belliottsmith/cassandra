@@ -34,6 +34,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.tools.BulkLoader;
 import org.apache.cassandra.tools.ToolRunner;
 import org.apache.cassandra.service.StorageService;
