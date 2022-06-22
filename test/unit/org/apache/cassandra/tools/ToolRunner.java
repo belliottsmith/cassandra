@@ -56,6 +56,9 @@ public class ToolRunner
 
     private static final ImmutableList<String> DEFAULT_CLEANERS = ImmutableList.of("(?im)^picked up.*\\R",
                                                                                    "(?im)^.*JavaScript user-defined functions have been deprecated. You can still use them but the plan is to remove them in the next major version. For more information - CASSANDRA-17280.*\\R",
+                                                                                   "(?im)^.*LEAK DETECTED: a reference .* was not released before the reference was garbage collected\\RThread.*\\R(\\s+at .*(\\R|$))+", // remove after resolving rdar://96019696
+                                                                                   "(?im)^.*Allocate trace .*:.*\\R", // remove after resolving rdar://96019696
+                                                                                   "(?im)^.*epoll not available\\Rjava.lang.UnsupportedOperationException: Native transport was explicit disabled with -Dio.netty.transport.noNative=true\\R(\\s+at .*(\\R|$))+", // suspect extra logging being picked up by log4j, includes stacktrace
                                                                                    "(?im)^.*`USE <keyspace>` with prepared statements is.*\\R",
                                                                                    "(?im)^.*reads coordinated by this node will not offer linearizability.*\\R",
                                                                                    "(?im)^.*java-driver only supports shaded guava or.*\\R",
