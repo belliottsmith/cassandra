@@ -94,7 +94,7 @@ public class Config
     public volatile SmallestDurationMilliseconds credentials_validity = new SmallestDurationMilliseconds("86400s");
     public volatile int credentials_cache_max_entries = 1000;
     @Replaces(oldName = "credentials_update_interval_in_ms", converter = Converters.MILLIS_CUSTOM_DURATION, deprecated = true)
-    public volatile SmallestDurationMilliseconds credentials_update_interval= new SmallestDurationMilliseconds("0ms");
+    public volatile SmallestDurationMilliseconds credentials_update_interval= new SmallestDurationMilliseconds("600s");
     public volatile boolean credentials_cache_active_update = true;
 
     public boolean auth_hash_cache = true;
