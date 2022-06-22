@@ -40,15 +40,15 @@ public class BulkLoadConnectionFactory extends NettyStreamingConnectionFactory
         this.encryptionOptions = encryptionOptions;
     }
 
+
     @Override
     public NettyStreamingChannel create(InetSocketAddress to, int messagingVersion, StreamingChannel.Kind kind) throws IOException
     {
-        OutboundConnectionSettings template = new OutboundConnectionSettings(getByAddress(to));
-        return create(template, messagingVersion, kind);
+        return create(to, to, messagingVersion, kind);
     }
 
     @Override
-    public StreamingChannel create(InetSocketAddress to,
+    public NettyStreamingChannel create(InetSocketAddress to,
                                    InetSocketAddress preferred,
                                    int messagingVersion,
                                    StreamingChannel.Kind kind) throws IOException
@@ -69,5 +69,11 @@ public class BulkLoadConnectionFactory extends NettyStreamingConnectionFactory
             template = template.withEncryption(encryptionOptions);
 
         return connect(template, messagingVersion, kind);
+    }
+
+    @Override
+    public boolean supportsPreferredIp()
+    {
+        return false; // called in a tool context, do not use getPreferredIP
     }
 }
