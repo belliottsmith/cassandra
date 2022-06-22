@@ -33,6 +33,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.tools.BulkLoader;
 import org.apache.cassandra.tools.ToolRunner;
 import org.apache.cassandra.service.StorageService;
@@ -81,6 +82,7 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
         if (CLUSTER != null)
             CLUSTER.close();
     }
+
     @Test
     public void bulkLoaderSuccessfullyStreamsOverSsl() throws Throwable
     {
@@ -104,7 +106,7 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
     public void bulkLoaderCannotAgreeOnClientTLSProtocol()
     {
         ToolRunner.ToolResult tool = ToolRunner.invokeClass(BulkLoader.class,
-                                                            "--ssl-protocol", "TLSv1",
+                                                            "--ssl-protocol", "TLSv1.3",
                                                             "--nodes", NODES,
                                                             "--port", Integer.toString(NATIVE_PORT),
                                                             "--storage-port", Integer.toString(STORAGE_PORT),
@@ -114,7 +116,10 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
                                                             "--truststore-password", validTrustStorePassword,
                                                             "test/data/legacy-sstables/na/legacy_tables/legacy_na_clust");
         assertNotEquals(0, tool.getExitCode());
-        assertTrue(tool.getStdout().contains("SslHandler.setHandshakeFailure")); //temporary fix until caught up with CASSANDRA-17602
+        String stdout = tool.getStdout();
+        //temporary fix until caught up with CASSANDRA-17602 - different errors on different platforms
+        assertTrue(stdout.contains("Caused by: javax.net.ssl.SSLHandshakeException:") || // linux/openssl
+                   stdout.contains("SslHandler.setHandshakeFailure")); // macos/jdk
     }
 
     private static File prepareSstablesForUpload() throws IOException
