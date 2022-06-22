@@ -62,7 +62,6 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
                   ImmutableMap.builder().putAll(validKeystore)
                               .put("internode_encryption", "all")
                               .put("optional", false)
-                              .put("legacy_ssl_storage_port_enabled", true)
                               .build());
             c.set("client_encryption_options",
                   ImmutableMap.builder().putAll(validKeystore)
@@ -115,7 +114,7 @@ public class SSTableLoaderEncryptionOptionsTest extends AbstractEncryptionOption
                                                             "--truststore-password", validTrustStorePassword,
                                                             "test/data/legacy-sstables/na/legacy_tables/legacy_na_clust");
         assertNotEquals(0, tool.getExitCode());
-        assertTrue(tool.getStdout().contains("SSLHandshakeException"));
+        assertTrue(tool.getStdout().contains("SslHandler.setHandshakeFailure")); //temporary fix until caught up with CASSANDRA-17602
     }
 
     private static File prepareSstablesForUpload() throws IOException
