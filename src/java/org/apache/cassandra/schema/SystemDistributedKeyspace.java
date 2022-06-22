@@ -114,6 +114,7 @@ public final class SystemDistributedKeyspace
                      + "finished_at timestamp,"
                      + "PRIMARY KEY ((keyspace_name, columnfamily_name), id))")
         .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .disableChristmasPatch(true)
         .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
                                                           "unsafe_aggressive_sstable_expiration", "true",
                                                           "compaction_window_size","1")))
@@ -135,6 +136,7 @@ public final class SystemDistributedKeyspace
                      + "options map<text, text>,"
                      + "PRIMARY KEY (parent_id))")
         .defaultTimeToLive((int) TimeUnit.DAYS.toSeconds(30))
+        .disableChristmasPatch(true)
         .compaction(CompactionParams.twcs(ImmutableMap.of("compaction_window_unit","DAYS",
                                                           "unsafe_aggressive_sstable_expiration", "true",
                                                           "compaction_window_size","1")))
