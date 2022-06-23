@@ -67,7 +67,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(DurationSpec.inSeconds(86400), config.roles_validity);
         assertEquals(DurationSpec.inSeconds(600), config.roles_update_interval);
         assertEquals(DurationSpec.inSeconds(86400), config.credentials_validity);
-        assertEquals(DurationSpec.inMilliseconds(0), config.credentials_update_interval);
+        assertEquals(DurationSpec.inSeconds(600), config.credentials_update_interval);
         assertEquals(DurationSpec.inMinutes(60), config.index_summary_resize_interval);
         assertEquals(DurationSpec.inHours(4), config.key_cache_save_period);
 
