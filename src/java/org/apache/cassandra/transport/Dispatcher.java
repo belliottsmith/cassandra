@@ -25,15 +25,16 @@ import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
-import org.apache.cassandra.metrics.ClientMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.channel.Channel;
 import io.netty.channel.EventLoop;
 import io.netty.util.AttributeKey;
+import org.apache.cassandra.concurrent.DebuggableTask.RunnableDebuggableTask;
 import org.apache.cassandra.concurrent.LocalAwareExecutorPlus;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.metrics.ClientMetrics;
 import org.apache.cassandra.net.FrameEncoder;
 import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.service.QueryState;
@@ -43,10 +44,10 @@ import org.apache.cassandra.transport.Flusher.FlushItem;
 import org.apache.cassandra.transport.messages.ErrorMessage;
 import org.apache.cassandra.transport.messages.EventMessage;
 import org.apache.cassandra.utils.JVMStabilityInspector;
+import org.apache.cassandra.utils.MonotonicClock;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 import static org.apache.cassandra.concurrent.SharedExecutorPool.SHARED;
-import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public class Dispatcher
 {
@@ -104,22 +105,65 @@ public class Dispatcher
         if (DatabaseDescriptor.getNativeTransportMaxAuthThreads() > 0 && (request.type == Message.Type.AUTH_RESPONSE || request.type == Message.Type.CREDENTIALS))
         {
             // importantly will handle the AUTHENTICATE message which may be CPU intensive.
-            authExecutor.submit(() -> processRequest(channel, request, forFlusher, backpressure));
+            authExecutor.submit(new RequestProcessor(channel, request, forFlusher, backpressure));
         }
         else
         {
-            requestExecutor.submit(() -> processRequest(channel, request, forFlusher, backpressure));
+            requestExecutor.submit(new RequestProcessor(channel, request, forFlusher, backpressure));
         }
         ClientMetrics.instance.markRequestDispatched();
+    }
+
+    public class RequestProcessor implements RunnableDebuggableTask
+    {
+        private final Channel channel;
+        private final Message.Request request;
+        private final FlushItemConverter forFlusher;
+        private final Overload backpressure;
+        
+        private final long approxCreationTimeNanos = MonotonicClock.Global.approxTime.now();
+        private volatile long approxStartTimeNanos;
+        
+        public RequestProcessor(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure)
+        {
+            this.channel = channel;
+            this.request = request;
+            this.forFlusher = forFlusher;
+            this.backpressure = backpressure;
+        }
+
+        @Override
+        public void run()
+        {
+            approxStartTimeNanos = MonotonicClock.Global.approxTime.now();
+            processRequest(channel, request, forFlusher, backpressure, approxStartTimeNanos);
+        }
+
+        @Override
+        public long creationTimeNanos()
+        {
+            return approxCreationTimeNanos;
+        }
+
+        @Override
+        public long startTimeNanos()
+        {
+            return approxStartTimeNanos;
+        }
+
+        @Override
+        public String description()
+        {
+            return request.toString();
+        }
     }
 
     /**
      * Note: this method may be executed on the netty event loop, during initial protocol negotiation; the caller is
      * responsible for cleaning up any global or thread-local state. (ex. tracing, client warnings, etc.).
      */
-    private static Message.Response processRequest(ServerConnection connection, Message.Request request, Overload backpressure)
+    private static Message.Response processRequest(ServerConnection connection, Message.Request request, Overload backpressure, long startTimeNanos)
     {
-        long queryStartNanoTime = nanoTime();
         if (connection.getVersion().isGreaterOrEqualTo(ProtocolVersion.V4))
             ClientWarn.instance.captureWarnings();
 
@@ -149,7 +193,7 @@ public class Dispatcher
 
         Message.logger.trace("Received: {}, v={}", request, connection.getVersion());
         connection.requests.inc();
-        Message.Response response = request.execute(qstate, queryStartNanoTime);
+        Message.Response response = request.execute(qstate, startTimeNanos);
 
         if (request.isTrackable())
             CoordinatorWarnings.done();
@@ -160,15 +204,15 @@ public class Dispatcher
         connection.applyStateTransition(request.type, response.type);
         return response;
     }
-
+    
     /**
      * Note: this method may be executed on the netty event loop.
      */
-    static Message.Response processRequest(Channel channel, Message.Request request, Overload backpressure)
+    static Message.Response processRequest(Channel channel, Message.Request request, Overload backpressure, long approxStartTimeNanos)
     {
         try
         {
-            return processRequest((ServerConnection) request.connection(), request, backpressure);
+            return processRequest((ServerConnection) request.connection(), request, backpressure, approxStartTimeNanos);
         }
         catch (Throwable t)
         {
@@ -193,9 +237,9 @@ public class Dispatcher
     /**
      * Note: this method is not expected to execute on the netty event loop.
      */
-    void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure)
+    void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure, long approxStartTimeNanos)
     {
-        Message.Response response = processRequest(channel, request, backpressure);
+        Message.Response response = processRequest(channel, request, backpressure, approxStartTimeNanos);
         FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
         Message.logger.trace("Responding: {}, v={}", response, request.connection().getVersion());
         flush(toFlush);
@@ -235,7 +279,7 @@ public class Dispatcher
      * for delivering events to registered clients is dependent on protocol version and the configuration
      * of the pipeline. For v5 and newer connections, the event message is encoded into an Envelope,
      * wrapped in a FlushItem and then delivered via the pipeline's flusher, in a similar way to
-     * a Response returned from {@link #processRequest(Channel, Message.Request, FlushItemConverter, Overload)}.
+     * a Response returned from {@link #processRequest(Channel, Message.Request, FlushItemConverter, Overload, long)}.
      * It's worth noting that events are not generally fired as a direct response to a client request,
      * so this flush item has a null request attribute. The dispatcher itself is created when the
      * pipeline is first configured during protocol negotiation and is attached to the channel for
