@@ -138,6 +138,7 @@ public class MessageDispatcherTest
         return tryAuth(check, AUTH_RESPONSE_REQUEST);
     }
 
+    @SuppressWarnings("UnstableApiUsage")
     public long tryAuth(Callable<Long> check, Message.Request request) throws Exception
     {
         long start = check.call();
@@ -158,7 +159,11 @@ public class MessageDispatcherTest
         }
 
         @Override
-        void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, ClientResourceLimits.Overload overload)
+        void processRequest(Channel channel,
+                            Message.Request request,
+                            FlushItemConverter forFlusher,
+                            ClientResourceLimits.Overload backpressure,
+                            long approxStartTimeNanos)
         {
         }
     }
