@@ -46,6 +46,9 @@ import javax.management.NotificationListener;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.apache.cassandra.auth.AuthCache;
 import org.apache.cassandra.batchlog.Batch;
@@ -165,9 +168,10 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
  */
 public class Instance extends IsolatedExecutor implements IInvokableInstance
 {
+    private final Logger logger = LoggerFactory.getLogger(Instance.class);
     public final IInstanceConfig config;
     private volatile boolean initialized = false;
-    private volatile boolean listeningInternode = false;
+    private volatile boolean internodeMessagingStarted = false;
     private final AtomicLong startedAt = new AtomicLong();
 
     @Deprecated
@@ -326,8 +330,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     private void registerMockMessaging(ICluster<?> cluster)
     {
         MessagingService.instance().outboundSink.add((message, to) -> {
-            if (!listeningInternode)
+            if (!internodeMessagingStarted)
+            {
+                logger.debug("Dropping outbound message {} to {} as internode messaging has not been started yet",
+                             message, to);
                 return false;
+            }
             cluster.deliverMessage(to, serializeMessage(message.from(), to, message));
             return false;
         });
@@ -476,8 +484,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     private SerializableConsumer<Boolean> receiveMessageRunnable(IMessage message)
     {
         return runOnCaller -> {
-            if (!listeningInternode)
+            if (!internodeMessagingStarted)
+            {
+                logger.debug("Dropping inbound message {} to {} as internode messaging has not been started yet",
+                             message, config().broadcastAddress());
                 return;
+            }
             if (message.version() > MessagingService.current_version)
             {
                 throw new IllegalStateException(String.format("Node%d received message version %d but current version is %d",
@@ -518,6 +530,9 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         if (DatabaseDescriptor.isDaemonInitialized())
             MessagingService.instance().versions.set(toCassandraInetAddressAndPort(endpoint), version);
+        else
+            logger.warn("Skipped setting messaging version for {} to {} as daemon not initialized yet. Stacktrace attached for debugging.",
+                        endpoint, version, new RuntimeException());
     }
 
     @Override
@@ -653,58 +668,16 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                 }
                 registerInboundFilter(cluster);
                 registerOutboundFilter(cluster);
-                if (config.has(NETWORK))
+                if (!config.has(NETWORK))
                 {
-                    // If networking/gossip used, listen now to get those messages.  For
-                    // mock messaging delay listening until TMD has been properly set up or
-                    // requests that were queued while the previous iteration of the instance
-                    // will fail with TMD related issues like 'Ring is empty'
-                    listeningInternode = true;
+                    propagateMessagingVersions(cluster); // fake messaging needs to know messaging version for filters
                 }
+                internodeMessagingStarted = true;
 
                 JVMStabilityInspector.replaceKiller(new InstanceKiller(Instance.this::shutdown));
 
                 // TODO: this is more than just gossip
                 StorageService.instance.registerDaemon(CassandraDaemon.getInstanceForTesting());
-                if (!config.has(GOSSIP))
-                {
-                    Schema.instance.startSync();
-                    Stream peers = cluster.stream().filter(instance -> ((IInstance) instance).isValid());
-                    SystemKeyspace.setLocalHostId(config.hostId());
-                    if (config.has(BLANK_GOSSIP))
-                        peers.forEach(peer -> GossipHelper.statusToBlank((IInvokableInstance) peer).accept(this));
-                    else if (cluster instanceof Cluster)
-                        peers.forEach(peer -> GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this));
-                    else
-                        peers.forEach(peer -> GossipHelper.unsafeStatusToNormal(this, (IInstance) peer));
-
-                    StorageService.instance.setUpDistributedSystemKeyspaces();
-                    StorageService.instance.setNormalModeUnsafe();
-                    Gossiper.instance.register(StorageService.instance);
-
-                    StorageService.instance.populateTokenMetadata();
-                }
-
-            }
-            catch (Throwable t)
-            {
-                if (t instanceof RuntimeException)
-                    throw (RuntimeException) t;
-                throw new RuntimeException(t);
-            }
-        }).run();
-
-        if (!config.has(NETWORK))
-            propagateMessagingVersions(cluster);
-
-        sync(() -> {
-            try
-            {
-                // Unconditionally receive messages now that TMD and messaging versions are set correctly
-                // Any initialization that requires the messaging service to be operational should not
-                // be called before this block
-                listeningInternode = true;
-
                 if (config.has(GOSSIP))
                 {
                     MigrationCoordinator.setUptimeFn(() -> TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt.get()));
@@ -723,11 +696,27 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                     StorageService.instance.removeShutdownHook();
 
                     Gossiper.waitToSettle();
-
-                    // Populate tokenMetadata for the second time,
-                    // see org.apache.cassandra.service.CassandraDaemon.setup
-                    StorageService.instance.populateTokenMetadata();
                 }
+                else
+                {
+                    Schema.instance.startSync();
+                    Stream peers = cluster.stream().filter(instance -> ((IInstance) instance).isValid());
+                    SystemKeyspace.setLocalHostId(config.hostId());
+                    if (config.has(BLANK_GOSSIP))
+                        peers.forEach(peer -> GossipHelper.statusToBlank((IInvokableInstance) peer).accept(this));
+                    else if (cluster instanceof Cluster)
+                        peers.forEach(peer -> GossipHelper.statusToNormal((IInvokableInstance) peer).accept(this));
+                    else
+                        peers.forEach(peer -> GossipHelper.unsafeStatusToNormal(this, (IInstance) peer));
+
+                    StorageService.instance.setUpDistributedSystemKeyspaces();
+                    StorageService.instance.setNormalModeUnsafe();
+                    Gossiper.instance.register(StorageService.instance);
+                }
+
+                // Populate tokenMetadata for the second time,
+                // see org.apache.cassandra.service.CassandraDaemon.setup
+                StorageService.instance.populateTokenMetadata();
 
                 SchemaDropLog.initialize();
                 PartitionDenylist.maybeMigrate();
@@ -762,7 +751,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
     // Update the messaging versions for all instances
     // that have initialized their configurations.
-    private void propagateMessagingVersions(ICluster cluster)
+    private static void propagateMessagingVersions(ICluster cluster)
     {
         cluster.stream().forEach(reportToObj -> {
             IInstance reportTo = (IInstance) reportToObj;
@@ -867,6 +856,7 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
 
             error = parallelRun(error, executor, () -> ScheduledExecutors.shutdownNowAndWait(1L, MINUTES));
 
+            internodeMessagingStarted = false;
             error = parallelRun(error, executor,
                                 // can only shutdown message once, so if the test shutsdown an instance, then ignore the failure
                                 (IgnoreThrowingRunnable) () -> MessagingService.instance().shutdown(1L, MINUTES, false, config.has(NETWORK))
