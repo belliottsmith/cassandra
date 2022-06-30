@@ -25,6 +25,8 @@ import java.util.zip.CRC32;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+
+import org.apache.cassandra.net.Crc;
 import org.apache.cassandra.service.ClientState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +50,6 @@ import static org.apache.cassandra.io.util.SequentialWriterOption.FINISH_ON_CLOS
 public class PaxosBallotTracker
 {
     private static final Logger logger = LoggerFactory.getLogger(PaxosBallotTracker.class);
-
     private static final int FILE_VERSION = 0;
     static final String FNAME = "ballot.meta";
     private static final String TMP_FNAME = FNAME + ".tmp";
@@ -105,7 +106,7 @@ public class PaxosBallotTracker
                 throw new IOException("Unsupported ballot file version: " + version);
 
             byte[] bytes = new byte[16];
-            CRC32 crc = new CRC32();
+            CRC32 crc = Crc.crc32();
             Ballot highBallot = deserializeBallot(reader, crc, bytes);
             Ballot lowBallot = deserializeBallot(reader, crc, bytes);
             int checksum = Integer.reverseBytes(reader.readInt());
@@ -129,7 +130,7 @@ public class PaxosBallotTracker
 
         try(SequentialWriter writer = new SequentialWriter(file, FINISH_ON_CLOSE))
         {
-            CRC32 crc = new CRC32();
+            CRC32 crc = Crc.crc32();
             writer.writeInt(FILE_VERSION);
             serializeBallot(writer, crc, getHighBound());
             serializeBallot(writer, crc, getLowBound());

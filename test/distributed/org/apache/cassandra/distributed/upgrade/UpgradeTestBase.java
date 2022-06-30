@@ -186,7 +186,7 @@ public class UpgradeTestBase extends DistributedTestBase
             Semver to = CURRENT;
             try
             {
-                Version fromVersion = versions.getLatest(from);
+                Version fromVersion = from.getType() == SemverType.STRICT ? versions.get(from) : versions.getLatest(from);
                 Version toVersion = versions.getLatest(CURRENT);
 
                 if (!fromVersion.equals(toVersion))

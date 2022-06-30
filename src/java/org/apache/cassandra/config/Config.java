@@ -997,6 +997,33 @@ public class Config
         v2
     }
 
+    /* CloudKit had the original version of v2 with its own custom variants, to be backwards compatible
+     * during this transition make sure to include all variants known in apple Paxos; once CloudKit is
+     * fully upgraded and cie-db-conf migrates to the new values, can remove this in favor of "PaxosVariant"
+     */
+    public enum PaxosBackCompatVariant
+    {
+        v1_without_linearizable_reads_or_rejected_writes(PaxosVariant.v1_without_linearizable_reads_or_rejected_writes),
+        v1(PaxosVariant.v1),
+        v2_without_linearizable_reads(PaxosVariant.v2_without_linearizable_reads),
+        v2_without_linearizable_reads_or_rejected_writes(PaxosVariant.v1_without_linearizable_reads_or_rejected_writes),
+        v2(PaxosVariant.v2),
+        @Deprecated legacy(PaxosVariant.v1_without_linearizable_reads_or_rejected_writes),
+        @Deprecated legacy_cached(PaxosVariant.v1_without_linearizable_reads_or_rejected_writes),
+        @Deprecated legacy_fixed(PaxosVariant.v1),  // fixes bugs in legacy impl to support validating transition from legacy to apple paxos. Not intended for production
+        @Deprecated apple_norrl(PaxosVariant.v2_without_linearizable_reads), // with legacy semantics for read/read linearizability (i.e. not guaranteed)
+        @Deprecated apple_norrfwl(PaxosVariant.v2_without_linearizable_reads_or_rejected_writes), // with legacy semantics for read/read and failed write linearizability (i.e. not guaranteed)
+        @Deprecated apple_rrl2rt(PaxosVariant.v2), // with read/read linearizability guaranteed but requiring an extra read round-trip
+        @Deprecated apple_rrl(PaxosVariant.v2); // provides read/read linearizability, doesn't incur an extra round-trip if no contending paxos operation is detected
+
+        public final PaxosVariant variant;
+
+        PaxosBackCompatVariant(PaxosVariant variant)
+        {
+            this.variant = variant;
+        }
+    }
+
     /**
      * Select the kind of paxos state purging to use. Migration to repaired is recommended, but requires that
      * regular paxos repairs are performed (which by default run as part of incremental repair).
@@ -1040,7 +1067,7 @@ public class Config
     /**
      * See {@link PaxosVariant}. Defaults to v1, recommend upgrading to v2 at earliest opportunity.
      */
-    public volatile PaxosVariant paxos_variant = PaxosVariant.v1_without_linearizable_reads_or_rejected_writes;
+    public volatile PaxosBackCompatVariant paxos_variant = PaxosBackCompatVariant.v1_without_linearizable_reads_or_rejected_writes;
 
     /**
      * If true, paxos topology change repair will not run on a topology change - this option should only be used in

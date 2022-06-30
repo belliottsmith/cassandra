@@ -253,37 +253,20 @@ public enum Verb
                                        7,  P1, rpcTimeout,                        MISC,              () -> RepairHistorySyncTask.responseSerializer,() -> ResponseVerbHandler.instance                                                             ),
     APPLE_QUERY_REPAIR_HISTORY_REQ    (CUSTOM,
                                        8,  P1, rpcTimeout,                        MISC,              () -> RepairHistorySyncTask.requestSerializer, () -> RepairHistorySyncTask.verbHandler,                     APPLE_QUERY_REPAIR_HISTORY_RSP    ),
-    // Apple paxos verb placeholders, don't change the ids as that would break 3.0 compatibility
-    APPLE_PAXOS_PREPARE_RSP           (CUSTOM,
-                                       9,  P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_PREPARE_REQ           (CUSTOM,
-                                       10, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_PREPARE_RSP           ),
-    APPLE_PAXOS_PREPARE_REFRESH_RSP   (CUSTOM,
-                                       11, P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_PREPARE_REFRESH_REQ   (CUSTOM,
-                                       12, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_PREPARE_REFRESH_RSP   ),
-    APPLE_PAXOS_PROPOSE_RSP           (CUSTOM,
-                                       13, P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_PROPOSE_REQ           (CUSTOM,
-                                       14, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_PROPOSE_RSP           ),
-    APPLE_PAXOS_COMMIT_AND_PREPARE_RSP(CUSTOM,
-                                       15, P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_COMMIT_AND_PREPARE_REQ(CUSTOM,
-                                       16, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_COMMIT_AND_PREPARE_RSP),
-    APPLE_PAXOS_REPAIR_RSP            (CUSTOM,
-                                       17, P2, writeTimeout,                      REQUEST_RESPONSE,  () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_REPAIR_REQ            (CUSTOM,
-                                       18, P2, writeTimeout,                      MUTATION,          () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance,                          APPLE_PAXOS_REPAIR_RSP            ),
-    APPLE_PAXOS_CLEANUP_START_PREPARE (CUSTOM,
-                                       19, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_CLEANUP_REQ           (CUSTOM,
-                                       20, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_CLEANUP_RSP           (CUSTOM,
-                                       21, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_CLEANUP_FINISH_PREPARE(CUSTOM,
-                                       22, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
-    APPLE_PAXOS_CLEANUP_COMPLETE      (CUSTOM,
-                                       23, P2, rpcTimeout,                        MISC,              () -> NoPayload.serializer,                    () -> ResponseVerbHandler.instance                                                             ),
+    APPLE_PAXOS_PREPARE_REQ           (CUSTOM, 10, PAXOS2_PREPARE_REQ),
+    APPLE_PAXOS_PREPARE_REFRESH_REQ   (CUSTOM, 12, PAXOS2_PREPARE_REFRESH_REQ),
+    APPLE_PAXOS_PROPOSE_REQ           (CUSTOM, 14, PAXOS2_PROPOSE_REQ),
+    APPLE_PAXOS_COMMIT_AND_PREPARE_REQ(CUSTOM, 16, PAXOS2_COMMIT_AND_PREPARE_REQ),
+    APPLE_PAXOS_REPAIR_REQ            (CUSTOM, 18, PAXOS2_REPAIR_REQ),
+    APPLE_PAXOS_CLEANUP_START_PREPARE_REQ (CUSTOM, 20, PAXOS2_CLEANUP_START_PREPARE_REQ),
+    APPLE_PAXOS_CLEANUP_REQ           (CUSTOM, 21, PAXOS2_CLEANUP_REQ),
+    APPLE_PAXOS_CLEANUP_RSP           (CUSTOM, 22, PAXOS2_CLEANUP_RSP2),
+    APPLE_PAXOS_CLEANUP_FINISH_PREPARE(CUSTOM, 23, PAXOS2_CLEANUP_FINISH_PREPARE_REQ),
+    /*
+     * The 3.0 APPLE_PAXOS_CLEANUP_COMPLETE verb id is the same as the 4.0 PARTITION_SIZE_RSP, so it's commented out
+     * here and manually remapped in Message.Serialize.deserializeHeaderPre40 and Message.Serializer.serializePre40
+     */
+    // APPLE_PAXOS_CLEANUP_COMPLETE      (CUSTOM, 24, PAXOS2_CLEANUP_COMPLETE_REQ),
 
     // SELECT_SIZE patch - original 3.x reused Verb.INDEX_SCAN id, but has been moved out to custom verb for 4.0
     PARTITION_SIZE_RSP                (CUSTOM,
@@ -357,6 +340,11 @@ public enum Verb
         this(kind, id, priority, expiration, stage, serializer, handler, null);
     }
 
+    Verb(Kind kind, int id, Verb delegate)
+    {
+        this(kind, id, delegate.priority, delegate.expiration, delegate.stage, delegate.serializer, delegate.handler, delegate.responseVerb);
+    }
+
     Verb(Kind kind, int id, Priority priority, ToLongFunction<TimeUnit> expiration, Stage stage, Supplier<? extends IVersionedAsymmetricSerializer<?, ?>> serializer, Supplier<? extends IVerbHandler<?>> handler, Verb responseVerb)
     {
         this.stage = stage;
@@ -410,6 +398,34 @@ public enum Verb
 
     Verb toPre40Verb()
     {
+        // Apple paxos back compat
+        switch (this)
+        {
+            case PAXOS2_COMMIT_REMOTE_REQ:
+                return MUTATION_REQ;
+            case PAXOS2_PREPARE_REQ:
+                return APPLE_PAXOS_PREPARE_REQ;
+            case PAXOS2_PREPARE_REFRESH_REQ:
+                return APPLE_PAXOS_PREPARE_REFRESH_REQ;
+            case PAXOS2_PROPOSE_REQ:
+                return APPLE_PAXOS_PROPOSE_REQ;
+            case PAXOS2_COMMIT_AND_PREPARE_REQ:
+                return APPLE_PAXOS_COMMIT_AND_PREPARE_REQ;
+            case PAXOS2_REPAIR_REQ:
+                return APPLE_PAXOS_REPAIR_REQ;
+            case PAXOS2_CLEANUP_START_PREPARE_REQ:
+                return APPLE_PAXOS_CLEANUP_START_PREPARE_REQ;
+            case PAXOS2_CLEANUP_REQ:
+                return APPLE_PAXOS_CLEANUP_REQ;
+            case PAXOS2_CLEANUP_RSP2:
+                return APPLE_PAXOS_CLEANUP_RSP;
+            case PAXOS2_CLEANUP_FINISH_PREPARE_REQ:
+                return APPLE_PAXOS_CLEANUP_FINISH_PREPARE;
+            // see comment above near APPLE_PAXOS_CLEANUP_COMPLETE
+            // case PAXOS2_CLEANUP_COMPLETE_REQ:
+            //     return APPLE_PAXOS_CLEANUP_COMPLETE;
+        }
+
         if (!isResponse())
             return this;
         if (priority == P0)
