@@ -42,6 +42,7 @@ public class LeveledCompactionTaskTest extends TestBaseImpl
     public void testBuildCompactionCandidatesForAvailableDiskSpace() throws IOException
     {
         try (Cluster cluster = init(builder().withNodes(1)
+                                    .withConfig(config -> config.set("autocompaction_on_startup_enabled", false))
                                     .withInstanceInitializer(BB::install)
                                              .start()))
         {
@@ -56,6 +57,7 @@ public class LeveledCompactionTaskTest extends TestBaseImpl
             cluster.setUncaughtExceptionsFilter((exception) -> exception.getMessage() != null && exception.getMessage().contains("Not enough space for compaction"));
 
             cluster.get(1).runOnInstance(() -> {
+                BB.hasDiskSpaceResult = false;
                 try
                 {
                     Keyspace.open(KEYSPACE).getColumnFamilyStore("tbl").enableAutoCompaction(true);
@@ -73,6 +75,8 @@ public class LeveledCompactionTaskTest extends TestBaseImpl
 
     public static class BB
     {
+        static volatile boolean hasDiskSpaceResult = true;
+
         public static void install(ClassLoader cl, int id)
         {
             new ByteBuddy().rebase(Directories.class)
@@ -84,7 +88,7 @@ public class LeveledCompactionTaskTest extends TestBaseImpl
 
         public static boolean hasDiskSpaceForCompactionsAndStreams(Map<FileStore, Long> totalToWrite)
         {
-            return false;
+            return hasDiskSpaceResult;
         }
     }
 }
