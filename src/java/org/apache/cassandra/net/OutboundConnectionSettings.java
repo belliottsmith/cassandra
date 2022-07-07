@@ -156,11 +156,6 @@ public class OutboundConnectionSettings
         this.endpointToVersion = endpointToVersion;
     }
 
-    public boolean authenticate()
-    {
-        return authenticator.authenticate(to.getAddress(), to.getPort());
-    }
-
     public boolean withEncryption()
     {
         return encryption != null;
