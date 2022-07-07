@@ -18,107 +18,88 @@
 
 package org.apache.cassandra.auth;
 
+import org.apache.cassandra.exceptions.AuthenticationException;
+import org.junit.After;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
-import org.junit.BeforeClass;
-import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.cql3.QueryProcessor;
-import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.exceptions.AuthenticationException;
-import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.service.StorageService;
-
+import static org.apache.cassandra.auth.BaseMutualTlsAuthenticatorTest.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+
+@RunWith(Parameterized.class)
 public class MutualTlsAuthenticatorTest
 {
-    protected final MutualTlsAuthenticator mutualtlsAuthenticator = new MutualTlsAuthenticator();
+    @Parameterized.Parameter(0)
+    public String certificatePath;
+    @Parameterized.Parameter(1)
+    public String identity;
+
+
+    @Parameterized.Parameters()
+    public static Collection<Object[]> versions()
+    {
+        return setupParameterizedTestWithVariousCertificateTypes();
+    }
 
     @BeforeClass
     public static void setup()
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
-        SchemaLoader.loadSchema();
-        DatabaseDescriptor.daemonInitialization();
-        StorageService.instance.initServer(0);
+        initializeDB();
     }
 
-    @Test(expected = AuthenticationException.class)
-    public void testInvalidURNInRolesTable() throws IOException, TimeoutException, CertificateException
+    @After
+    public void after() throws IOException, TimeoutException
     {
-        // Invalid urn in roles table should be filtered out and cassandra should start with out any failure
-        initializeMtlsAuthenticatorWithUrn(mutualtlsAuthenticator, true, "urn:not-a-valid-urn");
-        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleCorpCertificate.pem");
-        final IAuthenticator.SaslNegotiator saslNegotiator = mutualtlsAuthenticator.newSaslNegotiator(getMockInetAddress(), clientCertificates);
-
-        // Since valid urn is not present in the roles table we should get authentication exeption
-        saslNegotiator.getAuthenticatedUser();
+        // Clear roles table after each test
+        clearDB();
     }
 
     @Test
-    public void testGDBCCertONGDBCCluster() throws IOException, TimeoutException, CertificateException
+    public void testAuthorizedUsers() throws CertificateException, IOException, TimeoutException
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
-        initializeMtlsAuthenticatorWithUrn(mutualtlsAuthenticator, true, "urn:appcertname:identityName/sredbv42-sredb-cassandra.cassandra-prod.kube");
-        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleGDBCCertificate.pem");
-        final IAuthenticator.SaslNegotiator saslNegotiator = mutualtlsAuthenticator.newSaslNegotiator(getMockInetAddress(), clientCertificates);
+        initializeRolesTable(identity);
+        final Certificate[] chain = loadCertificateChain(certificatePath);
 
-        final AuthenticatedUser user = saslNegotiator.getAuthenticatedUser();
-        assertEquals("urn:appcertname:identityName/sredbv42-sredb-cassandra.cassandra-prod.kube", user.getName());
+        // Verify authenticated user is as expected
+        final IAuthenticator mutualTlsAuthenticator = createAndInitializeMtlsAuthenticator();
+        final IAuthenticator.SaslNegotiator saslNegotiator = mutualTlsAuthenticator.newSaslNegotiator(getMockInetAddress(), chain);
+        final AuthenticatedUser authenticatedUser = saslNegotiator.getAuthenticatedUser();
+        assertNotNull(authenticatedUser);
+        assertEquals(identity, authenticatedUser.getName());
     }
 
     @Test(expected = AuthenticationException.class)
-    public void testGDBCCertONNonGDBCCluster() throws IOException, TimeoutException, CertificateException
+    public void testUnauthorizedUsers() throws CertificateException, IOException, TimeoutException
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1399644");
-        initializeMtlsAuthenticatorWithUrn(mutualtlsAuthenticator, true, "urn:appcertname:identityName/sredbv42-sredb-cassandra.cassandra-prod.kube");
-
-        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleGDBCCertificate.pem");
-        final IAuthenticator.SaslNegotiator saslNegotiator = mutualtlsAuthenticator.newSaslNegotiator(getMockInetAddress(), clientCertificates);
+        final Certificate[] chain = loadCertificateChain(certificatePath);
+        final IAuthenticator mutualTlsAuthenticator = createAndInitializeMtlsAuthenticator();
+        final IAuthenticator.SaslNegotiator saslNegotiator = mutualTlsAuthenticator.newSaslNegotiator(getMockInetAddress(), chain);
         saslNegotiator.getAuthenticatedUser();
     }
 
-    protected InetAddress getMockInetAddress() throws UnknownHostException
+    @Test(expected = AuthenticationException.class)
+    public void testInvalidUsers() throws CertificateException, IOException, TimeoutException
     {
-        return InetAddress.getByName("127.0.0.1");
+        initializeRolesTable(identity);
+        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleInvalidCertificate.pem");
+        final IAuthenticator mutualTlsAuthenticator = createAndInitializeMtlsAuthenticator();
+        final IAuthenticator.SaslNegotiator saslNegotiator = mutualTlsAuthenticator.newSaslNegotiator(getMockInetAddress(), clientCertificates);
+        saslNegotiator.getAuthenticatedUser();
     }
 
-    protected Certificate[] loadCertificateChain(final String path) throws CertificateException
-    {
-        final InputStream inputStreamCorp = MutualTlsAuthenticator.class.getClassLoader().getResourceAsStream(path);
-        assertNotNull(inputStreamCorp);
-        final Collection<? extends Certificate> c = CertificateFactory.getInstance("X.509").generateCertificates(inputStreamCorp);
-        X509Certificate[] certs = new X509Certificate[c.size()];
-        for (int i = 0; i < certs.length; i++)
-        {
-            certs[i] = (X509Certificate) c.toArray()[i];
-        }
-        return certs;
-    }
-
-    protected void initializeMtlsAuthenticatorWithUrn(final IAuthenticator mutualTlsAuthenticator,
-                                                      boolean shouldInitializeRolesTable,
-                                                      final String identity) throws IOException, TimeoutException
-    {
-        StorageService.instance.truncate(SchemaConstants.AUTH_KEYSPACE_NAME, AuthKeyspace.ROLES);
-        if (shouldInitializeRolesTable)
-        {
-            final String insertQuery = "Insert into %s.%s (role,can_login,is_superuser,member_of,salted_hash) values ('%s',True,True,null,'testPswd')";
-            QueryProcessor.process(String.format(insertQuery, SchemaConstants.AUTH_KEYSPACE_NAME, AuthKeyspace.ROLES, identity), ConsistencyLevel.ONE);
-        }
-        mutualTlsAuthenticator.setup();
+    private MutualTlsAuthenticator createAndInitializeMtlsAuthenticator() {
+        final MutualTlsAuthenticator mutualTlsAuthenticator = new MutualTlsAuthenticator();
+        mutualTlsAuthenticator.initializeAuthenticator();
+        return mutualTlsAuthenticator;
     }
 }

@@ -21,10 +21,8 @@ package org.apache.cassandra.auth;
 import java.net.InetAddress;
 import java.security.cert.Certificate;
 
-import org.jetbrains.annotations.NotNull;
 
-
-public class MtlsWithPasswordFallbackAuthenticator extends PasswordAuthenticator
+public class MutualTlsWithPasswordFallbackAuthenticator extends PasswordAuthenticator
 {
     private MutualTlsAuthenticator mutualTlsAuthenticator;
 
@@ -33,7 +31,7 @@ public class MtlsWithPasswordFallbackAuthenticator extends PasswordAuthenticator
     {
         super.setup();
         mutualTlsAuthenticator = new MutualTlsAuthenticator();
-        mutualTlsAuthenticator.setup();
+        mutualTlsAuthenticator.initializeAuthenticator();
     }
 
     @Override

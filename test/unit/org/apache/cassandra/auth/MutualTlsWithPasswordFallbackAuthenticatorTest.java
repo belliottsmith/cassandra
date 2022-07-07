@@ -36,9 +36,9 @@ import org.apache.cassandra.service.StorageService;
 import static org.junit.Assert.assertNotNull;
 import static org.psjava.util.AssertStatus.assertTrue;
 
-public class MtlsWithPasswordFallbackAuthenticatorTest
+public class MutualTlsWithPasswordFallbackAuthenticatorTest
 {
-    private static MtlsWithPasswordFallbackAuthenticator fallbackAuthenticator;
+    private static MutualTlsWithPasswordFallbackAuthenticator fallbackAuthenticator;
     private Certificate[] clientCertificatesCorp;
 
     @BeforeClass
@@ -47,7 +47,7 @@ public class MtlsWithPasswordFallbackAuthenticatorTest
         SchemaLoader.loadSchema();
         DatabaseDescriptor.daemonInitialization();
         StorageService.instance.initServer(0);
-        fallbackAuthenticator = new MtlsWithPasswordFallbackAuthenticator();
+        fallbackAuthenticator = new MutualTlsWithPasswordFallbackAuthenticator();
         fallbackAuthenticator.setup();
     }
 
