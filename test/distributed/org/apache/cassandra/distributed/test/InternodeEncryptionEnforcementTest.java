@@ -351,6 +351,10 @@ public final class InternodeEncryptionEnforcementTest extends TestBaseImpl
         @Override
         public boolean authenticate(InetAddress remoteAddress, int remotePort, Certificate[] certificates, InternodeConnectionDirection connectionType)
         {
+            if (connectionType == InternodeConnectionDirection.OUTBOUND_PRECONNECT)
+            {
+                return true;
+            }
             try
             {
                 // Check if the presented certificates during internode authentication are the ones in the keystores
