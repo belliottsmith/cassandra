@@ -106,6 +106,8 @@ public class EncryptionOptions
     {
         KEYSTORE("keystore"),
         KEYSTORE_PASSWORD("keystore_password"),
+        OUTBOUND_KEYSTORE("outbound_keystore"),
+        OUTBOUND_KEYSTORE_PASSWORD("outbound_keystore_password"),
         TRUSTSTORE("truststore"),
         TRUSTSTORE_PASSWORD("truststore_password"),
         CIPHER_SUITES("cipher_suites"),
@@ -258,11 +260,8 @@ public class EncryptionOptions
         }
     }
 
-    private void initializeSslContextFactory()
+    protected void fillSslContextParams(Map<String, Object> sslContextFactoryParameters)
     {
-        Map<String,Object> sslContextFactoryParameters = new HashMap<>();
-        prepareSslContextFactoryParameterizedKeys(sslContextFactoryParameters);
-
         /*
          * Copy all configs to the Map to pass it on to the ISslContextFactory's implementation
          */
@@ -279,6 +278,13 @@ public class EncryptionOptions
         putSslContextFactoryParameter(sslContextFactoryParameters, ConfigKey.REQUIRE_ENDPOINT_VERIFICATION, this.require_endpoint_verification);
         putSslContextFactoryParameter(sslContextFactoryParameters, ConfigKey.ENABLED, this.enabled);
         putSslContextFactoryParameter(sslContextFactoryParameters, ConfigKey.OPTIONAL, this.optional);
+    }
+
+    private void initializeSslContextFactory()
+    {
+        Map<String, Object> sslContextFactoryParameters = new HashMap<>();
+        prepareSslContextFactoryParameterizedKeys(sslContextFactoryParameters);
+        fillSslContextParams(sslContextFactoryParameters);
 
         if (CassandraRelevantProperties.TEST_JVM_DTEST_DISABLE_SSL.getBoolean())
         {
@@ -291,7 +297,7 @@ public class EncryptionOptions
         }
     }
 
-    private void putSslContextFactoryParameter(Map<String,Object> existingParameters, ConfigKey configKey,
+    protected static void putSslContextFactoryParameter(Map<String, Object> existingParameters, ConfigKey configKey,
                                                Object value)
     {
         if (value != null) {
@@ -603,15 +609,20 @@ public class EncryptionOptions
         public final InternodeEncryption internode_encryption;
         @Replaces(oldName = "enable_legacy_ssl_storage_port", deprecated = true)
         public final boolean legacy_ssl_storage_port_enabled;
+        public final String outbound_keystore;
+        public final String outbound_keystore_password;
 
         public ServerEncryptionOptions()
         {
             this.internode_encryption = InternodeEncryption.none;
             this.legacy_ssl_storage_port_enabled = false;
+            this.outbound_keystore = null;
+            this.outbound_keystore_password = null;
         }
 
         public ServerEncryptionOptions(ParameterizedClass sslContextFactoryClass, String keystore,
-                                       String keystore_password, String truststore, String truststore_password,
+                                       String keystore_password,String outbound_keystore,
+                                       String outbound_keystore_password, String truststore, String truststore_password,
                                        List<String> cipher_suites, String protocol, List<String> accepted_protocols,
                                        String algorithm, String store_type, boolean require_client_auth,
                                        boolean require_endpoint_verification, Boolean optional,
@@ -622,6 +633,8 @@ public class EncryptionOptions
             null, optional);
             this.internode_encryption = internode_encryption;
             this.legacy_ssl_storage_port_enabled = legacy_ssl_storage_port_enabled;
+            this.outbound_keystore = outbound_keystore;
+            this.outbound_keystore_password = outbound_keystore_password;
         }
 
         public ServerEncryptionOptions(ServerEncryptionOptions options)
@@ -629,6 +642,16 @@ public class EncryptionOptions
             super(options);
             this.internode_encryption = options.internode_encryption;
             this.legacy_ssl_storage_port_enabled = options.legacy_ssl_storage_port_enabled;
+            this.outbound_keystore = options.outbound_keystore;
+            this.outbound_keystore_password = options.outbound_keystore_password;
+        }
+
+        @Override
+        protected void fillSslContextParams(Map<String, Object> sslContextFactoryParameters)
+        {
+            super.fillSslContextParams(sslContextFactoryParameters);
+            putSslContextFactoryParameter(sslContextFactoryParameters, ConfigKey.OUTBOUND_KEYSTORE, this.outbound_keystore);
+            putSslContextFactoryParameter(sslContextFactoryParameters, ConfigKey.OUTBOUND_KEYSTORE_PASSWORD, this.outbound_keystore_password);
         }
 
         @Override
@@ -700,7 +723,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withSslContextFactory(ParameterizedClass sslContextFactoryClass)
         {
-            return new ServerEncryptionOptions(sslContextFactoryClass, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(sslContextFactoryClass, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -709,7 +733,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withKeyStore(String keystore)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -718,7 +743,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withKeyStorePassword(String keystore_password)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -727,7 +753,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withTrustStore(String truststore)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -736,7 +763,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withTrustStorePassword(String truststore_password)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -745,16 +773,18 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withCipherSuites(List<String> cipher_suites)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
                                                legacy_ssl_storage_port_enabled).applyConfigInternal();
         }
 
-        public ServerEncryptionOptions withCipherSuites(String ... cipher_suites)
+        public ServerEncryptionOptions withCipherSuites(String... cipher_suites)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, Arrays.asList(cipher_suites), protocol,
                                                accepted_protocols, algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -763,7 +793,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withProtocol(String protocol)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -772,7 +803,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withAcceptedProtocols(List<String> accepted_protocols)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -781,7 +813,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withAlgorithm(String algorithm)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -790,7 +823,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withStoreType(String store_type)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -799,7 +833,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withRequireClientAuth(boolean require_client_auth)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -808,7 +843,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withRequireEndpointVerification(boolean require_endpoint_verification)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -817,7 +853,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withOptional(boolean optional)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -826,7 +863,8 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withInternodeEncryption(InternodeEncryption internode_encryption)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
@@ -835,12 +873,32 @@ public class EncryptionOptions
 
         public ServerEncryptionOptions withLegacySslStoragePort(boolean enable_legacy_ssl_storage_port)
         {
-            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password, truststore,
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outbound_keystore_password, truststore,
                                                truststore_password, cipher_suites, protocol, accepted_protocols,
                                                algorithm, store_type, require_client_auth,
                                                require_endpoint_verification, optional, internode_encryption,
                                                enable_legacy_ssl_storage_port).applyConfigInternal();
         }
 
+        public ServerEncryptionOptions withOutboundKeystore(String outboundKeystore)
+        {
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outboundKeystore, outbound_keystore_password, truststore,
+                                               truststore_password, cipher_suites, protocol, accepted_protocols,
+                                               algorithm, store_type, require_client_auth,
+                                               require_endpoint_verification, optional, internode_encryption,
+                                               legacy_ssl_storage_port_enabled).applyConfigInternal();
+        }
+
+        public ServerEncryptionOptions withOutboundKeystorePassword(String outboundKeystorePassword)
+        {
+            return new ServerEncryptionOptions(ssl_context_factory, keystore, keystore_password,
+                                               outbound_keystore, outboundKeystorePassword, truststore,
+                                               truststore_password, cipher_suites, protocol, accepted_protocols,
+                                               algorithm, store_type, require_client_auth,
+                                               require_endpoint_verification, optional, internode_encryption,
+                                               legacy_ssl_storage_port_enabled).applyConfigInternal();
+        }
     }
 }
