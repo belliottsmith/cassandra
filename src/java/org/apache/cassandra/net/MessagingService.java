@@ -476,7 +476,10 @@ public class MessagingService extends MessagingServiceMBeanImpl
     {
         OutboundConnections pool = channelManagers.get(to);
         if (pool != null)
+        {
             pool.interrupt();
+            logger.info("Interrupted outbound connections to {}", to);
+        }
     }
 
     /**
