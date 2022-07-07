@@ -2,6 +2,7 @@
 AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.1 cie-cassandra-4.0.2
 
 4.0.2.1
+* Adding support for TLS client authentication for internode communication (CASSANDRA-17513)
 * rdar://93445212 (4.0.2.x: Missing allow_zstd feature flag) (#2942)
 * rdar://92874081 / CASSANDRA_17623 (Frozen Map-typed cells written by SBW are not always readable by CQL) (#2948)
 * Add new CQL function maxWritetime (#2944)
