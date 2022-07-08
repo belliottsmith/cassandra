@@ -27,11 +27,13 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.statements.BatchStatement;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.service.StorageProxy;
+import org.apache.cassandra.service.paxos.Paxos;
 import org.apache.cassandra.transport.SimpleClient;
 import org.apache.cassandra.transport.messages.BatchMessage;
 import org.apache.cassandra.transport.messages.QueryMessage;
@@ -334,6 +336,19 @@ public class ClientRequestRowAndColumnMetricsTest extends CQLTester
     }
 
     @Test
+    public void shouldRecordWriteMetricsForIfNotExistsV1() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v1);
+        shouldRecordWriteMetricsForIfNotExists();
+    }
+
+    @Test
+    public void shouldRecordWriteMetricsForIfNotExistsV2() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v2);
+        shouldRecordWriteMetricsForIfNotExists();
+    }
+
     public void shouldRecordWriteMetricsForIfNotExists() throws Exception
     {
         createTable("CREATE TABLE %s (pk int PRIMARY KEY, v1 int, v2 int, v3 int)");
@@ -353,6 +368,19 @@ public class ClientRequestRowAndColumnMetricsTest extends CQLTester
     }
 
     @Test
+    public void shouldRecordWriteMetricsForCASV1() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v1);
+        shouldRecordWriteMetricsForCAS();
+    }
+
+    @Test
+    public void shouldRecordWriteMetricsForCASV2() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v2);
+        shouldRecordWriteMetricsForCAS();
+    }
+
     public void shouldRecordWriteMetricsForCAS() throws Exception
     {
         createTable("CREATE TABLE %s (pk int PRIMARY KEY, v1 int, v2 int)");
@@ -376,6 +404,19 @@ public class ClientRequestRowAndColumnMetricsTest extends CQLTester
     }
 
     @Test
+    public void shouldNotRecordWriteMetricsForFailedCASV1() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v1);
+        shouldNotRecordWriteMetricsForFailedCAS();
+    }
+
+    @Test
+    public void shouldNotRecordWriteMetricsForFailedCASV2() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v2);
+        shouldNotRecordWriteMetricsForFailedCAS();
+    }
+
     public void shouldNotRecordWriteMetricsForFailedCAS() throws Exception
     {
         createTable("CREATE TABLE %s (pk int PRIMARY KEY, v1 int, v2 int)");
@@ -400,6 +441,19 @@ public class ClientRequestRowAndColumnMetricsTest extends CQLTester
     }
 
     @Test
+    public void shouldRecordReadMetricsOnSerialReadV1() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v1);
+        shouldRecordReadMetricsOnSerialRead();
+    }
+
+    @Test
+    public void shouldRecordReadMetricsOnSerialReadV2() throws Exception
+    {
+        Paxos.setPaxosVariant(Config.PaxosVariant.v2);
+        shouldRecordReadMetricsOnSerialRead();
+    }
+
     public void shouldRecordReadMetricsOnSerialRead() throws Exception
     {
         createTable("CREATE TABLE %s (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
@@ -410,7 +464,7 @@ public class ClientRequestRowAndColumnMetricsTest extends CQLTester
             client.execute(new QueryMessage(String.format("INSERT INTO %s.%s (pk, ck, v) VALUES (1, 1, 1)", KEYSPACE, currentTable()), QueryOptions.DEFAULT));
 
             QueryMessage query = new QueryMessage(String.format("SELECT * FROM %s.%s WHERE pk = 1 AND ck = 1", KEYSPACE, currentTable()),
-                    QueryOptions.forInternalCalls(ConsistencyLevel.SERIAL, Collections.emptyList()));
+                                                  QueryOptions.forInternalCalls(ConsistencyLevel.SERIAL, Collections.emptyList()));
             client.execute(query);
 
             assertEquals(1, ClientRequestSizeMetrics.totalRowsRead.getCount());
