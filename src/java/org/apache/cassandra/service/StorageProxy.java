@@ -2702,8 +2702,13 @@ public class StorageProxy implements StorageProxyMBean
 
     public static void logRequestException(Exception exception, Collection<? extends ReadCommand> commands)
     {
+        // Multiple different types of errors can happen, so by dedupping on the error type we can see each error
+        // case rather than just exposing the first error seen; this should make sure more rare issues are exposed
+        // rather than being hidden by more common errors such as timeout or unavailable
+        // see rdar://97016915 (StorageProxy#logRequestException  dedups on common log message rather than error message)
+        String msg = exception.getClass().getSimpleName() + " \"{}\" while executing {}";
         NoSpamLogger.log(logger, NoSpamLogger.Level.INFO, FAILURE_LOGGING_INTERVAL_SECONDS, TimeUnit.SECONDS,
-                         "\"{}\" while executing {}",
+                         msg,
                          () -> new Object[]
                                {
                                    exception.getMessage(),
