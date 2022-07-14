@@ -584,7 +584,7 @@ public class RepairHistorySyncTask extends AsyncFuture<Object>
         }
 
         AsyncFunction<Map<InetAddressAndPort, RangeTimes>, Object> processFunc = this::processHistory;
-        callback.map(this::processHistory, ImmediateExecutor.INSTANCE).addCallback(new FutureCallback<Object>()
+        callback.flatMap(this::processHistory, ImmediateExecutor.INSTANCE).addCallback(new FutureCallback<Object>()
         {
             public void onSuccess(@Nullable Object result)
             {

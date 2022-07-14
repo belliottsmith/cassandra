@@ -49,6 +49,7 @@ class SaferScannerBase(re.Scanner):
             raise ValueError("RE flag setting not allowed in SaferScanner lexicon (%s)" % (bin(sub.pattern.flags),))
         return re.sre_parse.SubPattern(sub.pattern, scrubbedsub)
 
+
 class Py2SaferScanner(SaferScannerBase):
 
     def __init__(self, lexicon, flags=0):
@@ -64,6 +65,7 @@ class Py2SaferScanner(SaferScannerBase):
         p = re.sre_parse.SubPattern(s, [(BRANCH, (None, p))])
         self.p = p
         self.scanner = re.sre_compile.compile(p)
+
 
 class Py36SaferScanner(SaferScannerBase):
 
@@ -95,6 +97,7 @@ class Py38SaferScanner(SaferScannerBase):
         p = re.sre_parse.SubPattern(s, [(BRANCH, (None, p))])
         self.p = p
         self.scanner = re.sre_compile.compile(p)
+
 
 SaferScanner = Py36SaferScanner if six.PY3 else Py2SaferScanner
 SaferScanner = Py38SaferScanner if version_info >= (3, 8) else SaferScanner
