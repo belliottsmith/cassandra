@@ -18,7 +18,11 @@
 
 package org.apache.cassandra.io.util;
 
-import java.io.*;
+import java.io.BufferedWriter;
+import java.io.DataOutput;
+import java.io.IOError;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.zip.CRC32;
@@ -28,8 +32,6 @@ import javax.annotation.Nonnull;
 import com.google.common.base.Charsets;
 
 import org.apache.cassandra.io.FSWriteError;
-
-import org.apache.cassandra.io.util.File;
 
 public class ChecksumWriter
 {
@@ -98,9 +100,12 @@ public class ChecksumWriter
         if (fullChecksum == null)
             throw new IllegalStateException("Full checksum was not calculated for '" + digestFile + '\'');
 
-        try (BufferedWriter out = Files.newBufferedWriter(digestFile.toPath(), Charsets.UTF_8))
+        try (FileOutputStreamPlus fos = new FileOutputStreamPlus(digestFile);
+             OutputStreamWriter out = new OutputStreamWriter(fos, Charsets.UTF_8.newEncoder()))
         {
             out.write(String.valueOf(fullChecksum.getValue()));
+            out.flush();
+            fos.getChannel().force(true);
         }
         catch (IOException e)
         {
