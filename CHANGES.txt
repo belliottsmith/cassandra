@@ -1,4 +1,5 @@
 4.1
+ * Remove commons-lang dependency during build runtime (CASSANDRA-17724)
  * Streaming sessions longer than 3 minutes fail with timeout (CASSANDRA-17510)
  * Add ability to track state in repair (CASSANDRA-15399)
  * Remove unused 'parse' module (CASSANDRA-17484)

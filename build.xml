@@ -564,6 +564,7 @@
             <exclusion groupId="org.mortbay.jetty" artifactId="servlet-api"/>
             <exclusion groupId="org.mortbay.jetty" artifactId="servlet-api-2.5"/>
             <exclusion groupId="commons-logging" artifactId="commons-logging"/>
+            <exclusion groupId="commons-lang" artifactId="commons-lang"/>
             <exclusion groupId="org.eclipse.jdt" artifactId="core"/>
             <exclusion groupId="ant" artifactId="ant"/>
             <exclusion groupId="junit" artifactId="junit"/>
