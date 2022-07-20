@@ -938,6 +938,8 @@ public class Config
     public volatile Set<ConsistencyLevel> write_consistency_levels_warned = Collections.emptySet();
     public volatile Set<ConsistencyLevel> write_consistency_levels_disallowed = Collections.emptySet();
     public volatile boolean user_timestamps_enabled = true;
+    public volatile boolean drop_truncate_table_enabled = true;
+    public volatile boolean drop_keyspace_enabled = true;
     public volatile boolean read_before_write_list_operations_enabled = true;
     public volatile DataStorageSpec collection_size_warn_threshold = DISABLED_SIZE_GUARDRAIL;
     public volatile DataStorageSpec collection_size_fail_threshold = DISABLED_SIZE_GUARDRAIL;

@@ -130,6 +130,22 @@ public final class Guardrails implements GuardrailsMBean
                     "User provided timestamps (USING TIMESTAMP)");
 
     /**
+     * Guardrail disabling drop/truncate table behavior
+     */
+    public static final DisableFlag dropTruncateTableEnabled =
+    new DisableFlag("drop_truncate_table_enabled",
+                    state -> !CONFIG_PROVIDER.getOrCreate(state).getDropTruncateTableEnabled(),
+                    "DROP and TRUNCATE TABLE functionality");
+
+    /**
+     * Guardrail disabling drop/truncate keyspace behavior
+     */
+    public static final DisableFlag dropKeyspaceEnabled =
+    new DisableFlag("drop_keyspace_enabled",
+                    state -> !CONFIG_PROVIDER.getOrCreate(state).getDropKeyspaceEnabled(),
+                    "DROP KEYSPACE functionality");
+
+    /**
      * Guardrail on the number of elements returned within page.
      */
     public static final Threshold pageSize =
@@ -454,6 +470,30 @@ public final class Guardrails implements GuardrailsMBean
     public void setUserTimestampsEnabled(boolean enabled)
     {
         DEFAULT_CONFIG.setUserTimestampsEnabled(enabled);
+    }
+
+    @Override
+    public boolean getDropTruncateTableEnabled()
+    {
+        return DEFAULT_CONFIG.getDropTruncateTableEnabled();
+    }
+
+    @Override
+    public void setDropTruncateTableEnabled(boolean enabled)
+    {
+        DEFAULT_CONFIG.setDropTruncateTableEnabled(enabled);
+    }
+
+    @Override
+    public boolean getDropKeyspaceEnabled()
+    {
+        return DEFAULT_CONFIG.getDropKeyspaceEnabled();
+    }
+
+    @Override
+    public void setDropKeyspaceEnabled(boolean enabled)
+    {
+        DEFAULT_CONFIG.setDropKeyspaceEnabled(enabled);
     }
 
     @Override
