@@ -333,6 +333,34 @@ public class GuardrailsOptions implements GuardrailsConfig
     }
 
     @Override
+    public boolean getDropTruncateTableEnabled()
+    {
+        return config.drop_truncate_table_enabled;
+    }
+
+    public void setDropTruncateTableEnabled(boolean enabled)
+    {
+        updatePropertyWithLogging("drop_truncate_table_enabled",
+                                  enabled,
+                                  () -> config.drop_truncate_table_enabled,
+                                  x -> config.drop_truncate_table_enabled = x);
+    }
+
+    @Override
+    public boolean getDropKeyspaceEnabled()
+    {
+        return config.drop_keyspace_enabled;
+    }
+
+    public void setDropKeyspaceEnabled(boolean enabled)
+    {
+        updatePropertyWithLogging("drop_keyspace_enabled",
+                                  enabled,
+                                  () -> config.drop_keyspace_enabled,
+                                  x -> config.drop_keyspace_enabled = x);
+    }
+
+    @Override
     public boolean getReadBeforeWriteListOperationsEnabled()
     {
         return config.read_before_write_list_operations_enabled;
