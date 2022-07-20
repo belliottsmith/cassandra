@@ -967,6 +967,7 @@ public class Config
 
     @Replaces(oldName = "allow_compact_storage", converter = Converters.IDENTITY, deprecated = true)
     public volatile boolean compact_tables_enabled = true;
+    public volatile boolean drop_keyspace_enabled = true;
     public volatile boolean read_before_write_list_operations_enabled = true;
     public volatile boolean allow_filtering_enabled = true;
     public volatile DataStorageSpec.LongBytesBound collection_size_warn_threshold = null;

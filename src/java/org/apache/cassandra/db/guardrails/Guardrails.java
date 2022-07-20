@@ -168,6 +168,14 @@ public final class Guardrails implements GuardrailsMBean
                     "Creation of new COMPACT STORAGE tables");
 
     /**
+     * Guardrail disabling drop/truncate keyspace behavior
+     */
+    public static final DisableFlag dropKeyspaceEnabled =
+    new DisableFlag("drop_keyspace_enabled",
+                    state -> !CONFIG_PROVIDER.getOrCreate(state).getDropKeyspaceEnabled(),
+                    "DROP KEYSPACE functionality");
+
+    /**
      * Guardrail on the number of elements returned within page.
      */
     public static final MaxThreshold pageSize =
@@ -598,6 +606,18 @@ public final class Guardrails implements GuardrailsMBean
     public void setDropTruncateTableEnabled(boolean enabled)
     {
         DEFAULT_CONFIG.setDropTruncateTableEnabled(enabled);
+    }
+
+    @Override
+    public boolean getDropKeyspaceEnabled()
+    {
+        return DEFAULT_CONFIG.getDropKeyspaceEnabled();
+    }
+
+    @Override
+    public void setDropKeyspaceEnabled(boolean enabled)
+    {
+        DEFAULT_CONFIG.setDropKeyspaceEnabled(enabled);
     }
 
     @Override
