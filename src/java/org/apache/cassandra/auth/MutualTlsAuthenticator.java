@@ -1,41 +1,3 @@
-package org.apache.cassandra.auth;
-
-import java.net.InetAddress;
-import java.security.cert.Certificate;
-import java.security.cert.X509Certificate;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.apple.aci.cassandra.mtls.CompositeMtlsAuthenticator;
-import com.apple.aci.cassandra.mtls.IdentityType;
-import com.apple.aci.cassandra.mtls.User;
-import org.apache.cassandra.config.CassandraRelevantProperties;
-import org.apache.cassandra.cql3.QueryOptions;
-import org.apache.cassandra.cql3.QueryProcessor;
-import org.apache.cassandra.cql3.statements.SelectStatement;
-import org.apache.cassandra.exceptions.AuthenticationException;
-import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.schema.SchemaConstants;
-import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.service.QueryState;
-import org.apache.cassandra.transport.messages.ResultMessage;
-import org.apache.cassandra.utils.NoSpamLogger;
-import org.jetbrains.annotations.NotNull;
-
-import static org.apache.cassandra.utils.Clock.Global.nanoTime;
-
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -54,13 +16,38 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
  * limitations under the License.
  */
 
-public class MutualTlsAuthenticator implements IAuthenticator
+package org.apache.cassandra.auth;
+
+import java.net.InetAddress;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.apple.aci.cassandra.mtls.User;
+import org.apache.cassandra.exceptions.AuthenticationException;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.schema.SchemaConstants;
+import org.apache.cassandra.utils.NoSpamLogger;
+import org.jetbrains.annotations.NotNull;
+
+/*
+ * Performs mTLS authentication for client connections by extracting identities from client certificate
+ * and verifying them against the ones in the roles table.
+ */
+
+public class MutualTlsAuthenticator extends BaseMutualTlsAuthenticator implements IAuthenticator
 {
     private static final Logger logger = LoggerFactory.getLogger(MutualTlsAuthenticator.class);
     private static final NoSpamLogger nospamLogger = NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES);
-    private static final String ROLE = "role";
-    private static final Pattern PATTERN = getURNRegexPattern();
-    private CompositeMtlsAuthenticator authenticator;
 
     @Override
     public boolean requireAuthentication()
@@ -83,23 +70,7 @@ public class MutualTlsAuthenticator implements IAuthenticator
     @Override
     public void setup()
     {
-        final String query = String.format("SELECT DISTINCT %s FROM %s.%s;",
-                                           ROLE,
-                                           SchemaConstants.AUTH_KEYSPACE_NAME,
-                                           AuthKeyspace.ROLES);
-        final SelectStatement authenticateStatement = (SelectStatement) QueryProcessor.getStatement(query, ClientState.forInternalCalls());
-        final QueryOptions options = QueryOptions.forInternalCalls(AuthProperties.instance.getReadConsistencyLevel(),
-                                                                   Lists.newArrayList());
-        final ResultMessage.Rows rows = authenticateStatement.execute(QueryState.forInternalCalls(), options, nanoTime());
-        final List<String> URNS = rows.result.rows.stream()
-                                                  .map(row -> row.get(0))
-                                                  .map(byteBuffer -> new String(byteBuffer.array()))
-                                                  .filter(MutualTlsAuthenticator::isURN)
-                                                  .collect(Collectors.toList());
-        authenticator = new CompositeMtlsAuthenticator.Builder()
-                        .withManagementDsidOfRoot(CassandraRelevantProperties.MANAGEMENT_DSID_OF_ROOT.getString())
-                        .withAuthorizedURNS(URNS)
-                        .build();
+        super.initializeAuthenticator();
     }
 
     @Override
@@ -158,28 +129,5 @@ public class MutualTlsAuthenticator implements IAuthenticator
             }
             return new AuthenticatedUser(authorizedUsers.get(0).toURN());
         }
-
-        private X509Certificate[] castCertsToX509(Certificate[] clientCertificateChain)
-        {
-            return Arrays.stream(clientCertificateChain)
-                         .map(X509Certificate.class::cast)
-                         .toArray(X509Certificate[]::new);
-        }
-    }
-
-    private static boolean isURN(final String urn)
-    {
-        // appending '/' to make urn:XXXX -> urn:XXXX/ for the regular expression
-        final String modifiedURN = urn.endsWith("/") ? urn : urn + '/';
-        final Matcher matcher = PATTERN.matcher(modifiedURN);
-        return matcher.matches();
-    }
-
-    private static Pattern getURNRegexPattern() {
-        final String identityTypeRegex = Arrays.stream(IdentityType.values())
-                                               .map(IdentityType::getUrnType)
-                                               .collect(Collectors.joining("|"));
-        final String urnRegex = String.format("urn:(%s):((\\S+)\\/(\\S+)\\/)+", identityTypeRegex);
-        return Pattern.compile(urnRegex);
     }
 }
