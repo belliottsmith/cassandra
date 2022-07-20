@@ -211,7 +211,6 @@ public class StorageProxy implements StorageProxyMBean
             return new AtomicInteger(0);
         }
     };
-
     private static final CassandraMetricsRegistry.JmxHistogram bytesReceivedPerRequest = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesReceivedPerRequest, null);
     private static final CassandraMetricsRegistry.JmxHistogram bytesSentPerResponse = new CassandraMetricsRegistry.JmxHistogram(ClientMessageSizeMetrics.bytesSentPerResponse, null);
 
@@ -1840,7 +1839,7 @@ public class StorageProxy implements StorageProxyMBean
     public static PartitionIterator read(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel, long queryStartNanoTime)
     throws UnavailableException, IsBootstrappingException, ReadFailureException, ReadTimeoutException, InvalidRequestException
     {
-        if (StorageService.instance.isBootstrapMode() && !systemKeyspaceQuery(group.queries))
+        if (!isSafeToPerformRead(group.queries))
         {
             readMetrics.unavailables.mark();
             readMetricsForLevel(consistencyLevel).unavailables.mark();
@@ -1865,6 +1864,16 @@ public class StorageProxy implements StorageProxyMBean
         return consistencyLevel.isSerialConsistency()
              ? readWithPaxos(group, consistencyLevel, queryStartNanoTime)
              : readRegular(group, consistencyLevel, queryStartNanoTime);
+    }
+
+    public static boolean isSafeToPerformRead(List<SinglePartitionReadCommand> commands)
+    {
+        return isSafeToPerformRead() || systemKeyspaceQuery(commands);
+    }
+
+    public static boolean isSafeToPerformRead()
+    {
+        return !StorageService.instance.isBootstrapMode();
     }
 
     private static PartitionIterator readWithPaxos(SinglePartitionReadCommand.Group group, ConsistencyLevel consistencyLevel, long queryStartNanoTime)

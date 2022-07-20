@@ -44,6 +44,7 @@ import org.apache.cassandra.io.util.File;
 import org.junit.Assert;
 
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
@@ -586,6 +587,47 @@ public class ClusterUtils
             if (status == null)
                 return targetStatus == null;
             return status.contains(targetStatus);
+        });
+    }
+
+    public static void awaitGossipSchemaMatch(ICluster<? extends IInstance> cluster)
+    {
+        cluster.stream().forEach(ClusterUtils::awaitGossipSchemaMatch);
+    }
+
+    public static void awaitGossipSchemaMatch(IInstance instance)
+    {
+        if (!instance.config().has(Feature.GOSSIP))
+        {
+            // when gosisp isn't enabled, don't bother waiting on gossip to settle...
+            return;
+        }
+        awaitGossip(instance, "Schema IDs did not match", all -> {
+            String current = null;
+            for (Map.Entry<String, Map<String, String>> e : all.entrySet())
+            {
+                Map<String, String> state = e.getValue();
+
+                // has the instance joined?
+                String status = state.get("STATUS");
+                if (status == null || !status.contains("NORMAL"))
+                    continue; // ignore instances not joined yet
+
+                String schema = state.get("SCHEMA");
+                if (schema == null)
+                    throw new AssertionError("Unable to find schema for " + e.getKey() + "; status was " + status);
+                schema = schema.split(":")[1];
+
+                if (current == null)
+                {
+                    current = schema;
+                }
+                else if (!current.equals(schema))
+                {
+                    return false;
+                }
+            }
+            return true;
         });
     }
 
