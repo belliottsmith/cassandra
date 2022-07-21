@@ -1,5 +1,6 @@
-4.0.2.2
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.1 cie-cassandra-4.0.2
+4.1.0.0
+* Rebased on OSS 4.1-SNAPSHOT commit f28dd90feb215db85ac2e510c5657a49edd46e12 (#2778)
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.1 cie-cassandra-4.1.0
 
 4.0.2.1
 * Fix TestGossipingPropertyFileSnitch.test_prefer_local_reconnect_on_listen_address (CASSANDRA-17700)
