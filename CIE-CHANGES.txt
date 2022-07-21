@@ -1,6 +1,71 @@
+4.1.0.1
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.1.0.0 cie-cassandra-4.1.0
+
 4.1.0.0
 * Rebased on OSS 4.1-SNAPSHOT commit f28dd90feb215db85ac2e510c5657a49edd46e12 (#2778)
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.2.1 cie-cassandra-4.1.0
+* rdar://95038627 (2022w14 Rebase - Cut Release) (#3046)
+* rdar://97015688 (Cannot read from a bootstrapping node while executing SELECT * FROM system_auth.roles WHERE role = cassandra AND () = ()) (#3032) (#3035) (#3036) (#3042)
+* rdar://96245626 (Adapt upstream paxos2 verbs to internal apple paxos verbs)
+* rdar://95613099 (backport disallow DROP / TRUNCATE from upstream to 4.0.0 and 4.1.0 branches) (#3040)
+* Merge pull request #2979 from jkonisa/mtls-internode-authenticator
+* rdar://94542387 Adding mTLS internode Authenticator
+* Early port of (CASSANDRA-17700)
+* Early port of (CASSANDRA-17661)
+* Early port (CASSANDRA-17513)
+* rdar://97278603 (4.1.0: Early port CASSANDRA-17724 Remove commons-lang dependency during build runtime)
+* rdar://97262545 (Revert CASSANDRA-14582 in 4.1.0 cie release) (#3043)
+* add 61-hotfix dtest jar to upgrade version jars
+* rdar://91352086 (CASSANDRA-17530: Paxos v2 Linearizability Violation) (#3019)
+* rdar://97016915 (StorageProxy#logRequestException  dedups on common log message rather than error message) (#3026) (#3027) (#3028) (#3030) (#3031)
+* rdar://95038594 (2022w14 Rebase - Resolve Python dtest failures) (#3029)
+* rdar://92336665 (Port coordinator read and write row/column counts to 4.1.0 after Apple Paxos is rebased in)
+* ninja-fix: The "Allocate trace" bit actually comes between "LEAK DETECTED" and the trace
+* rdar://56347684 (Backport query visibility jira CASSANDRA-15241: Virtual table to expose current running queries to 4.1.0)
+* rdar://95731143 (BulkLoader initializes system keyspaces)
+* rdar://96249936 (4.1.0: LeveledCompactionTaskTest failure due to system compaction) (#3000)
+* fixup! In-JVM internode messing fix - MixedModeFrom3LoggedBatchTest.testSimpleStrategy (#2998)
+* rdar://93836807 (Investigate counter write behavior with a single node being down in 4.0) (#2995)
+* rdar://93883304 (UnsupportedOperationException when reducing scope for compactions in 4.0) (#2957)
+* fixup! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio
+* fixup! fixup! rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+* fixup! SSTableLoaderEncryptionOptionsTest.bulkLoaderSuccessfullyStreamsOverSsl fix
+* fixup! rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+* fixup! Enable Xmas patch to be disabled on a per-table level via CQL and hotprop (#2495)
+* In-JVM internode messing fix - MixedModeFrom3LoggedBatchTest.testSimpleStrategy
+* fixup! rdar://60088255 p25991887 PRO/FTR Blacklist CQL partitions
+* fixup! rdar://77563055 (Support for One-Time Heap Dump Generation on Unhandled Exceptions) (#2486)
+* Early port Fix testCDCIndexFileWriteOnSync and document cdc index file read edge case
+* fixup! rdar://84012150 (Mixed cluster rewrote sstable metadata with older format, reporting corruption on upgrade) #2597
+* Early port - Use TimeUUID serializer for BATCH_REMOVE_REQ
+* Revert "Make nodetool compactionstats and sstable_tasks consistent"
+* fixup: set 4.0 dtest upgrade version to 4.0.2 to pick up newer dtest-api
+* fixup! rdar://73250643 (Put GROUP BY under a feature flag) (#2172)
+* fixup! rdar://60087947 p56258571 ENV/INF Add Amazon Corretto crypto provider
+* rdar://95038575 (2022w14 Rebase - Xmas Patch Test Failure)
+* SSTableLoaderEncryptionOptionsTest.bulkLoaderSuccessfullyStreamsOverSsl fix
+* rdar://95038553 (2022w14 Rebase - Revert Nodetool Output Change); fixed tests after removing sstables column from nodetool (#2)
+* rdar://95038541 (2022w14 Rebase - Add Feature Flag on Password Hash Feature)
+* Revert "Add sstable count to compactionstats output" (#1)
+* fixup! rdar://91508417 (4.0.2: Backport C-17533 Migration Coordinator cleanups)
+* fixup! rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+* Bump version to 4.1.0.0 after 2022w14 rebase against trunk
+* rdar://91435722 (jmx to set last repaired time globally) (#2973)
+* Partially revert c408931aa262353845c926f367ad06d27d9f164e
+* Revert "add credentials file support for CQLSH"
+* Partially revert db3583318258b14b27abe1529f8893da2ff22bf5
+* Revert "change six functions in cqlshlib to native Python 3 ones"
+* Revert "resolve several pylint issues in cqlsh.py and pylib"
+* rdar://91435722 (jmx to set last repaired time globally) (#2973)
+* fixup! rdar://84756120 (CRITICAL : iccyruscassandra - Read Timeouts) (#2645)
+* fixup! rdar://82028373 (Use client instead of driver for internal C*)
+* Revert "remove python 2 code which is now EOL and unsupported"
+* fixup! rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+* rdar://93637010 (Ensure that NettyStreamingMessageSender is not vulnerable to triggering disk failure policy when file streaming tasks are interrupted) (#2963)
+* rdar://59391677 (Fix flaky test com.apple.cie.cql3.functions.ApnsCoalescingMapQtTest qtTest) (#2964)
+* rdar://93763404 (4.0.2: ISE on SELECT during 3.0-4.0 upgrade) (#2956)
+* rdar://93637010 (Ensure that NettyStreamingMessageSender is not vulnerable to triggering disk failure policy when file streaming tasks are interrupted) (#2963)
+* rdar://59391677 (Fix flaky test com.apple.cie.cql3.functions.ApnsCoalescingMapQtTest qtTest) (#2964)
+* rdar://93763404 (4.0.2: ISE on SELECT during 3.0-4.0 upgrade) (#2956)
 
 4.0.2.1
 * Fix TestGossipingPropertyFileSnitch.test_prefer_local_reconnect_on_listen_address (CASSANDRA-17700)
