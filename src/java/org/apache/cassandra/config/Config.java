@@ -1318,4 +1318,15 @@ public class Config
     public volatile boolean dump_heap_on_uncaught_exception = false;
 
     public volatile boolean allow_nonsuperuser_select_salted_hash = false;
+
+    /**
+     * This config is removed with the migration of apple paxos, but is required for seamless migrations to 4.1.
+     *
+     * This config "should" be removed after all the Apple Paxos clusters are migrated to 4.1, but need to make sure
+     * that the config is also removed from yaml...
+     *
+     * rdar://97668227 (Apple Paxos has config paxos_state_purging_enabled which doesn't exist in 4.1, need for migration)
+     */
+    @Deprecated
+    public volatile Boolean paxos_state_purging_enabled = null;
 }
