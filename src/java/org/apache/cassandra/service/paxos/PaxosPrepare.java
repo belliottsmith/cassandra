@@ -1239,6 +1239,11 @@ public class PaxosPrepare extends PaxosRequestCallback<PaxosPrepare.Response> im
             else
             {
                 Permitted permitted = (Permitted) response;
+                // 3.0 Apple Paxos doesn't support PERMIT_READ, so we serialize it as a rejection here
+                if (version < MessagingService.VERSION_40 && permitted.outcome == PERMIT_READ)
+                {
+                    return 1 + Ballot.sizeInBytes();
+                }
                 return 1
                         + VIntCoding.computeUnsignedVIntSize(permitted.lowBound)
                         + (permitted.latestAcceptedButNotCommitted == null ? 0 : Accepted.serializer.serializedSize(permitted.latestAcceptedButNotCommitted, version))
