@@ -18,13 +18,25 @@
 
 package org.apache.cassandra.distributed.upgrade;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
 import org.junit.Assert;
 import org.junit.Test;
 
 import com.vdurmont.semver4j.Semver;
+import org.apache.cassandra.concurrent.NamedThreadFactory;
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.Feature;
+import org.apache.cassandra.distributed.api.IMessage;
+import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.service.paxos.Paxos;
+import org.apache.cassandra.utils.IFilter;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
 
 public class MixedModeApplePaxosTest extends UpgradeTestBase
 {
@@ -44,7 +56,7 @@ public class MixedModeApplePaxosTest extends UpgradeTestBase
             cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl(pk,ck,v) VALUES (1, 1, 1) IF NOT EXISTS",
                                            ConsistencyLevel.QUORUM);
             Object[][] result = cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=1", ConsistencyLevel.SERIAL);
-            Assert.assertEquals(new Object[]{1, 1, 1}, result[0]);
+            Assert.assertArrayEquals(new Object[]{1, 1, 1}, result[0]);
 
             // 3.0.19.61-hotfix uses ordinals for message filters, this blocks apple paxos prepare messages
             // this only affects message filters though, the actual message is routed correctly since the verb
@@ -66,13 +78,48 @@ public class MixedModeApplePaxosTest extends UpgradeTestBase
             cluster.coordinator(1).execute("UPDATE " + KEYSPACE + ".tbl SET v=2 WHERE pk=1 AND ck=1 IF EXISTS",
                                            ConsistencyLevel.QUORUM);
             Object[][] result1 = cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=1", ConsistencyLevel.SERIAL);
-            Assert.assertEquals(new Object[]{1, 1, 2}, result1[0]);
+            Assert.assertArrayEquals(new Object[]{1, 1, 2}, result1[0]);
             cluster.coordinator(2).execute("UPDATE " + KEYSPACE + ".tbl SET v=3 WHERE pk=1 AND ck=1 IF EXISTS",
                                            ConsistencyLevel.QUORUM);
             Object[][] result2 = cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=1", ConsistencyLevel.SERIAL);
-            Assert.assertEquals(new Object[]{1, 1, 3}, result2[0]);
+            Assert.assertArrayEquals(new Object[]{1, 1, 3}, result2[0]);
         })
         .run();
+    }
+
+    @Test
+    public void applePaxosUpgradePermittedReadTest() throws Throwable
+    {
+        ExecutorService exec = Executors.newFixedThreadPool(1, new NamedThreadFactory("PaxosTest"));
+        new TestCase()
+        .nodes(3)
+        .singleUpgrade(v3019)
+        .nodesToUpgrade(1)
+        .withConfig(config -> config.with(Feature.NETWORK, Feature.GOSSIP)
+                                    .set("paxos_variant", "apple_rrl"))
+        .setup(cluster -> {
+            cluster.schemaChange("CREATE TABLE " + KEYSPACE + ".tbl (pk int, ck int, v int, PRIMARY KEY (pk, ck))");
+            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl(pk,ck,v) VALUES (1, 1, 1) IF NOT EXISTS", ConsistencyLevel.QUORUM);
+        }).runAfterClusterUpgrade(cluster -> {
+            CountDownLatch hasInitiatedRead1 = CountDownLatch.newCountDownLatch(1);
+            CountDownLatch hasPerformedRead2 = CountDownLatch.newCountDownLatch(1);
+            cluster.filters().verbs(47).from(3).to(2).drop(); // make sure we contact the upgraded node
+            IMessageFilters.Filter filter = cluster.filters().verbs(47).from(3).outbound().messagesMatching((from, to, msg) -> {
+                hasInitiatedRead1.decrement();
+                hasPerformedRead2.awaitUninterruptibly();
+                return false;
+            }).drop();
+            Future<Object[][]> result = exec.submit(() -> cluster.coordinator(3).execute("SELECT pk, ck, v FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL));
+            hasInitiatedRead1.awaitUninterruptibly();
+            filter.off();
+            Thread.sleep(1); // ensure we pick a higher ballot for the second read
+            cluster.coordinator(2).execute("SELECT pk, ck, v FROM " + KEYSPACE + ".tbl WHERE pk = 1", ConsistencyLevel.SERIAL);
+            hasPerformedRead2.decrement();
+            Assert.assertArrayEquals(new Object[]{1, 1, 1}, result.get()[0]);
+            cluster.filters().reset();
+        })
+        .run();
+        exec.shutdown();
     }
 
     @Test
@@ -89,7 +136,7 @@ public class MixedModeApplePaxosTest extends UpgradeTestBase
             cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl(pk,ck,v) VALUES (1, 1, 1) IF NOT EXISTS",
                                            ConsistencyLevel.QUORUM);
             Object[][] result = cluster.coordinator(2).execute("SELECT * FROM " + KEYSPACE + ".tbl WHERE pk=1", ConsistencyLevel.SERIAL);
-            Assert.assertEquals(new Object[]{1, 1, 1}, result[0]);
+            Assert.assertArrayEquals(new Object[]{1, 1, 1}, result[0]);
 
             // 3.0.19.61-hotfix uses ordinals for message filters, this blocks apple paxos prepare messages
             // this only affects message filters though, the actual message is routed correctly since the verb
