@@ -95,7 +95,7 @@ public class ParseAndConvertUnitsTest
         assertEquals(new DataStorageSpec("1024KiB"), config.hinted_handoff_throttle);
         assertEquals(new DataStorageSpec("1024KiB"), config.batchlog_replay_throttle);
         assertEquals(new DataStorageSpec("10240KiB"), config.trickle_fsync_interval);
-        assertEquals(new DataStorageSpec("8796093022207MiB"), config.sstable_preemptive_open_interval); // rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
+        assertEquals(new DataStorageSpec("50MiB"), config.sstable_preemptive_open_interval);
         assertNull(config.counter_cache_size);
         assertNull(config.file_cache_size);
         assertNull(config.index_summary_capacity);
