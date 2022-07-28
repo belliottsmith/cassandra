@@ -51,6 +51,8 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Text;
 
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
+import static javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD;
+import static javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA;
 
 /**
  * Prints XML output of the test to a specified Writer.
@@ -67,7 +69,11 @@ public class CassandraXMLJUnitResultFormatter implements JUnitResultFormatter, X
 
     private static DocumentBuilder getDocumentBuilder() {
         try {
-            return DocumentBuilderFactory.newInstance().newDocumentBuilder();
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            // Each attribute represents a list of protocols; setting to the empty string disables external access
+            factory.setAttribute(ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(ACCESS_EXTERNAL_SCHEMA, "");
+            return factory.newDocumentBuilder();
         } catch (final Exception exc) {
             throw new ExceptionInInitializerError(exc);
         }
