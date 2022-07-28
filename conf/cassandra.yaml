@@ -945,7 +945,7 @@ compaction_throughput: 128MiB/s
 # are completely written, and used in place of the prior sstables for
 # any range that has been written. This helps to smoothly transfer reads 
 # between the sstables, reducing page cache churn and keeping hot rows hot
-sstable_preemptive_open_interval: 50MiB
+sstable_preemptive_open_interval_in_mb: -1
 
 # Starting from 4.1 sstables support UUID based generation identifiers. They are disabled by default
 # because once enabled, there is no easy way to downgrade. When the node is restarted with this option

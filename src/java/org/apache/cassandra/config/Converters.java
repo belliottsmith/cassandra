@@ -68,6 +68,10 @@ public enum Converters
     MEBIBYTES_DATA_STORAGE(Long.class,
                           o -> SmallestDataStorageMebibytes.inMebibytes((Long) o),
                           o -> ((SmallestDataStorageMebibytes)o).toMebibytes()),
+
+    NULLABLE_MEBIBYTES_DATA_STORAGE(Long.class,
+                           o -> ((Long)o) < 0 ? null : SmallestDataStorageMebibytes.inMebibytes((Long) o),
+                           o -> o == null ? -1 : ((SmallestDataStorageMebibytes)o).toMebibytes()),
     KIBIBYTES_DATASTORAGE(Long.class,
                           o -> SmallestDataStorageKibibytes.inKibibytes((Long) o),
                           o -> ((SmallestDataStorageKibibytes)o).toKibibytes()),

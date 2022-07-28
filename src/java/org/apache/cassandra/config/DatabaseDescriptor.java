@@ -3236,12 +3236,18 @@ public class DatabaseDescriptor
 
     public static int getSSTablePreemptiveOpenIntervalInMiB()
     {
-        return conf.sstable_preemptive_open_interval.toMebibytesAsInt();
+        if (conf.sstable_preemptive_open_interval == null)
+            return -1;
+        else
+            return conf.sstable_preemptive_open_interval.toMebibytesAsInt();
     }
 
     public static void setSSTablePreemptiveOpenIntervalInMiB(int mib)
     {
-        conf.sstable_preemptive_open_interval = SmallestDataStorageMebibytes.inMebibytes(mib);
+        if (mib < 0)
+            conf.sstable_preemptive_open_interval = null;
+        else
+            conf.sstable_preemptive_open_interval = SmallestDataStorageMebibytes.inMebibytes(mib);
     }
 
     public static boolean getTrickleFsync()

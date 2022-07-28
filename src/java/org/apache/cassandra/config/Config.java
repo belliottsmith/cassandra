@@ -420,8 +420,8 @@ public class Config
     @Replaces(oldName = "trickle_fsync_interval_in_kb", converter = Converters.KIBIBYTES_DATASTORAGE, deprecated = true)
     public SmallestDataStorageKibibytes trickle_fsync_interval = new SmallestDataStorageKibibytes("10240KiB");
 
-    @Replaces(oldName = "sstable_preemptive_open_interval_in_mb", converter = Converters.MEBIBYTES_DATA_STORAGE, deprecated = true)
-    public volatile SmallestDataStorageMebibytes sstable_preemptive_open_interval = new SmallestDataStorageMebibytes("50MiB");
+    @Replaces(oldName = "sstable_preemptive_open_interval_in_mb", converter = Converters.NULLABLE_MEBIBYTES_DATA_STORAGE, deprecated = true)
+    public volatile SmallestDataStorageMebibytes sstable_preemptive_open_interval = null; // Disable by default for ACI Cassandra
 
     public volatile boolean key_cache_migrate_during_compaction = false;
     public volatile int key_cache_keys_to_save = Integer.MAX_VALUE;
