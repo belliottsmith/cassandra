@@ -19,8 +19,8 @@ VERSION="$MAJOR_VERSION"
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
 ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" realclean
-ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" artifacts dtest-jar sources-jar
-ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" javadoc-jar || true
+ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true artifacts dtest-jar sources-jar
+ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true javadoc-jar || true
 
 GROUP_DIR=.dist/publishable/com/apple/cie/db/cassandra
 
