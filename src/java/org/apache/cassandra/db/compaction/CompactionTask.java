@@ -416,7 +416,11 @@ public class CompactionTask extends AbstractCompactionTask
                 if(partialCompactionsAcceptable() && fullyExpiredSSTables.size() > 0 )
                 {
                     // sanity check to make sure we compact only fully expired SSTables.
-                    assert transaction.originals().equals(fullyExpiredSSTables);
+                    if (!transaction.originals().equals(fullyExpiredSSTables))
+                    {
+                        String msg = String.format("Only fully expired sstables should remain in transaction, originals = %s, fully expired = %s", transaction.originals(), fullyExpiredSSTables);
+                        throw new AssertionError(msg);
+                    }
                     break;
                 }
 
