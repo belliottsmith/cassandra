@@ -46,6 +46,7 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
@@ -460,6 +461,15 @@ public class CassandraAuthorizer implements IAuthorizer
     {
         return () ->
         {
+            if (!RangeCommands.sufficientLiveNodesForSelectStar(AuthKeyspace.metadata().tables.getNullable(AuthKeyspace.ROLE_PERMISSIONS),
+                                                                AuthProperties.instance.getReadConsistencyLevel()))
+            {
+                // Prevent running the query we know will fail so as not to increment unavailable stats for a performance
+                // optimization
+                throw new RuntimeException("insufficient live nodes for " + AuthProperties.instance.getReadConsistencyLevel() +
+                                           "pre-warm query against system_auth." + AuthKeyspace.ROLE_PERMISSIONS);
+            }
+
             Map<Pair<AuthenticatedUser, IResource>, Set<Permission>> entries = new HashMap<>();
             String cqlTemplate = "SELECT %s, %s, %s FROM %s.%s";
 
