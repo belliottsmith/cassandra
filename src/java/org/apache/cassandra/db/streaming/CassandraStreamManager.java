@@ -32,6 +32,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.io.sstable.format.big.BigFormat;
+import org.apache.cassandra.io.sstable.metadata.StatsMetadata;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -107,7 +108,10 @@ public class CassandraStreamManager implements TableStreamManager
                 }
                 else
                 {
-                    predicate = s -> s.isPendingRepair() && s.getSSTableMetadata().pendingRepair.equals(pendingRepair);
+                    predicate = s -> {
+                        StatsMetadata metadata = s.getSSTableMetadata();
+                        return metadata.pendingRepair != ActiveRepairService.NO_PENDING_REPAIR && metadata.pendingRepair.equals(pendingRepair);
+                    };
                 }
 
                 for (Range<PartitionPosition> keyRange : keyRanges)
