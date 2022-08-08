@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.schema.CIEInternalKeyspace;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
@@ -43,6 +44,7 @@ import org.apache.cassandra.exceptions.AuthenticationException;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -96,6 +98,15 @@ public class PasswordAuthenticator implements IAuthenticator, AuthCache.BulkLoad
     {
         return () ->
         {
+            if (!RangeCommands.sufficientLiveNodesForSelectStar(AuthKeyspace.metadata().tables.getNullable(AuthKeyspace.ROLES),
+                                                                AuthProperties.instance.getReadConsistencyLevel()))
+            {
+                // Prevent running the query we know will fail so as not to increment unavailable stats for a performance
+                // optimization
+                throw new RuntimeException("insufficient live nodes for " + AuthProperties.instance.getReadConsistencyLevel() +
+                                           "pre-warm query against system_auth.roles");
+            }
+
             Map<String, String> entries = new HashMap<>();
 
             logger.info("Pre-warming credentials cache from roles table");
