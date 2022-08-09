@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.schema;
 
+import java.util.concurrent.TimeUnit;
+
 import org.apache.cassandra.cql3.statements.schema.CreateTableStatement;
 
 public class CIEInternalLocalKeyspace
@@ -38,6 +40,7 @@ public class CIEInternalLocalKeyspace
                 + "column1 blob,"
                 + "value blob,"
                 + "PRIMARY KEY((key), column1))")
+        .memtableFlushPeriod((int) TimeUnit.HOURS.toMillis(1))
         .build();
 
     private static TableMetadata.Builder parse(String tableName, String description, String schema)
