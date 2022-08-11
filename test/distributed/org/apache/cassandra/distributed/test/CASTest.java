@@ -19,6 +19,9 @@
 package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -35,6 +38,11 @@ import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.exceptions.CasWriteTimeoutException;
+import org.apache.cassandra.gms.FailureDetector;
+import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.utils.concurrent.CountDownLatch;
+import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ONE;
@@ -42,6 +50,7 @@ import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
+import static org.apache.cassandra.net.Verb.ECHO_RSP;
 import static org.apache.cassandra.net.Verb.PAXOS2_COMMIT_AND_PREPARE_REQ;
 import static org.apache.cassandra.net.Verb.PAXOS2_PREPARE_REFRESH_REQ;
 import static org.apache.cassandra.net.Verb.PAXOS2_PREPARE_REQ;
@@ -396,6 +405,23 @@ public class CASTest extends CASCommonTestCases
 
         // {1} promises, accepts and commmits on !{3} => {1, 2}
         drop(FOUR_NODES, 1, to(3), to(3), to(3));
+        CountDownLatch haveMarkedNode4Alive = CountDownLatch.newCountDownLatch(1);
+        AtomicBoolean sentFirstPrepares = new AtomicBoolean();
+        FOUR_NODES.filters().verbs(PAXOS2_PREPARE_REQ.id).from(1).to(2).messagesMatching((from, to, msg) -> {
+            if (sentFirstPrepares.getAndSet(true))
+                haveMarkedNode4Alive.awaitUninterruptibly();
+            return false;
+        }).drop();
+
+        // wait until node4 is marked alive on node1 before permitting second round of prepares to be submitted
+        FOUR_NODES.get(1).asyncAcceptsOnInstance((InetSocketAddress socketAddress, Runnable latch) -> {
+            while (!((FailureDetector)FailureDetector.instance).isKnownAndAlive(InetAddressAndPort.getByAddress(socketAddress)))
+            {
+                try { Thread.sleep(10); }
+                catch (InterruptedException e) { throw new UncheckedInterruptedException(e);}
+            }
+            latch.run();
+        }).apply(FOUR_NODES.get(4).broadcastAddress(), haveMarkedNode4Alive::decrement);
         assertRows(FOUR_NODES.coordinator(1).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v2) VALUES (?, 1, 2) IF NOT EXISTS", ONE, pk),
                    row(false, pk, 1, 1, null));
     }
