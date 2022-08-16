@@ -1,7 +1,7 @@
-4.1.0.2
+4.0.3.2
 AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.1.0.1 cie-cassandra-4.1.0
 
-4.1.0.1
+4.1.0.1 -- WARNING - CONFUSING VERSION ORDER - FOLLOWED BY 4.0.3.2 to avoid requiring SBR/SBW rollout to upgrade
 * Revert "rdar://97395764 (Tolerate javadoc build failures on release builds)"
 * rdar://97742254 (Workaround sstable_preemptive_open_interval_in_mb until C17737)
 * fixup! rdar://60088134 p27418044 ENV/CPT Update cassandra yaml closer to prior versions
@@ -12,7 +12,7 @@ AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.1.0.1 cie-cassandra-4.1.0
 * rdar://97015688 (Cannot read from a bootstrapping node while executing SELECT * FROM system_auth.roles WHERE role = cassandra AND () = ()) (#3032) (#3035) (#3036) (#3042)
 * rdar://97395764 (Tolerate javadoc build failures on release builds)
 
-4.1.0.0
+4.1.0.0 -- WARNING - CONFUSING VERSION ORDER superceded by 4.0.3.x series
 * Rebased on OSS 4.1-SNAPSHOT commit f28dd90feb215db85ac2e510c5657a49edd46e12 (#2778)
 * rdar://95038627 (2022w14 Rebase - Cut Release) (#3046)
 * rdar://97015688 (Cannot read from a bootstrapping node while executing SELECT * FROM system_auth.roles WHERE role = cassandra AND () = ()) (#3032) (#3035) (#3036) (#3042)
