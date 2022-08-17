@@ -20,9 +20,10 @@ package org.apache.cassandra.distributed.test;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
 
@@ -39,18 +40,19 @@ import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.exceptions.CasWriteTimeoutException;
 import org.apache.cassandra.gms.FailureDetector;
-import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.IFailureDetectionEventListener;
+import org.apache.cassandra.gms.IFailureDetector;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.utils.concurrent.CountDownLatch;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
+import static java.lang.Thread.currentThread;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ONE;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.QUORUM;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.SERIAL;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
-import static org.apache.cassandra.net.Verb.ECHO_RSP;
 import static org.apache.cassandra.net.Verb.PAXOS2_COMMIT_AND_PREPARE_REQ;
 import static org.apache.cassandra.net.Verb.PAXOS2_PREPARE_REFRESH_REQ;
 import static org.apache.cassandra.net.Verb.PAXOS2_PREPARE_REQ;
@@ -87,7 +89,8 @@ public class CASTest extends CASCommonTestCases
                                                    .set("paxos_variant", "v2")
                                                    .set("write_request_timeout", REQUEST_TIMEOUT)
                                                    .set("cas_contention_timeout", CONTENTION_TIMEOUT)
-                                                   .set("request_timeout", REQUEST_TIMEOUT);
+                                                   .set("request_timeout", REQUEST_TIMEOUT)
+                                                   .set("failure_detector", WrappedFailureDetector.class.getName());
         // TODO: fails with vnode enabled
         THREE_NODES = init(Cluster.build(3).withConfig(conf).withoutVNodes().start());
         FOUR_NODES = init(Cluster.build(4).withConfig(conf).withoutVNodes().start(), 3);
@@ -112,7 +115,8 @@ public class CASTest extends CASCommonTestCases
         {
             for (int j = 1; j <= 4; j++)
             {
-                FOUR_NODES.get(i).acceptsOnInstance(CASTestBase::addToRingNormal).accept(FOUR_NODES.get(j));
+                FOUR_NODES.get(i).acceptOnInstance(CASTestBase::addToRingNormal, FOUR_NODES.get(j));
+                FOUR_NODES.get(i).runOnInstance(() -> WrappedFailureDetector.setIsAlive(IFailureDetector::isAlive));
             }
         }
     }
@@ -403,19 +407,30 @@ public class CASTest extends CASCommonTestCases
         assertRows(FOUR_NODES.coordinator(4).execute("INSERT INTO " + KEYSPACE + "." + tableName + " (pk, ck, v1) VALUES (?, 1, 1) IF NOT EXISTS", ONE, pk),
                    row(true));
 
+        FOUR_NODES.get(1).runOnInstance(() -> WrappedFailureDetector.setIsAlive(FailureDetector::isKnownAndAlive));
+
         // {1} promises, accepts and commmits on !{3} => {1, 2}
         drop(FOUR_NODES, 1, to(3), to(3), to(3));
         CountDownLatch haveMarkedNode4Alive = CountDownLatch.newCountDownLatch(1);
         AtomicBoolean sentFirstPrepares = new AtomicBoolean();
         FOUR_NODES.filters().verbs(PAXOS2_PREPARE_REQ.id).from(1).to(2).messagesMatching((from, to, msg) -> {
-            if (sentFirstPrepares.getAndSet(true))
-                haveMarkedNode4Alive.awaitUninterruptibly();
+            if (!sentFirstPrepares.getAndSet(true))
+            {
+                FOUR_NODES.get(1).acceptOnInstance((Runnable latch) -> {
+                    WrappedFailureDetector.setIsAlive((detector, ep) -> {   // wait to collect new participants until we have marked node4 alive
+                        if (Arrays.stream(currentThread().getStackTrace()).anyMatch(ste -> ste.getClassName().endsWith("Paxos$Participants"))
+                            && Arrays.stream(currentThread().getStackTrace()).noneMatch(ste -> ste.getClassName().endsWith("Gossiper")))
+                            latch.run();
+                        return detector.isKnownAndAlive(ep);
+                    });
+                }, haveMarkedNode4Alive::awaitUninterruptibly);
+            }
             return false;
         }).drop();
 
         // wait until node4 is marked alive on node1 before permitting second round of prepares to be submitted
         FOUR_NODES.get(1).asyncAcceptsOnInstance((InetSocketAddress socketAddress, Runnable latch) -> {
-            while (!((FailureDetector)FailureDetector.instance).isKnownAndAlive(InetAddressAndPort.getByAddress(socketAddress)))
+            while (!FailureDetector.instance.isAlive(InetAddressAndPort.getByAddress(socketAddress)))
             {
                 try { Thread.sleep(10); }
                 catch (InterruptedException e) { throw new UncheckedInterruptedException(e);}
@@ -713,4 +728,62 @@ public class CASTest extends CASCommonTestCases
     {
         return THREE_NODES;
     }
+
+    public static class WrappedFailureDetector implements IFailureDetector
+    {
+        static FailureDetector wrapped = new FailureDetector();
+        static volatile BiPredicate<FailureDetector, InetAddressAndPort> isAlive = IFailureDetector::isAlive;
+
+        static void setIsAlive(BiPredicate<FailureDetector, InetAddressAndPort> newIsAlive)
+        {
+            isAlive = newIsAlive;
+        }
+
+        public WrappedFailureDetector()
+        {
+        }
+
+        @Override
+        public boolean isAlive(InetAddressAndPort ep)
+        {
+            return isAlive.test(wrapped, ep);
+        }
+
+        @Override
+        public void interpret(InetAddressAndPort ep)
+        {
+            wrapped.interpret(ep);
+        }
+
+        @Override
+        public void report(InetAddressAndPort ep)
+        {
+            wrapped.report(ep);
+        }
+
+        @Override
+        public void remove(InetAddressAndPort ep)
+        {
+            wrapped.remove(ep);
+        }
+
+        @Override
+        public void forceConviction(InetAddressAndPort ep)
+        {
+            wrapped.forceConviction(ep);
+        }
+
+        @Override
+        public void registerFailureDetectionEventListener(IFailureDetectionEventListener listener)
+        {
+            wrapped.registerFailureDetectionEventListener(listener);
+        }
+
+        @Override
+        public void unregisterFailureDetectionEventListener(IFailureDetectionEventListener listener)
+        {
+            wrapped.unregisterFailureDetectionEventListener(listener);
+        }
+    }
+
 }
