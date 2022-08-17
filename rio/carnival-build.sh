@@ -15,7 +15,7 @@ BUILD_VERSION="$3"
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
 ant -f rio-build.xml realclean
-ant -f rio-build.xml -Drelease=true -Dbase.version="$VERSION" clean artifacts
+ant -f rio-build.xml -Drelease=true -Dbase.version="$VERSION" -Dno-javadoc=true artifacts
 
 DIST_DIR=.carnival
 
