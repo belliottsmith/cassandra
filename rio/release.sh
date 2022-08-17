@@ -45,7 +45,8 @@ mkdir -p "${GROUP_DIR}/cassandra-all/${VERSION}"
 cp "build/cie-cassandra-${VERSION}.jar" "${GROUP_DIR}/cassandra-all/${VERSION}/cassandra-all-${VERSION}.jar"
 cp "build/cie-cassandra-${VERSION}.pom" "${GROUP_DIR}/cassandra-all/${VERSION}/cassandra-all-${VERSION}.pom"
 cp "build/cie-cassandra-${VERSION}-sources.jar" "${GROUP_DIR}/cassandra-all/${VERSION}/cassandra-all-${VERSION}-sources.jar"
-cp "build/cie-cassandra-${VERSION}-javadoc.jar" "${GROUP_DIR}/cassandra-all/${VERSION}/cassandra-all-${VERSION}-javadoc.jar"
+# javadoc build may fail
+cp "build/cie-cassandra-${VERSION}-javadoc.jar" "${GROUP_DIR}/cassandra-all/${VERSION}/cassandra-all-${VERSION}-javadoc.jar" || true
 cp "build/dtest-${VERSION}.jar" "${GROUP_DIR}/cassandra-all/${VERSION}/dtest-${VERSION}.jar"
 
 # Cassandra artifact
