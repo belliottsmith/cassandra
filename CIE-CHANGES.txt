@@ -1,3 +1,6 @@
+4.0.3.3
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.2 cie-cassandra-4.0.3
+
 4.0.3.2
 * rdar://93174400 Create lastRepairSuccess endpoint alternative for content
 * Read/Write/Truncate throw RequestFailure in a race condition with callback timeouts, should return Timeout instead (#3103)
