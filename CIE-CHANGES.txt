@@ -1,5 +1,16 @@
 4.0.3.2
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.1.0.1 cie-cassandra-4.1.0
+* rdar://93174400 Create lastRepairSuccess endpoint alternative for content
+* Read/Write/Truncate throw RequestFailure in a race condition with callback timeouts, should return Timeout instead (#3103)
+* NPE in org.apache.cassandra.cql3.Attributes.getTimeToLive (#3096) (#3101)
+* fixup! rdar://98784266 (4.x: Release fails if flaky javadoc jar cannot be copied to .dist)
+* fixup! rdar://98784266 (4.x: Release fails if flaky javadoc jar cannot be copied to .dist)
+* rdar://98784266 (4.x: Release fails if flaky javadoc jar cannot be copied to .dist)
+* rdar://98748273 (Rename 4.1.0 branch to 4.0.3 branch)
+* rdar://98347086 (Skip auth cache pre-warming if system_auth unavailable)
+* fixup! rdar://60088195 p20233447 ENV/INF Create health check table for C* Mgr to update
+* rdar://98136639 CASSANDRA-17801 (Outbound streaming failed after race with repair) (#3079) (#3081)
+* rdar://97559009 When doing a host replacement, -Dcassandra.broadcast_interval_ms is used to know when to check the ring but checks that the ring wasnt changed in -Dcassandra.ring_delay_ms, changes to ring delay should not depend on when we publish load stats (#3070) (#3076) (#3077) (#3080)
+* rdar://97385569 (4.0.0.54: Failed sanity check assertion in buildCompactionCandidatesForAvailableDiskSpace) (#3074)
 
 4.1.0.1 -- WARNING - CONFUSING VERSION ORDER - FOLLOWED BY 4.0.3.2 to avoid requiring SBR/SBW rollout to upgrade
 * Revert "rdar://97395764 (Tolerate javadoc build failures on release builds)"
