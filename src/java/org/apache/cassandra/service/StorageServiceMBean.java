@@ -896,6 +896,9 @@ public interface StorageServiceMBean extends NotificationEmitter
     /** Sets the hinted handoff throttle in KiB per second, per delivery thread. */
     public void setHintedHandoffThrottleInKB(int throttleInKB);
 
+    public boolean getTransferHintsOnDecommission();
+    public void setTransferHintsOnDecommission(boolean enabled);
+
     /**
      * Resume bootstrap streaming when there is failed data streaming.
      *
