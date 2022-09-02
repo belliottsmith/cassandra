@@ -18,28 +18,28 @@
 
 package org.apache.cassandra.distributed.test;
 
-import org.apache.cassandra.distributed.action.GossipHelper;
-import org.apache.cassandra.distributed.api.TokenSupplier;
-import org.apache.cassandra.distributed.shared.NetworkTopology;
-
-import org.junit.Ignore;
+import org.awaitility.Awaitility;
 import org.junit.Test;
 
 import org.apache.cassandra.distributed.Cluster;
+import org.apache.cassandra.distributed.action.GossipHelper;
+import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.TokenSupplier;
+import org.apache.cassandra.distributed.shared.NetworkTopology;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.service.StorageService;
 
-import static java.util.concurrent.TimeUnit.*;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.awaitility.Awaitility.await;
+import static org.junit.Assert.assertEquals;
+
 import static org.apache.cassandra.distributed.action.GossipHelper.decommission;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.NATIVE_PROTOCOL;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;
 import static org.apache.cassandra.distributed.shared.AssertUtils.assertRows;
 import static org.apache.cassandra.distributed.shared.AssertUtils.row;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
-import static org.awaitility.Awaitility.*;
-import static org.junit.Assert.assertEquals;
 
 /**
  * Tests around removing and adding nodes from and to a cluster while hints are still outstanding.
@@ -48,10 +48,7 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
 {
     /**
      * Replaces Python dtest {@code hintedhandoff_test.py:TestHintedHandoff.test_hintedhandoff_decom()}.
-     * Ignored for now as there is some in-jvm bug which needs to be fixed, otherwise the test is flaky
-     * For more information see CASSANDRA-16679
      */
-    @Ignore
     @Test
     public void shouldStreamHintsDuringDecommission() throws Exception
     {
@@ -66,9 +63,10 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
             
             // Write data using the second node as the coordinator...
             populate(cluster, "decom_hint_test", 2, 0, 128, ConsistencyLevel.ONE);
-            Long totalHints = countTotalHints(cluster);
+
             // ...and verify that we've accumulated hints intended for node 4, which is down.
-            assertThat(totalHints).isGreaterThan(0);
+            Awaitility.await().until(() -> countTotalHints(cluster.get(2)) > 0);
+            long totalHints = countTotalHints(cluster.get(2));
 
             // Decomision node 1...
             assertEquals(4, endpointsKnownTo(cluster, 2));
@@ -79,7 +77,7 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
             
             // Start node 4 back up and verify that all hints were delivered.
             cluster.get(4).startup();
-            await().atMost(30, SECONDS).pollDelay(3, SECONDS).until(() -> count(cluster, "decom_hint_test", 4).equals(totalHints));
+            await().atMost(30, SECONDS).pollDelay(3, SECONDS).until(() -> count(cluster, "decom_hint_test", 4) >= totalHints);
 
             // Now decommission both nodes 2 and 3...
             cluster.run(GossipHelper.decommission(true), 2);
@@ -90,7 +88,6 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
         }
     }
 
-    @Ignore
     @Test
     public void shouldBootstrapWithHintsOutstanding() throws Exception
     {
@@ -107,9 +104,10 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
 
             // Write data using the second node as the coordinator...
             populate(cluster, "boot_hint_test", 2, 0, 128, ConsistencyLevel.ONE);
-            Long totalHints = countTotalHints(cluster);
+
             // ...and verify that we've accumulated hints intended for node 3, which is down.
-            assertThat(totalHints).isGreaterThan(0);
+            Awaitility.await().until(() -> countTotalHints(cluster.get(2)) > 0);
+            long totalHints = countTotalHints(cluster.get(2));
 
             // Bootstrap a new/4th node into the cluster...
             bootstrapAndJoinNode(cluster);
@@ -119,16 +117,16 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
 
             // Finally, bring node 3 back up and verify that all hints were delivered.
             cluster.get(3).startup();
-            await().atMost(30, SECONDS).pollDelay(3, SECONDS).until(() -> count(cluster, "boot_hint_test", 3).equals(totalHints));
+            await().atMost(30, SECONDS).pollDelay(3, SECONDS).until(() -> count(cluster, "boot_hint_test", 3) >= totalHints);
             verify(cluster, "boot_hint_test", 3, 0, 128, ConsistencyLevel.ONE);
             verify(cluster, "boot_hint_test", 3, 0, 128, ConsistencyLevel.TWO);
         }
     }
 
     @SuppressWarnings("Convert2MethodRef")
-    private Long countTotalHints(Cluster cluster)
+    private long countTotalHints(IInvokableInstance instance)
     {
-        return cluster.get(2).callOnInstance(() -> StorageMetrics.totalHints.getCount());
+        return instance.callOnInstance(() -> StorageMetrics.totalHints.getCount());
     }
 
     @SuppressWarnings("SameParameterValue")
@@ -150,7 +148,7 @@ public class HintedHandoffAddRemoveNodesTest extends TestBaseImpl
         }
     }
 
-    private Long count(Cluster cluster, String table, int node)
+    private long count(Cluster cluster, String table, int node)
     {
         return (Long) cluster.get(node).executeInternal("SELECT COUNT(*) FROM " + KEYSPACE + '.' + table)[0][0];
     }
