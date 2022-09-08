@@ -20,6 +20,7 @@ package org.apache.cassandra.simulator.paxos;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -27,11 +28,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.LongSupplier;
 import java.util.stream.StreamSupport;
 
+import com.google.common.collect.Iterators;
 import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.coordinate.Preempted;
+import accord.txn.Txn;
 import org.apache.cassandra.cql3.statements.SelectStatement;
+import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.distributed.Cluster;
@@ -39,6 +44,7 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.QueryResults;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTxnBuilder;
@@ -150,10 +156,48 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         }
         catch (ExecutionException e)
         {
-            if (e.getCause() instanceof Preempted && allowPreempted)
+            if (e.getCause() instanceof Preempted)
                 return null;
             throw new AssertionError(e);
         }
+    }
+
+    private static void append(TableMetadata metadata, ByteBuffer[] keyComponents, Row row, QueryResults.Builder builder)
+    {
+        Object[] buffer = new Object[Iterators.size(metadata.allColumnsInSelectOrder())];
+        Clustering<?> clustering = row.clustering();
+        Iterator<ColumnMetadata> it = metadata.allColumnsInSelectOrder();
+        int idx = 0;
+        while (it.hasNext())
+        {
+            ColumnMetadata column = it.next();
+            switch (column.kind)
+            {
+                case PARTITION_KEY:
+                    buffer[idx++] = column.type.compose(keyComponents[column.position()]);
+                    break;
+                case CLUSTERING:
+                    buffer[idx++] = column.type.compose(clustering.bufferAt(column.position()));
+                    break;
+                case REGULAR:
+                {
+                    if (column.isComplex())
+                    {
+                        throw new UnsupportedOperationException("Ill implement complex later..");
+                    }
+                    else
+                    {
+                        //TODO deletes
+                        buffer[idx++] = column.type.compose(row.getCell(column).buffer());
+                    }
+                }
+                break;
+//                case STATIC:
+                default:
+                    throw new IllegalArgumentException("Unsupported kind: " + column.kind);
+            }
+        }
+        builder.row(buffer);
     }
 
     class NonVerifyingOperation extends Operation
