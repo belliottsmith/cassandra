@@ -73,7 +73,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         final HistoryChecker historyChecker;
         public VerifyingOperation(int id, IInvokableInstance instance, ConsistencyLevel consistencyLevel, int primaryKey, HistoryChecker historyChecker)
         {
-            super(primaryKey, id, instance, "SELECT", SELECT, consistencyLevel, null, primaryKey);
+            super(primaryKey, id, instance, "SELECT", read(primaryKey));
             this.historyChecker = historyChecker;
         }
 
@@ -217,7 +217,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         final HistoryChecker historyChecker;
         public ModifyingOperation(int id, IInvokableInstance instance, ConsistencyLevel commitConsistency, ConsistencyLevel serialConsistency, int primaryKey, HistoryChecker historyChecker)
         {
-            super(primaryKey, id, instance, "UPDATE", UPDATE, commitConsistency, serialConsistency, id + ",", ByteBufferUtil.getArray(LIST_TYPE.decompose(singletonList(id))), primaryKey);
+            super(primaryKey, id, instance, "UPDATE", write(primaryKey));
             this.historyChecker = historyChecker;
         }
 
