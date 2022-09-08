@@ -18,19 +18,34 @@
 
 package org.apache.cassandra.simulator.paxos;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.concurrent.ExecutionException;
 import java.util.function.LongSupplier;
+import java.util.stream.StreamSupport;
 
+import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.cql3.statements.SelectStatement;
+import org.apache.cassandra.db.partitions.FilteredPartition;
+import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
+import org.apache.cassandra.distributed.api.IIsolatedExecutor;
+import org.apache.cassandra.distributed.api.QueryResults;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.AccordTxnBuilder;
+import org.apache.cassandra.service.accord.db.AccordData;
+import org.apache.cassandra.simulator.Debug;
 import org.apache.cassandra.simulator.RunnableActionScheduler;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
-import org.apache.cassandra.simulator.Debug;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
 import org.apache.cassandra.simulator.utils.IntRange;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -41,10 +56,11 @@ import static java.util.Collections.singletonList;
 import static org.apache.cassandra.distributed.api.ConsistencyLevel.ANY;
 import static org.apache.cassandra.simulator.paxos.HistoryChecker.fail;
 
+// TODO: the class hierarchy is a bit broken, but hard to untangle. Need to go Paxos->Consensus, probably.
 @SuppressWarnings("unused")
-public class PairOfSequencesPaxosSimulation extends AbstractPairOfSequencesPaxosSimulation
+public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxosSimulation
 {
-    private static final Logger logger = LoggerFactory.getLogger(PairOfSequencesPaxosSimulation.class);
+    private static final Logger logger = LoggerFactory.getLogger(PairOfSequencesAccordSimulation.class);
 
     class VerifyingOperation extends Operation
     {
@@ -85,6 +101,61 @@ public class PairOfSequencesPaxosSimulation extends AbstractPairOfSequencesPaxos
         }
     }
 
+    private static IIsolatedExecutor.SerializableCallable<Object[][]> read(int primaryKey)
+    {
+        return () -> {
+            AccordTxnBuilder builder = new AccordTxnBuilder();
+            builder.withRead(SELECT, primaryKey);
+            return execute(builder.build());
+        };
+    }
+
+    private static IIsolatedExecutor.SerializableCallable<Object[][]> write(int primaryKey)
+    {
+        return () -> {
+            AccordTxnBuilder builder = new AccordTxnBuilder();
+            builder.withWrite(UPDATE, primaryKey);
+            return execute(builder.build());
+        };
+    }
+
+    private static Object[][] execute(Txn txn)
+    {
+        try
+        {
+            AccordData result = (AccordData) AccordService.instance.node.coordinate(txn).get();
+            Assert.assertNotNull(result);
+            QueryResults.Builder builder = QueryResults.builder();
+            boolean addedHeader = false;
+            for (FilteredPartition partition : result)
+            {
+                //TODO lot of this is copy/paste from SelectStatement...
+                TableMetadata metadata = partition.metadata();
+                if (!addedHeader)
+                {
+                    builder.columns(StreamSupport.stream(Spliterators.spliteratorUnknownSize(metadata.allColumnsInSelectOrder(), Spliterator.ORDERED), false)
+                                                 .map(cm -> cm.name.toString())
+                                                 .toArray(String[]::new));
+                    addedHeader = true;
+                }
+                ByteBuffer[] keyComponents = SelectStatement.getComponents(metadata, partition.partitionKey());
+                for (Row row : partition)
+                    append(metadata, keyComponents, row, builder);
+            }
+            return builder.build().toObjectArrays();
+        }
+        catch (InterruptedException e)
+        {
+            throw new AssertionError(e);
+        }
+        catch (ExecutionException e)
+        {
+            if (e.getCause() instanceof Preempted && allowPreempted)
+                return null;
+            throw new AssertionError(e);
+        }
+    }
+
     class NonVerifyingOperation extends Operation
     {
         public NonVerifyingOperation(int id, IInvokableInstance instance, ConsistencyLevel consistencyLevel, int primaryKey, HistoryChecker historyChecker)
@@ -120,14 +191,14 @@ public class PairOfSequencesPaxosSimulation extends AbstractPairOfSequencesPaxos
         }
     }
 
-    public PairOfSequencesPaxosSimulation(SimulatedSystems simulated,
-                                          Cluster cluster,
-                                          ClusterActions.Options clusterOptions,
-                                          float readRatio,
-                                          int concurrency, IntRange simulateKeyForSeconds, IntRange withinKeyConcurrency,
-                                          ConsistencyLevel serialConsistency, RunnableActionScheduler scheduler, Debug debug,
-                                          long seed, int[] primaryKeys,
-                                          long runForNanos, LongSupplier jitter)
+    public PairOfSequencesAccordSimulation(SimulatedSystems simulated,
+                                           Cluster cluster,
+                                           ClusterActions.Options clusterOptions,
+                                           float readRatio,
+                                           int concurrency, IntRange simulateKeyForSeconds, IntRange withinKeyConcurrency,
+                                           ConsistencyLevel serialConsistency, RunnableActionScheduler scheduler, Debug debug,
+                                           long seed, int[] primaryKeys,
+                                           long runForNanos, LongSupplier jitter)
     {
         super(simulated, cluster, clusterOptions,
               readRatio, concurrency, simulateKeyForSeconds, withinKeyConcurrency,
