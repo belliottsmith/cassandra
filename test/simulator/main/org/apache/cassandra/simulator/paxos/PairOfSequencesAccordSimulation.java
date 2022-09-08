@@ -19,6 +19,7 @@
 package org.apache.cassandra.simulator.paxos;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -34,16 +35,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.coordinate.Preempted;
+import accord.coordinate.Timeout;
 import accord.txn.Txn;
+import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.partitions.FilteredPartition;
+import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.api.QueryResults;
+import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordService;
@@ -54,7 +60,6 @@ import org.apache.cassandra.simulator.RunnableActionScheduler;
 import org.apache.cassandra.simulator.cluster.ClusterActions;
 import org.apache.cassandra.simulator.systems.SimulatedSystems;
 import org.apache.cassandra.simulator.utils.IntRange;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static java.lang.Boolean.TRUE;
 import static java.util.Collections.emptyList;
@@ -112,7 +117,8 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         return () -> {
             AccordTxnBuilder builder = new AccordTxnBuilder();
             builder.withRead(SELECT, primaryKey);
-            return execute(builder.build());
+            // TODO (now): support complex columns
+            return execute(builder.build(), "pk", "count", "seq1", "seq2");
         };
     }
 
@@ -125,7 +131,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         };
     }
 
-    private static Object[][] execute(Txn txn)
+    private static Object[][] execute(Txn txn, String ... columns)
     {
         try
         {
@@ -139,14 +145,12 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
                 TableMetadata metadata = partition.metadata();
                 if (!addedHeader)
                 {
-                    builder.columns(StreamSupport.stream(Spliterators.spliteratorUnknownSize(metadata.allColumnsInSelectOrder(), Spliterator.ORDERED), false)
-                                                 .map(cm -> cm.name.toString())
-                                                 .toArray(String[]::new));
+                    builder.columns(columns);
                     addedHeader = true;
                 }
                 ByteBuffer[] keyComponents = SelectStatement.getComponents(metadata, partition.partitionKey());
                 for (Row row : partition)
-                    append(metadata, keyComponents, row, builder);
+                    append(metadata, keyComponents, row, builder, columns);
             }
             return builder.build().toObjectArrays();
         }
@@ -158,19 +162,22 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         {
             if (e.getCause() instanceof Preempted)
                 return null;
+            if (e.getCause() instanceof Timeout)
+                return null;
+            if (e.getCause() instanceof RequestTimeoutException)
+                return null;
             throw new AssertionError(e);
         }
     }
 
-    private static void append(TableMetadata metadata, ByteBuffer[] keyComponents, Row row, QueryResults.Builder builder)
+    private static void append(TableMetadata metadata, ByteBuffer[] keyComponents, Row row, QueryResults.Builder builder, String[] columnNames)
     {
-        Object[] buffer = new Object[Iterators.size(metadata.allColumnsInSelectOrder())];
+        Object[] buffer = new Object[columnNames.length];
         Clustering<?> clustering = row.clustering();
-        Iterator<ColumnMetadata> it = metadata.allColumnsInSelectOrder();
         int idx = 0;
-        while (it.hasNext())
+        for (String columnName : columnNames)
         {
-            ColumnMetadata column = it.next();
+            ColumnMetadata column = metadata.getColumn(new ColumnIdentifier(columnName, true));
             switch (column.kind)
             {
                 case PARTITION_KEY:
@@ -183,7 +190,18 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
                 {
                     if (column.isComplex())
                     {
-                        throw new UnsupportedOperationException("Ill implement complex later..");
+                        ComplexColumnData data = row.getComplexColumnData(column);
+                        if (data == null)
+                        {
+                            buffer[idx++] = new ArrayList<>();
+                        }
+                        else
+                        {
+                            List<Object> result = new ArrayList<>(data.cellsCount());
+                            for (Cell cell : data)
+                                result.add(column.cellValueType().compose(cell.buffer()));
+                            buffer[idx++] = result;
+                        }
                     }
                     else
                     {
@@ -204,7 +222,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
     {
         public NonVerifyingOperation(int id, IInvokableInstance instance, ConsistencyLevel consistencyLevel, int primaryKey, HistoryChecker historyChecker)
         {
-            super(primaryKey, id, instance, "SELECT", SELECT, consistencyLevel, null, primaryKey);
+            super(primaryKey, id, instance, "SELECT", read(primaryKey));
         }
 
         void verify(Observation outcome)
