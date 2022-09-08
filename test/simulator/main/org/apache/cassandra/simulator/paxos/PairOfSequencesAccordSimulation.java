@@ -116,11 +116,11 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         };
     }
 
-    private static IIsolatedExecutor.SerializableCallable<Object[][]> write(int primaryKey)
+    private static IIsolatedExecutor.SerializableCallable<Object[][]> write(int id, int primaryKey)
     {
         return () -> {
             AccordTxnBuilder builder = new AccordTxnBuilder();
-            builder.withWrite(UPDATE, primaryKey);
+            builder.withWrite(UPDATE, id + ",", singletonList(id), primaryKey);
             return execute(builder.build());
         };
     }
@@ -217,7 +217,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
         final HistoryChecker historyChecker;
         public ModifyingOperation(int id, IInvokableInstance instance, ConsistencyLevel commitConsistency, ConsistencyLevel serialConsistency, int primaryKey, HistoryChecker historyChecker)
         {
-            super(primaryKey, id, instance, "UPDATE", write(primaryKey));
+            super(primaryKey, id, instance, "UPDATE", write(id, primaryKey));
             this.historyChecker = historyChecker;
         }
 
