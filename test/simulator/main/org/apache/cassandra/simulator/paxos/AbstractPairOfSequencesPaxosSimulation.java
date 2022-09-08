@@ -38,6 +38,7 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.distributed.impl.Instance;
+import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 import org.apache.cassandra.simulator.ActionListener;
@@ -124,6 +125,16 @@ abstract class AbstractPairOfSequencesPaxosSimulation extends PaxosSimulation
         plan = plan.encapsulate(ActionPlan.setUpTearDown(
             ActionList.of(
                 cluster.stream().map(i -> simulated.run("Insert Partitions", i, executeForPrimaryKeys(INSERT1, primaryKeys)))
+            ).andThen(
+                // TODO (now): this is temporary until we have correct epoch handling
+                ActionList.of(
+                    cluster.stream().map(i -> simulated.run("Create Accord Epoch", i, () -> AccordService.instance.createEpochFromConfigUnsafe()))
+                )
+//            ).andThen(
+//                // TODO (now): this is temporary until we have parameterisation of simulation
+//                ActionList.of(
+//                    cluster.stream().map(i -> simulated.run("Disable Accord Cache", i, () -> AccordService.instance.setCacheSize(0)))
+//                )
             ),
             ActionList.of(
                 cluster.stream().map(i -> SimulatedActionTask.unsafeTask("Shutdown " + i.broadcastAddress(), RELIABLE, RELIABLE_NO_TIMEOUTS, simulated, i, i::shutdown))
