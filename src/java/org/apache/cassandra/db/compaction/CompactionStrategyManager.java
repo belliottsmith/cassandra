@@ -495,9 +495,8 @@ public class CompactionStrategyManager implements INotificationConsumer
         writeLock.lock();
         try
         {
-            if (!currentBoundaries.isOutOfDate())
-                return;
-            reload(params);
+            if (currentBoundaries.isOutOfDate())
+                reload(params);
         }
         finally
         {
@@ -524,8 +523,25 @@ public class CompactionStrategyManager implements INotificationConsumer
                 logger.debug("Recreating compaction strategy - disk boundaries are out of date for {}.{}.", cfs.keyspace.getName(), cfs.getTableName());
         }
 
+        boolean needsDiskBoundaryReload = true;
+        boolean needsCompactionParamReload = true;
+
         if (currentBoundaries == null || currentBoundaries.isOutOfDate())
+        {
+            DiskBoundaries oldBoundaries = currentBoundaries;
             currentBoundaries = boundariesSupplier.get();
+            if (currentBoundaries != null && oldBoundaries != null && currentBoundaries.isEquivalent(oldBoundaries))
+                needsDiskBoundaryReload = false;
+        }
+
+        if (newCompactionParams.equals(params))
+            needsCompactionParamReload = false;
+
+        if (!needsDiskBoundaryReload && !needsCompactionParamReload)
+        {
+            logger.debug("Not reloading compaction strategies, disk boundaries equivalent and compaction params equal");
+            return;
+        }
 
         setStrategy(newCompactionParams);
         schemaCompactionParams = cfs.metadata().params.compaction;
