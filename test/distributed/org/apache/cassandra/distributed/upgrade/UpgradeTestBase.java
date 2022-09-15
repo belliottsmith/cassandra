@@ -102,12 +102,12 @@ public class UpgradeTestBase extends DistributedTestBase
     public static final Semver v4_0_0_30 = new Semver("4.0.0.30", SemverType.LOOSE);
     // ACI Cassandra stuck at 4.0 even though tracking trunk with version 4.1
     public static final Semver v40 = new Semver("4.0.0.31", SemverType.LOOSE);
-    public static final Semver v41 = new Semver("4.1-alpha1", SemverType.LOOSE);
+    public static final Semver v403 = new Semver("4.0.3.0", SemverType.LOOSE);
 
     protected static final List<Pair<Semver,Semver>> SUPPORTED_UPGRADE_PATHS = ImmutableList.of(
         Pair.create(v30, v40),
-        Pair.create(v30, v41),
-        Pair.create(v40, v41));
+        Pair.create(v30, v403),
+        Pair.create(v40, v403));
 
     // the last is always the current
     public static final Semver CURRENT = SUPPORTED_UPGRADE_PATHS.get(SUPPORTED_UPGRADE_PATHS.size() - 1).right;
