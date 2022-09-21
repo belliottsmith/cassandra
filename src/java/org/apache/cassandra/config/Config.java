@@ -1187,6 +1187,14 @@ public class Config
         return ImmutableSet.copyOf(value.split(","));
     }
 
+    /**
+     * In AODC we have multiple instances on the same physical host, and when we do a host replacement all instances get
+     * replaced, this can cause issues where 1 or more of those instances have a schema disagreement with the rest of
+     * the cluster, causing the new nodes to fail to come up do to
+     * @see <a href="rdar://95209681">Host replacement failing waiting on schema of host to be replaced</a>
+     */
+    public boolean host_replacement_filter_same_rack_enabled = false;
+
     public static Supplier<Config> getOverrideLoadConfig()
     {
         return overrideLoadConfig;
