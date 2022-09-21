@@ -4892,4 +4892,9 @@ public class DatabaseDescriptor
     {
         return conf.host_replacement_allow_status;
     }
+
+    public static boolean getHostReplacementFilterSameRackEnabled()
+    {
+        return conf.host_replacement_filter_same_rack_enabled;
+    }
 }
