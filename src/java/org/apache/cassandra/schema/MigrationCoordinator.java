@@ -40,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -53,12 +54,14 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.FutureTask;
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
@@ -160,6 +163,18 @@ public class MigrationCoordinator
         return endpoints;
     }
 
+    private static Predicate<InetAddressAndPort> getIgnorePredicate(Set<InetAddressAndPort> ignoredEndpoints)
+    {
+        Predicate<InetAddressAndPort> test = ignoredEndpoints::contains;
+        if (DatabaseDescriptor.getHostReplacementFilterSameRackEnabled() && DatabaseDescriptor.getReplaceAddress() != null)
+        {
+            IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
+            String filterRack = snitch.getRack(DatabaseDescriptor.getReplaceAddress());
+            test = test.or(address -> filterRack.equals(snitch.getRack(address)));
+        }
+        return test;
+    }
+
     static class VersionInfo
     {
         final UUID version;
@@ -227,6 +242,8 @@ public class MigrationCoordinator
     private final Map<UUID, VersionInfo> versionInfo = new HashMap<>();
     private final Map<InetAddressAndPort, UUID> endpointVersions = new HashMap<>();
     private final Set<InetAddressAndPort> ignoredEndpoints = getIgnoredEndpoints();
+    private final Predicate<InetAddressAndPort> ignorePredicate = getIgnorePredicate(ignoredEndpoints);
+
     private final ScheduledExecutorService periodicCheckExecutor;
     private final ScheduledExecutorService nonPeriodicExecutor;
     private final MessagingService messagingService;
@@ -440,8 +457,9 @@ public class MigrationCoordinator
     synchronized Future<Void> reportEndpointVersion(InetAddressAndPort endpoint, UUID version)
     {
         logger.debug("Reported schema {} at endpoint {}", version, endpoint);
-        if (ignoredEndpoints.contains(endpoint) || IGNORED_VERSIONS.contains(version))
+        if (ignorePredicate.test(endpoint) || IGNORED_VERSIONS.contains(version))
         {
+            logger.info("Excluding {} due to ignore filter", endpoint);
             endpointVersions.remove(endpoint);
             removeEndpointFromVersion(endpoint, null);
             logger.debug("Discarding endpoint {} or schema {} because either endpoint or schema version were marked as ignored", endpoint, version);
