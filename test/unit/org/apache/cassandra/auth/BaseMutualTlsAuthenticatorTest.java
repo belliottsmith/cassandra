@@ -127,7 +127,7 @@ public class BaseMutualTlsAuthenticatorTest
         return InetAddress.getByName("127.0.0.1");
     }
 
-    static Certificate[] loadCertificateChain(final String path) throws CertificateException
+    public static Certificate[] loadCertificateChain(final String path) throws CertificateException
     {
         final InputStream inputStreamCorp = MutualTlsAuthenticator.class.getClassLoader().getResourceAsStream(path);
         assertNotNull(inputStreamCorp);

@@ -18,18 +18,24 @@
 
 package org.apache.cassandra.auth;
 
+import java.net.InetAddress;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.apple.aci.cassandra.mtls.CompositeMtlsAuthenticator;
 import com.apple.aci.cassandra.mtls.IdentityType;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * BaseMutualTlsAuthenticator contains most of the common implementation details of {@link MutualTlsInternodeAuthenticator}
@@ -37,6 +43,8 @@ import org.apache.cassandra.config.DatabaseDescriptor;
  */
 class BaseMutualTlsAuthenticator
 {
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 30L, TimeUnit.SECONDS);
     public static final String URN_REGEX = "urn:(%s):((\\S+)\\/(\\S+)\\/)+";
     private static final Pattern PATTERN = getURNRegexPattern();
     protected CompositeMtlsAuthenticator authenticator;
@@ -59,6 +67,25 @@ class BaseMutualTlsAuthenticator
     protected X509Certificate[] castCertsToX509(Certificate[] clientCertificateChain)
     {
         return Arrays.asList(clientCertificateChain).toArray(new X509Certificate[0]);
+    }
+
+    protected boolean authenticateInternodeWithMtls(InetAddress remoteAddress, int remotePort, Certificate[] certificates,
+                                                    IInternodeAuthenticator.InternodeConnectionDirection connectionType)
+    {
+        if (connectionType == IInternodeAuthenticator.InternodeConnectionDirection.INBOUND)
+        {
+            X509Certificate[] castedCerts = castCertsToX509(certificates);
+            if (!authenticator.isAuthorized(castedCerts))
+            {
+                noSpamLogger.error("Unable to authenticate user {}", authenticator.allUsers(castedCerts));
+                return false;
+            }
+            return true;
+        }
+        // Outbound connections don't need to be authenticated again in certificate based connections. SSL handshake
+        // makes sure that we are talking to valid server by checking root certificates of the server in the
+        // truststore of the client.
+        return true;
     }
 
     private boolean isURN(final String urn)

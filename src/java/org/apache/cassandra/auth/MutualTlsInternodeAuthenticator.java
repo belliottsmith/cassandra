@@ -20,15 +20,53 @@ package org.apache.cassandra.auth;
 
 import java.net.InetAddress;
 import java.security.cert.Certificate;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.apple.aci.cassandra.mtls.CompositeMtlsAuthenticator;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.exceptions.ConfigurationException;
 
 /*
  * Performs mTLS authentication for internode connections by extracting identities from outbound certificates
- * and verifying them against the authorized identities in the roles table.
+ * and verifying them against the authorized identities from cassandra.yaml.
+ *
+ * When this Authenticator is used, specify the valid users in the internode_authenticator.parameters.valid_ids
+ *
+ * Example:
+ * internode_authenticator:
+ *   class_name : org.apache.cassandra.auth.MutualTlsInternodeAuthenticator
+ *   parameters :
+ *     valid_ids: trusted_certificate_identity_1,trusted_certificate_identity_2
+ *
  */
 public class MutualTlsInternodeAuthenticator extends BaseMutualTlsAuthenticator implements IInternodeAuthenticator
 {
+    private static final String VALID_IDS_KEY_FOR_MTLS = "valid_ids";
+    private static final Logger logger = LoggerFactory.getLogger(MutualTlsInternodeAuthenticator.class);
+
+    public MutualTlsInternodeAuthenticator(Map<String, String> parameters)
+    {
+        final String validIdsString = parameters.get(VALID_IDS_KEY_FOR_MTLS);
+        if (validIdsString == null || validIdsString.isEmpty())
+        {
+            final String message = "No valid clientIds in internode_authenticator.parameters.valid_ids, no internode clients will be trusted";
+            logger.error(message);
+            throw new ConfigurationException(message);
+        }
+        List<String> urns = Arrays.asList(validIdsString.split(","));
+
+        logger.info("Creating internode authenticator with urns {}", urns);
+        authenticator = new CompositeMtlsAuthenticator.Builder()
+        .withManagementDsidOfRoot(CassandraRelevantProperties.MANAGEMENT_DSID_OF_ROOT.getString())
+        .withAuthorizedURNS(urns)
+        .build();
+    }
+
     @Override
     public boolean authenticate(InetAddress remoteAddress, int remotePort)
     {
@@ -36,16 +74,9 @@ public class MutualTlsInternodeAuthenticator extends BaseMutualTlsAuthenticator 
     }
 
     @Override
-    public boolean authenticate(InetAddress remoteAddress, int remotePort,
-                                Certificate[] certificates, InternodeConnectionDirection connectionType)
+    public boolean authenticate(InetAddress remoteAddress, int remotePort, Certificate[] certificates, InternodeConnectionDirection connectionType)
     {
-        if (connectionType == InternodeConnectionDirection.INBOUND) {
-            return authenticator.isAuthorized(castCertsToX509(certificates));
-        }
-        // Outbound connections don't need to be authenticated again in certificate based connections. SSL handshake
-        // makes sure that we are talking to valid server by checking root certificates of the server in the
-        // truststore of the client.
-        return true;
+        return authenticateInternodeWithMtls(remoteAddress, remotePort, certificates, connectionType);
     }
 
 
@@ -53,11 +84,5 @@ public class MutualTlsInternodeAuthenticator extends BaseMutualTlsAuthenticator 
     public void validateConfiguration() throws ConfigurationException
     {
 
-    }
-
-    @Override
-    public void setupInternode()
-    {
-        super.initializeAuthenticator();
     }
 }
