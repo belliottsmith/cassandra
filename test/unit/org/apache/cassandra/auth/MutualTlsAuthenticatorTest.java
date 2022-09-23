@@ -54,6 +54,7 @@ public class MutualTlsAuthenticatorTest
     @BeforeClass
     public static void setup()
     {
+        System.setProperty("cassandra.config", "cassandra-mtls-backward-compatibility.yaml");
         initializeDB();
     }
 

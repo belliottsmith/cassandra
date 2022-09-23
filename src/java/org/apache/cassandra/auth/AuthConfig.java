@@ -18,11 +18,14 @@
 
 package org.apache.cassandra.auth;
 
+import java.util.Arrays;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -95,7 +98,11 @@ public final class AuthConfig
         // authenticator
 
         if (conf.internode_authenticator != null)
-            DatabaseDescriptor.setInternodeAuthenticator(FBUtilities.construct(conf.internode_authenticator, "internode_authenticator"));
+        {
+            DatabaseDescriptor.setInternodeAuthenticator(ParameterizedClass.newInstance(conf.internode_authenticator,
+                                                                                        Arrays.asList("", AuthConfig.class.getPackage().getName())));
+        }
+
 
         // network authorizer
         INetworkAuthorizer networkAuthorizer = FBUtilities.newNetworkAuthorizer(conf.network_authorizer);

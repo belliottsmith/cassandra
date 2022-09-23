@@ -18,11 +18,13 @@
 
 package org.apache.cassandra.config;
 
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
@@ -31,6 +33,8 @@ import org.apache.cassandra.io.util.File;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 
 public class YamlConfigurationLoaderTest
@@ -114,7 +118,24 @@ public class YamlConfigurationLoaderTest
         assertThat(config.internode_error_reporting_exclusions).isEqualTo(expected);
     }
 
-    private static Config load(String path)
+    @Test
+    public void testBackwardCompatibilityOfInternodeAuthenticatorPropertyAsMap()
+    {
+        final Config config = load("cassandra-mtls.yaml");
+        assertEquals(config.internode_authenticator.class_name, "org.apache.cassandra.auth.MutualTlsInternodeAuthenticator");
+        assertFalse(config.internode_authenticator.parameters.isEmpty());
+        assertEquals(config.internode_authenticator.parameters.get("valid_ids"), "urn:certmanager:idmsGroup/845340");
+    }
+
+    @Test
+    public void testBackwardCompatibilityOfInternodeAuthenticatorPropertyAsString() throws IOException, TimeoutException
+    {
+        final Config config = load("cassandra-mtls-backward-compatibility.yaml");
+        assertEquals(config.internode_authenticator.class_name, "org.apache.cassandra.auth.AllowAllInternodeAuthenticator");
+        assertTrue(config.internode_authenticator.parameters.isEmpty());
+    }
+
+    public static Config load(String path)
     {
         URL url = YamlConfigurationLoaderTest.class.getClassLoader().getResource(path);
         if (url == null)

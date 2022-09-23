@@ -1054,6 +1054,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (DatabaseDescriptor.getDeprecatedReplaceTokens().size() > 0 || DatabaseDescriptor.getDeprecatedReplaceNode() != null)
                 throw new RuntimeException("Replace method removed; use cassandra.replace_address instead");
 
+            DatabaseDescriptor.getInternodeAuthenticator().setupInternode();
             MessagingService.instance().listen();
 
             UUID localHostId = SystemKeyspace.getOrInitializeLocalHostId();
@@ -1326,7 +1327,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
             DatabaseDescriptor.getRoleManager().setup();
             DatabaseDescriptor.getAuthenticator().setup();
-            DatabaseDescriptor.getInternodeAuthenticator().setupInternode();
             DatabaseDescriptor.getAuthorizer().setup();
             DatabaseDescriptor.getNetworkAuthorizer().setup();
             AuthCacheService.initializeAndRegisterCaches();
