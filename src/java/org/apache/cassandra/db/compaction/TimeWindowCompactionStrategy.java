@@ -444,6 +444,19 @@ public class TimeWindowCompactionStrategy extends AbstractCompactionStrategy
         return sstableCountByBuckets;
     }
 
+    /**
+     * TWCS should not group sstables for anticompaction - this can mix new and old data
+     */
+    @Override
+    public Collection<Collection<SSTableReader>> groupSSTablesForAntiCompaction(Collection<SSTableReader> sstablesToGroup)
+    {
+        Collection<Collection<SSTableReader>> groups = new ArrayList<>(sstablesToGroup.size());
+        for (SSTableReader sstable : sstablesToGroup)
+        {
+            groups.add(Collections.singleton(sstable));
+        }
+        return groups;
+    }
 
     public static Map<String, String> validateOptions(Map<String, String> options) throws ConfigurationException
     {
