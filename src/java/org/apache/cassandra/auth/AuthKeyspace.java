@@ -38,7 +38,8 @@ public final class AuthKeyspace
     {
     }
 
-    private static final int DEFAULT_RF = CassandraRelevantProperties.SYSTEM_AUTH_DEFAULT_RF.getInt();
+    private static final int DEFAULT_RF = CassandraRelevantProperties.SYSTEM_AUTH_DEFAULT_RF.getInt(
+        DatabaseDescriptor.getDefaultKeyspaceRF());
 
     /**
      * Generation is used as a timestamp for automatic table creation on startup.
@@ -116,7 +117,7 @@ public final class AuthKeyspace
     public static KeyspaceMetadata metadata()
     {
         return KeyspaceMetadata.create(SchemaConstants.AUTH_KEYSPACE_NAME,
-                                       KeyspaceParams.simple(Math.max(DEFAULT_RF, DatabaseDescriptor.getDefaultKeyspaceRF())),
+                                       KeyspaceParams.simple(DEFAULT_RF),
                                        Tables.of(Roles, RoleMembers, RolePermissions, ResourceRoleIndex, NetworkPermissions));
     }
 }
