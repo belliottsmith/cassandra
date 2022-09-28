@@ -60,5 +60,7 @@ public abstract class AbstractCompactionController implements AutoCloseable
 
     public abstract LongPredicate getPurgeEvaluator(DecoratedKey key);
 
-    public abstract SuccessfulRepairTimeHolder getRepairTimeSnapshot();
+    public SuccessfulRepairTimeHolder getRepairTimeSnapshot() {
+        return SuccessfulRepairTimeHolder.EMPTY;
+    }
 }

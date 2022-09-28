@@ -293,6 +293,7 @@ public class DatabaseDescriptor
         Config.setClientMode(true);
         conf = new Config();
         diskOptimizationStrategy = new SpinningDiskOptimizationStrategy();
+        setChristmasPatchDisabled();
     }
 
     public static boolean isClientInitialized()
