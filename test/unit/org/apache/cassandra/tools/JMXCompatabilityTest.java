@@ -156,7 +156,11 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "ThreadCorrectionDisabled", // backport of CASSANDRA-15059 added disable_thread_correction not present in OSS patch
                                                        "TombstoneCountGCable", // did not forward port <rdar://problem/28066902> Cass: Expired tombstones counted differently in 2.1  a
                                                        "UseStreamCompactionForBootstrap",
-                                                       "UseStreamCompactionForRepair"
+                                                       "UseStreamCompactionForRepair",
+                                                       "DropKeyspaceEnabled",      // replaced by guardrail
+                                                       "DropTruncateTableEnabled", // replaced by guardrail
+                                                       "MinTrackedPartitionSize", // upstreamed without jmx
+                                                       "PreparedStatements" // type change from map to list
                                                        );
         List<String> excludeOperations = Arrays.asList("startRPCServer", "stopRPCServer", // removed in CASSANDRA-11115
                                                        // nodetool apis that were changed,
@@ -181,7 +185,7 @@ public class JMXCompatabilityTest extends CQLTester
                                                        "verify" // have not forward ported [rdar://71055206] Added new tool to validate a SSTable that supports all supported SSTable versions (#2042) (#2137)
         );
 
-        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-3.0.24.36-jmx.yaml");
+        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-3.0.24.44-jmx.yaml");
     }
 
     @Test
@@ -266,16 +270,37 @@ public class JMXCompatabilityTest extends CQLTester
             "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=CrossNodeDroppedLatency",
             "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=Dropped",
             "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_REPAIR_RSP,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_COMPLETE,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_COMPLETE,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_COMPLETE,name=InternalDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_START_PREPARE,name=CrossNodeDroppedLatency",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_START_PREPARE,name=Dropped",
+            "org.apache.cassandra.metrics:type=DroppedMessage,scope=APPLE_PAXOS_CLEANUP_START_PREPARE,name=InternalDroppedLatency",
+
             "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_COMMIT_AND_PREPARE_RSP-WaitLatency",
             "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PREPARE_REFRESH_RSP-WaitLatency",
             "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PREPARE_RSP-WaitLatency",
             "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_PROPOSE_RSP-WaitLatency",
-            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_REPAIR_RSP-WaitLatency"
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_REPAIR_RSP-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_CLEANUP_COMPLETE-WaitLatency",
+            "org.apache.cassandra.metrics:type=Messaging,name=APPLE_PAXOS_CLEANUP_START_PREPARE-WaitLatency",
+
+            ".*keyspace=cie_internal,(scope|table|columnfamily)=partition_blacklist.*",
+            "org.apache.cassandra.metrics:type=.*,name=ClientReadSize(Aborts|Warnings)"
+
         );
-        List<String> excludeAttributes = Arrays.asList();
+        List<String> excludeAttributes = Arrays.asList(
+            "DropKeyspaceEnabled",      // replaced by guardrail
+            "DropTruncateTableEnabled", // replaced by guardrail
+            "MinTrackedPartitionSize",  // upstreamed without jmx
+            // CASSANDRA-16896 split thresholds into coord, local and index
+            "ClientLargeReadAbortThresholdKB",
+            "ClientLargeReadWarnThresholdKB",
+            "ClientTrackWarningsEnabled"
+        );
         List<String> excludeOperations = Arrays.asList();
 
-        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-4.0-jmx.yaml");
+        diff(excludeObjects, excludeAttributes, excludeOperations, "test/data/jmxdump/cie-4.0.0.60-jmx.yaml");
     }
 
     @Test
