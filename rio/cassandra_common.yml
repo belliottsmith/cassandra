@@ -14,6 +14,9 @@ commands:
     set -x
     #NOTE : set -e and pipefail were intentionally removed to make sure the copy commands at the end get executed even when tests fail
 
+    # Have to explicitly ask for python3 even though installed.
+    source /opt/rh/rh-python36/enable
+
     JAVA_VERSION=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | awk -F. '{print $1}')
 
     if [ "$JAVA_VERSION" -ge 11 ]; then

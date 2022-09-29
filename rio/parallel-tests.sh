@@ -8,6 +8,7 @@
 set -o errexit
 set -o pipefail
 set -o nounset
+shopt -s failglob # better failure in _extract if no output
 
 bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
 home="$(cd "$(dirname "$bin")" > /dev/null; pwd)"
@@ -78,7 +79,8 @@ _extract() {
   local untar_name
   local suite_name
   local out_dir
-  for map in "$output"/*/*/map-*; do
+  # when pydtest machine image adopted lost the java=X tag, so dropped back from "$output"/*/*/map-*
+  for map in "$output"/*/map-*; do
     dir="$(dirname "$map")"
     name="$(basename "$map")"
     untar_name="${name%.tar.gz}"

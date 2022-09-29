@@ -16,12 +16,11 @@ shared:
       copyFromLocal:
         - src: ~/.m2/settings.xml
           dst: ~/.m2/settings.xml
-      # don't care about the image, as long as the provided runtime is present
-      runtime:
-        os:
-          - centos7
-        java:
-          - 11
+      image:
+        template: "docker.apple.com/piedb_ci/oss-cassandra-dtest-java-${java}:latest"
+        values:
+          - java: 11
+      user: "build"
       environment:
         - LANG: en_US.UTF-8
         # some tests can't run properly in circle ci, so they get skipped if this environment variable is set
