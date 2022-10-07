@@ -20,6 +20,7 @@ package org.apache.cassandra.utils.concurrent;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -44,10 +45,19 @@ import static org.apache.cassandra.utils.concurrent.Awaitable.SyncAwaitable.wait
  */
 public class MinimalFuture<V> extends AbstractFuture<V>
 {
-    private volatile Object listener;
+    private static final Runnable DONE = () -> {};
 
-    private int NOTIFIED = 1; // only set if listener is null when we set the result
-    private int WAITING = 2;
+    private volatile Object listener;
+    private static final AtomicReferenceFieldUpdater<MinimalFuture, Object> listenerUpdater = AtomicReferenceFieldUpdater.newUpdater(MinimalFuture.class, Object.class, "listener");
+
+    // set if listener is null before we set the result
+    private volatile boolean noListener; // we get this for free with compressed class pointers
+    // set if a thread is waiting and needs to be signalled
+    private volatile boolean hasWaiting; // we get this for free with compressed class pointers
+
+    private static final int NO_LISTENER = 1; // only set if listener is null before we set the result
+    private static final int NOTIFIED = 2; // only set if listener is null when we set the result
+    private static final int WAITING = 4;
     private volatile int flags; // we get this for free with compressed class pointers
     private static final AtomicIntegerFieldUpdater<MinimalFuture> flagsUpdater = AtomicIntegerFieldUpdater.newUpdater(MinimalFuture.class, "flags");
 
@@ -116,6 +126,9 @@ public class MinimalFuture<V> extends AbstractFuture<V>
         }
 
         Object listener = this.listener;
+        if (listener == null)
+            flagsUpdater.updateAndGet(this, x -> x | NO_LISTENER);
+
         result = v;
         int flags = this.flags;
         if (listener != null || ((listener = this.listener) != null && canNotifyListener(flags = trySetNotified())))
@@ -152,12 +165,20 @@ public class MinimalFuture<V> extends AbstractFuture<V>
         }
     }
 
-    boolean canNotifyListener(int flags)
+    private static boolean canNotifyListener(int flags)
     {
         return (flags & NOTIFIED) == 0;
     }
 
-    boolean hasWaiting(int flags)
+    /**
+     * @return true iff the producer may have missed the registration of the listener
+     */
+    private boolean shouldTryNotifySelf()
+    {
+        return (flags & NO_LISTENER) != 0;
+    }
+
+    private static boolean hasWaiting(int flags)
     {
         return (flags & WAITING) != 0;
     }
@@ -255,9 +276,9 @@ public class MinimalFuture<V> extends AbstractFuture<V>
     private void addListenerInternal(Object object)
     {
         Preconditions.checkState(listener == null);
-        Object result = this.result;
         listener = object;
-        if (isDone(result) && canNotifyListener(trySetNotified()))
+        Object result = this.result;
+        if (isDone(result) && shouldTryNotifySelf() && canNotifyListener(trySetNotified()))
         {
             if (listener instanceof BiConsumer)
             {
