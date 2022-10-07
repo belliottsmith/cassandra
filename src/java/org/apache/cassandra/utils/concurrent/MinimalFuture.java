@@ -50,16 +50,10 @@ public class MinimalFuture<V> extends AbstractFuture<V>
     private volatile Object listener;
     private static final AtomicReferenceFieldUpdater<MinimalFuture, Object> listenerUpdater = AtomicReferenceFieldUpdater.newUpdater(MinimalFuture.class, Object.class, "listener");
 
-    // set if listener is null before we set the result
+    // set if listener is null before we set the result; if this is false after the result is read then 
     private volatile boolean noListener; // we get this for free with compressed class pointers
     // set if a thread is waiting and needs to be signalled
     private volatile boolean hasWaiting; // we get this for free with compressed class pointers
-
-    private static final int NO_LISTENER = 1; // only set if listener is null before we set the result
-    private static final int NOTIFIED = 2; // only set if listener is null when we set the result
-    private static final int WAITING = 4;
-    private volatile int flags; // we get this for free with compressed class pointers
-    private static final AtomicIntegerFieldUpdater<MinimalFuture> flagsUpdater = AtomicIntegerFieldUpdater.newUpdater(MinimalFuture.class, "flags");
 
     protected MinimalFuture()
     {
@@ -127,13 +121,13 @@ public class MinimalFuture<V> extends AbstractFuture<V>
 
         Object listener = this.listener;
         if (listener == null)
-            flagsUpdater.updateAndGet(this, x -> x | NO_LISTENER);
-
+            noListener = true;
         result = v;
-        int flags = this.flags;
-        if (listener != null || ((listener = this.listener) != null && canNotifyListener(flags = trySetNotified())))
+
+        if (listener != null || ((listener = this.listener) != null && listener != DONE && listenerUpdater.compareAndSet(this, listener, DONE)))
         {
             // if listener was non-null before we set result OR non-null after and we atomically take control of notification
+            // we do not split this into a separate method in order to keep the call stack minimal
             if (listener instanceof BiConsumer)
             {
                 if (v instanceof FailureHolder) ((BiConsumer) listener).accept(null, ((FailureHolder) v).cause);
@@ -145,7 +139,7 @@ public class MinimalFuture<V> extends AbstractFuture<V>
             }
         }
 
-        if (hasWaiting(flags))
+        if (hasWaiting)
         {
             synchronized (this)
             {
@@ -155,40 +149,12 @@ public class MinimalFuture<V> extends AbstractFuture<V>
         return true;
     }
 
-    private int trySetNotified()
-    {
-        while (true)
-        {
-            int flags = this.flags;
-            if (!canNotifyListener(flags)) return flags;
-            if (flagsUpdater.compareAndSet(this, flags, flags | NOTIFIED)) return flags;
-        }
-    }
-
-    private static boolean canNotifyListener(int flags)
-    {
-        return (flags & NOTIFIED) == 0;
-    }
-
-    /**
-     * @return true iff the producer may have missed the registration of the listener
-     */
-    private boolean shouldTryNotifySelf()
-    {
-        return (flags & NO_LISTENER) != 0;
-    }
-
-    private static boolean hasWaiting(int flags)
-    {
-        return (flags & WAITING) != 0;
-    }
-
     public synchronized boolean awaitUntil(long deadline) throws InterruptedException
     {
         if (isDone())
             return true;
 
-        flagsUpdater.updateAndGet(this, x -> x | WAITING);
+        hasWaiting = true;
         waitUntil(this, deadline);
         return isDone();
     }
@@ -198,7 +164,7 @@ public class MinimalFuture<V> extends AbstractFuture<V>
         if (isDone())
             return this;
 
-        flagsUpdater.updateAndGet(this, x -> x | WAITING);
+        hasWaiting = true;
         while (!isDone())
             wait();
 
@@ -273,13 +239,14 @@ public class MinimalFuture<V> extends AbstractFuture<V>
         }));
     }
 
-    private void addListenerInternal(Object object)
+    private void addListenerInternal(Object listener)
     {
-        Preconditions.checkState(listener == null);
-        listener = object;
+        Preconditions.checkState(this.listener == null);
+        this.listener = listener;
         Object result = this.result;
-        if (isDone(result) && shouldTryNotifySelf() && canNotifyListener(trySetNotified()))
+        if (isDone(result) && noListener && listenerUpdater.compareAndSet(this, listener, DONE))
         {
+            // we do not split this into a separate method to keep the call stack minimal
             if (listener instanceof BiConsumer)
             {
                 if (result instanceof FailureHolder) ((BiConsumer) listener).accept(null, ((FailureHolder) result).cause);
