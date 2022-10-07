@@ -43,7 +43,7 @@ import io.netty.util.concurrent.GenericFutureListener;
  *      This means that once isSuccess() holds, the result must be a correctly typed object (modulo generics pitfalls).
  *    - All special values are also instances of FailureHolder, which simplifies a number of the logical conditions.
  */
-public class AsyncFuture<V> extends AbstractFuture<V>
+public class AsyncFuture<V> extends AbstractGeneralFuture<V>
 {
     @SuppressWarnings({ "rawtypes" })
     private static final AtomicReferenceFieldUpdater<AsyncFuture, WaitQueue> waitingUpdater = AtomicReferenceFieldUpdater.newUpdater(AsyncFuture.class, WaitQueue.class, "waiting");

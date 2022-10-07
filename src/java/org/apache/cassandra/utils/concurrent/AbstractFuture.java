@@ -24,25 +24,14 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.AsyncFunction;
-import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.ListenableFuture; // checkstyle: permit this import
 
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.internal.ThrowableUtil;
-import org.apache.cassandra.utils.concurrent.ListenerList.CallbackBiConsumerListener;
-import org.apache.cassandra.utils.concurrent.ListenerList.CallbackLambdaListener;
-import org.apache.cassandra.utils.concurrent.ListenerList.CallbackListener;
-import org.apache.cassandra.utils.concurrent.ListenerList.CallbackListenerWithExecutor;
-import org.apache.cassandra.utils.concurrent.ListenerList.GenericFutureListenerList;
-import org.apache.cassandra.utils.concurrent.ListenerList.RunnableWithExecutor;
-import org.apache.cassandra.utils.concurrent.ListenerList.RunnableWithNotifyExecutor;
 
 import static java.util.concurrent.atomic.AtomicReferenceFieldUpdater.newUpdater;
 import static org.apache.cassandra.utils.concurrent.ListenerList.notifyListener;
@@ -53,14 +42,11 @@ import static org.apache.cassandra.utils.concurrent.ListenerList.notifyListener;
  * Some implementation comments versus Netty's default promise:
  *  - We permit efficient initial state declaration, avoiding unnecessary CAS or lock acquisitions when mutating
  *    a Promise we are ourselves constructing (and can easily add more; only those we use have been added)
- *  - We guarantee the order of invocation of listeners (and callbacks etc, and with respect to each other)
- *  - We save some space when registering listeners, especially if there is only one listener, as we perform no
- *    extra allocations in this case.
- *  - We implement our invocation list as a concurrent stack, that is cleared on notification
  *  - We handle special values slightly differently.
  *    - We do not use a special value for null, instead using a special value to indicate the result has not been set.
  *      This means that once isSuccess() holds, the result must be a correctly typed object (modulo generics pitfalls).
  *    - All special values are also instances of FailureHolder, which simplifies a number of the logical conditions.
+ *  - This abstract class leaves abstract listener management. See {@link AbstractGeneralFuture} and {@link MinimalFuture}
  */
 @SuppressWarnings({ "rawtypes", "unchecked" })
 public abstract class AbstractFuture<V> implements Future<V>
@@ -86,6 +72,10 @@ public abstract class AbstractFuture<V> implements Future<V>
     {
         return !(result instanceof FailureHolder);
     }
+    static <V> V getSuccess(Object result)
+    {
+        return (V) result;
+    }
     static boolean isCancelled(Object result)
     {
         return result == CANCELLED;
@@ -96,9 +86,7 @@ public abstract class AbstractFuture<V> implements Future<V>
     }
 
     volatile Object result;
-    volatile ListenerList<V> listeners; // either a ListenerList or GenericFutureListener (or null)
     static final AtomicReferenceFieldUpdater<AbstractFuture, Object> resultUpdater = newUpdater(AbstractFuture.class, Object.class, "result");
-    static final AtomicReferenceFieldUpdater<AbstractFuture, ListenerList> listenersUpdater = newUpdater(AbstractFuture.class, ListenerList.class, "listeners");
 
     protected AbstractFuture(FailureHolder initialState)
     {
@@ -119,18 +107,6 @@ public abstract class AbstractFuture<V> implements Future<V>
     protected AbstractFuture(Throwable immediateFailure)
     {
        this(new FailureHolder(immediateFailure));
-    }
-
-    protected AbstractFuture(GenericFutureListener<? extends io.netty.util.concurrent.Future<? super V>> listener)
-    {
-        this();
-        listenersUpdater.lazySet(this, new GenericFutureListenerList(listener));
-    }
-
-    protected AbstractFuture(FailureHolder initialState, GenericFutureListener<? extends io.netty.util.concurrent.Future<? super V>> listener)
-    {
-        this(initialState);
-        listenersUpdater.lazySet(this, new GenericFutureListenerList(listener));
     }
 
     public Executor notifyExecutor()
@@ -221,7 +197,7 @@ public abstract class AbstractFuture<V> implements Future<V>
     {
         Object result = this.result;
         if (isSuccess(result))
-            return (V) result;
+            return getSuccess(result);
         return null;
     }
 
@@ -233,7 +209,7 @@ public abstract class AbstractFuture<V> implements Future<V>
     {
         Object result = this.result;
         if (isSuccess(result))
-            return (V) result;
+            return getSuccess(result);
         if (result == CANCELLED)
             throw new CancellationException();
         throw new ExecutionException(((FailureHolder) result).cause);
@@ -255,68 +231,6 @@ public abstract class AbstractFuture<V> implements Future<V>
     }
 
     /**
-     * Logically append {@code newListener} to {@link #listeners}
-     * (at this stage it is a stack, so we actually prepend)
-     */
-    abstract void appendListener(ListenerList<V> newListener);
-
-    /**
-     * Support {@link com.google.common.util.concurrent.Futures#addCallback} natively
-     *
-     * See {@link #addListener(GenericFutureListener)} for ordering semantics.
-     */
-    @Override
-    public AbstractFuture<V> addCallback(FutureCallback<? super V> callback)
-    {
-        appendListener(new CallbackListener<>(this, callback));
-        return this;
-    }
-
-    /**
-     * Support {@link com.google.common.util.concurrent.Futures#addCallback} natively
-     *
-     * See {@link #addListener(GenericFutureListener)} for ordering semantics.
-     */
-    @Override
-    public AbstractFuture<V> addCallback(BiConsumer<? super V, Throwable> callback)
-    {
-        appendListener(new CallbackBiConsumerListener<>(this, callback, null));
-        return this;
-    }
-
-    @Override
-    public Future<V> addCallback(BiConsumer<? super V, Throwable> callback, Executor executor)
-    {
-        appendListener(new CallbackBiConsumerListener<>(this, callback, executor));
-        return this;
-    }
-
-    /**
-     * Support {@link com.google.common.util.concurrent.Futures#addCallback} natively
-     *
-     * See {@link #addListener(GenericFutureListener)} for ordering semantics.
-     */
-    @Override
-    public AbstractFuture<V> addCallback(FutureCallback<? super V> callback, Executor executor)
-    {
-        Preconditions.checkNotNull(executor);
-        appendListener(new CallbackListenerWithExecutor<>(this, callback, executor));
-        return this;
-    }
-
-    /**
-     * Support more fluid version of {@link com.google.common.util.concurrent.Futures#addCallback}
-     *
-     * See {@link #addListener(GenericFutureListener)} for ordering semantics.
-     */
-    @Override
-    public AbstractFuture<V> addCallback(Consumer<? super V> onSuccess, Consumer<? super Throwable> onFailure)
-    {
-        appendListener(new CallbackLambdaListener<>(this, onSuccess, onFailure, null));
-        return this;
-    }
-
-    /**
      * Support {@link com.google.common.util.concurrent.Futures#transformAsync(ListenableFuture, AsyncFunction, Executor)} natively
      *
      * See {@link #addListener(GenericFutureListener)} for ordering semantics.
@@ -325,18 +239,6 @@ public abstract class AbstractFuture<V> implements Future<V>
     public <T> Future<T> map(Function<? super V, ? extends T> mapper)
     {
         return map(mapper, null);
-    }
-
-    /**
-     * Support more fluid version of {@link com.google.common.util.concurrent.Futures#addCallback}
-     *
-     * See {@link #addListener(GenericFutureListener)} for ordering semantics.
-     */
-    @Override
-    public AbstractFuture<V> addCallback(Consumer<? super V> onSuccess, Consumer<? super Throwable> onFailure, Executor executor)
-    {
-        appendListener(new CallbackLambdaListener<>(this, onSuccess, onFailure, executor));
-        return this;
     }
 
     /**
@@ -381,42 +283,6 @@ public abstract class AbstractFuture<V> implements Future<V>
             }
         }, executor);
         return result;
-    }
-
-    /**
-     * Add a listener to be invoked once this future completes.
-     * Listeners are submitted to {@link #notifyExecutor} in the order they are added (or the specified executor
-     * in the case of {@link #addListener(Runnable, Executor)}.
-     * if {@link #notifyExecutor} is unset, they are invoked in the order they are added.
-     * The ordering holds across all variants of this method.
-     */
-    public Future<V> addListener(GenericFutureListener<? extends io.netty.util.concurrent.Future<? super V>> listener)
-    {
-        appendListener(new GenericFutureListenerList(listener));
-        return this;
-    }
-
-    /**
-     * Add a listener to be invoked once this future completes.
-     * Listeners are submitted to their {@code #executor} (or {@link #notifyExecutor}) in the order they are added;
-     * if {@link #notifyExecutor} is unset, they are invoked in the order they are added.
-     * The ordering holds across all variants of this method.
-     */
-    public void addListener(Runnable task, @Nullable Executor executor)
-    {
-        appendListener(new RunnableWithExecutor(task, executor));
-    }
-
-    /**
-     * Add a listener to be invoked once this future completes.
-     * Listeners are submitted to {@link #notifyExecutor} in the order they are added (or the specified executor
-     * in the case of {@link #addListener(Runnable, Executor)}.
-     * if {@link #notifyExecutor} is unset, they are invoked in the order they are added.
-     * The ordering holds across all variants of this method.
-     */
-    public void addListener(Runnable task)
-    {
-        appendListener(new RunnableWithNotifyExecutor(task));
     }
 
     @SuppressWarnings("unchecked")
@@ -502,7 +368,7 @@ public abstract class AbstractFuture<V> implements Future<V>
     {
         Object result = this.result;
         if (isSuccess(result))
-            return "(success: " + result + ')';
+            return "(success: " + getSuccess(result) + ')';
         if (result == UNCANCELLABLE)
             return "(uncancellable)";
         if (result == CANCELLED)

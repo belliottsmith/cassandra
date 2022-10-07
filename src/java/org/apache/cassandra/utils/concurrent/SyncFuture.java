@@ -31,33 +31,21 @@ import io.netty.util.concurrent.GenericFutureListener;
 import static org.apache.cassandra.utils.concurrent.Awaitable.SyncAwaitable.waitUntil;
 
 /**
- * Netty's DefaultPromise uses a mutex to coordinate notifiers AND waiters between the eventLoop and the other threads.
- * Since we register cross-thread listeners, this has the potential to block internode messaging for an unknown
- * number of threads for an unknown period of time, if we are unlucky with the scheduler (which will certainly
- * happen, just with some unknown but low periodicity)
+ * Our synchronized {@link Future} implementation.
  *
- * At the same time, we manage some other efficiencies:
- *  - We save some space when registering listeners, especially if there is only one listener, as we perform no
- *    extra allocations in this case.
+ * Some implementation comments versus Netty's default promise:
  *  - We permit efficient initial state declaration, avoiding unnecessary CAS or lock acquisitions when mutating
  *    a Promise we are ourselves constructing (and can easily add more; only those we use have been added)
- *
- * We can also make some guarantees about our behaviour here, although we primarily mirror Netty.
- * Specifically, we can guarantee that notifiers are always invoked in the order they are added (which may be true
- * for netty, but was unclear and is not declared).  This is useful for ensuring the correctness of some of our
- * behaviours in OutboundConnection without having to jump through extra hoops.
- *
- * The implementation loosely follows that of Netty's DefaultPromise, with some slight changes; notably that we have
- * no synchronisation on our listeners, instead using a CoW list that is cleared each time we notify listeners.
- *
- * We handle special values slightly differently.  We do not use a special value for null, instead using
- * a special value to indicate the result has not been set yet.  This means that once isSuccess() holds,
- * the result must be a correctly typed object (modulo generics pitfalls).
- * All special values are also instances of FailureHolder, which simplifies a number of the logical conditions.
- *
- * @param <V>
+ *  - We guarantee the order of invocation of listeners (and callbacks etc, and with respect to each other)
+ *  - We save some space when registering listeners, especially if there is only one listener, as we perform no
+ *    extra allocations in this case.
+ *  - We implement our invocation list as a concurrent stack, that is cleared on notification
+ *  - We handle special values slightly differently.
+ *    - We do not use a special value for null, instead using a special value to indicate the result has not been set.
+ *      This means that once isSuccess() holds, the result must be a correctly typed object (modulo generics pitfalls).
+ *    - All special values are also instances of FailureHolder, which simplifies a number of the logical conditions.
  */
-public class SyncFuture<V> extends AbstractFuture<V>
+public class SyncFuture<V> extends AbstractGeneralFuture<V>
 {
     protected SyncFuture()
     {

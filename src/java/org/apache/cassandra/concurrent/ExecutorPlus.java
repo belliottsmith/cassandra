@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
 
 import org.apache.cassandra.utils.Shared;
 import org.apache.cassandra.utils.WithResources;
@@ -101,6 +102,32 @@ public interface ExecutorPlus extends ExecutorService, ResizableThreadPool
      * @param task the task to execute
      */
     void execute(WithResources withResources, Runnable task);
+
+    /*
+     * ==============================================
+     * WithResources variants of submit and execute.
+     *
+     * (We need a way to inject a TraceState directly into the Executor context without going through
+     * the global Tracing sessions; see CASSANDRA-5668)
+     * ==============================================
+     */
+
+    /**
+     * Invoke {@code task}. The invoking thread will first instantiate the resources provided before
+     * invoking {@code task}, so that thread state may be modified and cleaned up.
+     *
+     * The invoking thread will execute something semantically equivlent to:
+     *
+     * <code>
+     *     try (Closeable close = withResources.get())
+     *     {
+     *         task.run();
+     *     }
+     * </code>
+     *
+     * @param task the task to execute
+     */
+    void execute(Runnable task, BiConsumer<Void, Throwable> callback);
 
     /**
      * Invoke {@code task}, returning a future representing this computation.
