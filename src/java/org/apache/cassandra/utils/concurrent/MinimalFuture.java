@@ -19,7 +19,6 @@
 package org.apache.cassandra.utils.concurrent;
 
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -50,7 +49,7 @@ public class MinimalFuture<V> extends AbstractFuture<V>
     private volatile Object listener;
     private static final AtomicReferenceFieldUpdater<MinimalFuture, Object> listenerUpdater = AtomicReferenceFieldUpdater.newUpdater(MinimalFuture.class, Object.class, "listener");
 
-    // set if listener is null before we set the result; if this is false after the result is read then 
+    // set if listener is null before we set the result; if this is false after the result is read then subscriber may need to notify
     private volatile boolean noListener; // we get this for free with compressed class pointers
     // set if a thread is waiting and needs to be signalled
     private volatile boolean hasWaiting; // we get this for free with compressed class pointers
