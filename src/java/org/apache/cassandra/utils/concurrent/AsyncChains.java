@@ -28,50 +28,57 @@ import com.google.common.base.Preconditions;
 
 public abstract class AsyncChains<V> implements AsyncChain<V>
 {
-    public abstract static class Catalyst<V> extends AsyncChains<V>
+    public abstract static class Head<V> extends AsyncChains<V> implements BiConsumer<V, Throwable>
     {
-        protected Catalyst()
+        protected Head()
         {
             super(null);
-            state = this;
+            next = this;
         }
 
         void begin()
         {
-            begin(next());
+            begin(next);
+        }
+
+        @Override
+        public void accept(V v, Throwable throwable)
+        {
+            // we implement here just to simplify logic a little
+            throw new UnsupportedOperationException();
         }
     }
 
     static abstract class Link<I, O> extends AsyncChains<O> implements BiConsumer<I, Throwable>
     {
-        protected Link(Catalyst<?> catalyst)
+        protected Link(Head<?> head)
         {
-            super(catalyst);
+            super(head);
         }
 
         @Override
         public void begin(BiConsumer<? super O, Throwable> callback)
         {
-            Preconditions.checkArgument(!(callback instanceof Catalyst));
-            Preconditions.checkState(state instanceof Catalyst);
-            Catalyst catalyst = (Catalyst) state;
-            state = callback;
-            catalyst.begin();
+            Preconditions.checkArgument(!(callback instanceof AsyncChains.Head));
+            Preconditions.checkState(next instanceof AsyncChains.Head);
+            Head<?> head = (Head<?>) next;
+            next = callback;
+            head.begin();
         }
     }
 
     public static abstract class Map<I, O> extends Link<I, O> implements Function<I, O>
     {
-        Map(Catalyst<?> catalyst)
+        Map(Head<?> head)
         {
-            super(catalyst);
+            super(head);
         }
 
         @Override
         public void accept(I i, Throwable throwable)
         {
-            if (throwable != null) next().accept(null, throwable);
-            else next().accept(apply(i), null);
+            if (throwable != null) next.accept(null, throwable);
+            else next.accept(apply(i), null);
         }
     }
 
@@ -79,9 +86,9 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
     {
         final Function<? super I, ? extends O> map;
 
-        EncapsulatedMap(Catalyst<?> catalyst, Function<? super I, ? extends O> map)
+        EncapsulatedMap(Head<?> head, Function<? super I, ? extends O> map)
         {
-            super(catalyst);
+            super(head);
             this.map = map;
         }
 
@@ -94,16 +101,16 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
 
     public static abstract class FlatMap<I, O> extends Link<I, O> implements Function<I, AsyncChain<O>>
     {
-        FlatMap(Catalyst<?> catalyst)
+        FlatMap(Head<?> head)
         {
-            super(catalyst);
+            super(head);
         }
 
         @Override
         public void accept(I i, Throwable throwable)
         {
-            if (throwable != null) next().accept(null, throwable);
-            else apply(i).begin(next());
+            if (throwable != null) next.accept(null, throwable);
+            else apply(i).begin(next);
         }
     }
 
@@ -111,9 +118,9 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
     {
         final Function<? super I, ? extends AsyncChain<O>> map;
 
-        EncapsulatedFlatMap(Catalyst<?> catalyst, Function<? super I, ? extends AsyncChain<O>> map)
+        EncapsulatedFlatMap(Head<?> head, Function<? super I, ? extends AsyncChain<O>> map)
         {
-            super(catalyst);
+            super(head);
             this.map = map;
         }
 
@@ -127,15 +134,15 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
     // if extending Callback, be sure to invoke super.accept()
     static class Callback<I> extends Link<I, I>
     {
-        Callback(Catalyst<?> catalyst)
+        Callback(Head<?> head)
         {
-            super(catalyst);
+            super(head);
         }
 
         @Override
         public void accept(I i, Throwable throwable)
         {
-            next().accept(i, throwable);
+            next.accept(i, throwable);
         }
     }
 
@@ -143,9 +150,9 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
     {
         final BiConsumer<? super I, Throwable> callback;
 
-        EncapsulatedCallback(Catalyst<?> catalyst, BiConsumer<? super I, Throwable> callback)
+        EncapsulatedCallback(Head<?> head, BiConsumer<? super I, Throwable> callback)
         {
-            super(catalyst);
+            super(head);
             this.callback = callback;
         }
 
@@ -159,7 +166,7 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
 
     public static <V> AsyncChain<V> ofCallable(ExecutorService executor, Callable<V> callable)
     {
-        return new Catalyst<V>()
+        return new Head<V>()
         {
             @Override
             public void begin(BiConsumer<? super V, Throwable> next)
@@ -185,10 +192,10 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
     }
 
     // either the thing we start, or the thing we do in follow-up
-    Object state;
-    AsyncChains(Catalyst<?> catalyst)
+    BiConsumer<? super V, Throwable> next;
+    AsyncChains(Head<?> head)
     {
-        this.state = catalyst;
+        this.next = (BiConsumer) head;
     }
 
     @Override
@@ -211,26 +218,21 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
 
     // can be used by transformations that want efficiency, and can directly extend Link, FlatMap or Callback
     // (or perhaps some additional helper implementations that permit us to simply implement apply for Map and FlatMap)
-    public <O> AsyncChain<O> add(Function<Catalyst<?>, AsyncChain<O>> factory)
+    <O, T extends AsyncChain<O> & BiConsumer<? super V, Throwable>> AsyncChain<O> add(Function<Head<?>, T> factory)
     {
-        Preconditions.checkState(state instanceof Catalyst<?>);
-        Catalyst catalyst = (Catalyst) state;
-        AsyncChain<O> result = factory.apply(catalyst);
-        state = result;
+        Preconditions.checkState(next instanceof Head<?>);
+        Head<?> head = (Head<?>) next;
+        T result = factory.apply(head);
+        next = result;
         return result;
     }
 
-    <T, O> AsyncChain<O> add(BiFunction<Catalyst<?>, T, AsyncChain<O>> factory, T param)
+    <P, O, T extends AsyncChain<O> & BiConsumer<? super V, Throwable>> AsyncChain<O> add(BiFunction<Head<?>, P, T> factory, P param)
     {
-        Preconditions.checkState(state instanceof Catalyst<?>);
-        Catalyst catalyst = (Catalyst) state;
-        AsyncChain<O> result = factory.apply(catalyst, param);
-        state = result;
+        Preconditions.checkState(next instanceof Head<?>);
+        Head<?> head = (Head<?>) next;
+        T result = factory.apply(head, param);
+        next = result;
         return result;
-    }
-
-    BiConsumer<? super V, Throwable> next()
-    {
-        return (BiConsumer<? super V, Throwable>) state;
     }
 }
