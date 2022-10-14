@@ -23,7 +23,9 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
@@ -341,7 +343,10 @@ public final class InternodeEncryptionEnforcementTest extends TestBaseImpl
                         encryption.put("internode_encryption", "all");
                         encryption.put("require_client_auth", "true");
                         c.set("server_encryption_options", encryption);
-                        c.set("internode_authenticator", authenticatorClass.getName());
+                        Map<String, Object> internodeAuthenticator = new HashMap<>();
+                        internodeAuthenticator.put("class_name", authenticatorClass.getName());
+                        internodeAuthenticator.put("parameters", Collections.emptyMap());
+                        c.set("internode_authenticator", internodeAuthenticator);
                     })
         .withNodeIdTopology(ImmutableMap.of(1, NetworkTopology.dcAndRack("dc1", "r1a"),
                                             2, NetworkTopology.dcAndRack("dc2", "r2a")));
