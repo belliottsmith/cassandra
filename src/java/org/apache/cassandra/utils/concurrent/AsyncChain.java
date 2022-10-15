@@ -20,7 +20,9 @@ package org.apache.cassandra.utils.concurrent;
 
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
@@ -35,6 +37,8 @@ public interface AsyncChain<V>
      * Support {@link com.google.common.util.concurrent.Futures#transform(ListenableFuture, com.google.common.base.Function, Executor)} natively
      */
     <T> AsyncChain<T> flatMap(Function<? super V, ? extends AsyncChain<T>> mapper);
+
+    <T> AsyncChain<T> flatMapReduce(Function<? super V, ? extends Supplier<? extends AsyncChain<T>>> mapper, BiFunction<T, T, T> reduce);
 
     /**
      * Support {@link com.google.common.util.concurrent.Futures#addCallback} natively
