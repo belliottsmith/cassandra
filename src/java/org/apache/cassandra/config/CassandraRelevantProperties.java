@@ -280,7 +280,10 @@ public enum CassandraRelevantProperties
     // CIE-specific property - preserving property from internal patch
     // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
     // that was partially replaced by CASSANDRA-14557
-    MINIMUM_ALLOWED_REPLICATION_FACTOR("cassandra.minimum_replication_factor", "2"),
+    // rdar://100464829 (Min RF default could lead to data loss)
+    // In ACI Cassandra we have a more strict minimum_keyspace_rf than in upstream (2),
+    // this is to avoid data loss or failure to repair when one replica is down.
+    MINIMUM_ALLOWED_REPLICATION_FACTOR("cassandra.minimum_replication_factor", "3"),
 
     // CIE-specific property
     ALLOW_SIMPLE_STRATEGY("cassandra.allow_simplestrategy", "false"),
