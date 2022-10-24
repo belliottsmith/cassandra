@@ -23,7 +23,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 import com.google.common.base.Preconditions;
 
@@ -50,6 +49,7 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
             if (value != null && value.getClass() == FailureHolder.class)
                 return (AsyncChain<T>) this;
             value = mapper.apply((V) value);
+            return (AsyncChain<T>) this;
         }
 
         @Override
@@ -61,45 +61,6 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
         }
 
         @Override
-        public <T> AsyncChain<T> flatMapReduce(Function<? super V, ? extends Supplier<? extends AsyncChain<T>>> mapper, BiFunction<T, T, T> reduce)
-        {
-            if (value != null && value.getClass() == FailureHolder.class)
-                return (AsyncChain<T>) this;
-
-            Supplier<? extends AsyncChain<T>> supplier = mapper.apply((V) value);
-            boolean hasPrev = false;
-            T prev = null;
-
-            AsyncChain<T> next = supplier.get();
-            while (next != null && next.getClass() == Immediate.class)
-            {
-                Object v = ((Immediate<T>) next).value;
-                if (v instanceof FailureHolder)
-                    return next;
-
-                if (hasPrev)
-                {
-                    prev = reduce.apply(prev, (T)v);
-                }
-                else
-                {
-                    prev = (T)v;
-                    hasPrev = true;
-                }
-
-                next = supplier.get();
-            }
-
-            if (next == null)
-            {
-                value = prev;
-                return (AsyncChain<T>) this;
-            }
-
-            return new FlatMapReduce<>(supplier, reduce, prev);
-        }
-
-        @Override
         public AsyncChain<V> addCallback(BiConsumer<? super V, Throwable> callback)
         {
             if (value == null || value.getClass() != FailureHolder.class)
@@ -108,44 +69,6 @@ public abstract class AsyncChains<V> implements AsyncChain<V>
                 callback.accept(null, ((FailureHolder)value).cause);
 
             return this;
-        }
-
-        @Override
-        public void begin(BiConsumer<? super V, Throwable> callback)
-        {
-        }
-    }
-
-    static class FlatMapReduce<V> implements AsyncChain<V>
-    {
-        private FlatMapReduce(Supplier<? extends AsyncChain<? extends V>> supplier, BiFunction<V, V, V> reduce)
-        {
-
-        }
-
-        private FlatMapReduce(Supplier<? extends AsyncChain<V>> supplier, BiFunction<V, V, V> reduce, V initialValue)
-        {
-
-        }
-
-        @Override
-        public <T> AsyncChain<T> map(Function<? super V, ? extends T> mapper)
-        {
-        }
-
-        @Override
-        public <T> AsyncChain<T> flatMap(Function<? super V, ? extends AsyncChain<T>> mapper)
-        {
-        }
-
-        @Override
-        public <T> AsyncChain<T> flatMapReduce(Function<? super V, ? extends Supplier<? extends AsyncChain<T>>> mapper, BiFunction<T, T, T> reduce)
-        {
-        }
-
-        @Override
-        public AsyncChain<V> addCallback(BiConsumer<? super V, Throwable> callback)
-        {
         }
 
         @Override

@@ -38,8 +38,6 @@ public interface AsyncChain<V>
      */
     <T> AsyncChain<T> flatMap(Function<? super V, ? extends AsyncChain<T>> mapper);
 
-    <T> AsyncChain<T> flatMapReduce(Function<? super V, ? extends Supplier<? extends AsyncChain<T>>> mapper, BiFunction<T, T, T> reduce);
-
     /**
      * Support {@link com.google.common.util.concurrent.Futures#addCallback} natively
      */
