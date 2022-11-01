@@ -53,6 +53,9 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
 
         ReadCommand command = message.payload;
 
+        if ("system_auth".equals(command.metadata().keyspace))
+            logger.info("Handling read command from peer {} for {}.{} CFID {}", message.from(), command.metadata().keyspace, command.metadata().name, command.metadata().id);
+
         // no out of token range checking for partition range reads yet
         if (command.isSinglePartitionRead())
         {

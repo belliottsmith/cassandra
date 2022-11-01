@@ -85,7 +85,7 @@ public class BootStrapper extends ProgressEventNotifierSupport
 
     public Future<StreamState> bootstrap(StreamStateStore stateStore, boolean useStrictConsistency)
     {
-        logger.trace("Beginning bootstrap process");
+        logger.info("Beginning bootstrap process");
 
         RangeStreamer streamer = new RangeStreamer(tokenMetadata,
                                                    tokens,
@@ -98,7 +98,7 @@ public class BootStrapper extends ProgressEventNotifierSupport
                                                    DatabaseDescriptor.getStreamingConnectionsPerHost());
         final Collection<String> nonLocalStrategyKeyspaces = Schema.instance.getNonLocalStrategyKeyspaces().names();
         if (nonLocalStrategyKeyspaces.isEmpty())
-            logger.debug("Schema does not contain any non-local keyspaces to stream on bootstrap");
+            logger.info("Schema does not contain any non-local keyspaces to stream on bootstrap");
         for (String keyspaceName : nonLocalStrategyKeyspaces)
         {
             AbstractReplicationStrategy strategy = Keyspace.open(keyspaceName).getReplicationStrategy();

@@ -671,7 +671,7 @@ public class RangeStreamer
     public StreamResultFuture fetchAsync()
     {
         toFetch.forEach((keyspace, sources) -> {
-            logger.debug("Keyspace {} Sources {}", keyspace, sources);
+            logger.info("Keyspace {} Sources {}", keyspace, sources);
             sources.asMap().forEach((source, fetchReplicas) -> {
 
                 // filter out already streamed ranges
@@ -694,7 +694,9 @@ public class RangeStreamer
                 };
 
                 List<FetchReplica> remaining;
-                if (Boolean.getBoolean("cassandra.enable_resumable_bootstrap"))
+                Boolean enableResumableBootstrap = Boolean.getBoolean("cassandra.enable_resumable_bootstrap");
+                logger.info("cassandra.enable_resumable_bootstrap is {}", enableResumableBootstrap);
+                if (enableResumableBootstrap)
                 {
                     remaining = fetchReplicas.stream().filter(not(isAvailable)).collect(Collectors.toList());
 
@@ -723,8 +725,8 @@ public class RangeStreamer
                         .map(pair -> pair.local)
                         .collect(RangesAtEndpoint.collector(self));
 
-                logger.debug("Source and our replicas {}", fetchReplicas);
-                logger.debug("Source {} Keyspace {}  streaming full {} transient {}", source, keyspace, full, transientReplicas);
+                logger.info("Source and our replicas {}", fetchReplicas);
+                logger.info("Source {} Keyspace {}  streaming full {} transient {}", source, keyspace, full, transientReplicas);
 
                 /* Send messages to respective folks to stream data over to me */
                 streamPlan.requestRanges(source, keyspace, full, transientReplicas);
