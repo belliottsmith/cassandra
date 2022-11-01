@@ -1967,6 +1967,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     @VisibleForTesting
     public boolean bootstrap(final Collection<Token> tokens, long bootstrapTimeoutMillis)
     {
+        logger.info("Starting bootstrap for tokens {}", tokens);
         isBootstrapMode = true;
         SystemKeyspace.updateTokens(tokens); // DON'T use setToken, that makes us part of the ring locally which is incorrect until we are done bootstrapping
 
@@ -2032,6 +2033,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         setMode(Mode.JOINING, "Starting to bootstrap...", true);
         BootStrapper bootstrapper = new BootStrapper(FBUtilities.getBroadcastAddressAndPort(), tokens, tokenMetadata);
         bootstrapper.addProgressListener(progressSupport);
+        bootstrapper.addProgressListener((tag, event) -> logger.info("Got bootstrap progress event: {} {}", tag, event));
         return bootstrapper.bootstrap(streamStateStore, useStrictConsistency && !replacing); // handles token update
     }
 

@@ -424,7 +424,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         assert all(fullRanges, Replica::isSelf) || RangesAtEndpoint.isDummyList(fullRanges) : fullRanges.toString();
         assert all(transientRanges, Replica::isSelf) || RangesAtEndpoint.isDummyList(transientRanges) : transientRanges.toString();
 
-        requests.add(new StreamRequest(keyspace, fullRanges, transientRanges, columnFamilies));
+        StreamRequest request = new StreamRequest(keyspace, fullRanges, transientRanges, columnFamilies);
+        logger.info("Created request {} for keyspace {} ranges {} tables {}", request, keyspace, fullRanges, columnFamilies);
+        requests.add(request);
     }
 
     /**
@@ -1078,11 +1080,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
+        logger.info("Got stream progress event {} for file {} bytes {} out of total {}", progress, filename, bytes, total);
         streamResult.handleProgress(progress);
     }
 
     public void received(TableId tableId, int sequenceNumber)
     {
+        logger.info("Finished receiving table {}", tableId);
         transfers.get(tableId).complete(sequenceNumber);
     }
 

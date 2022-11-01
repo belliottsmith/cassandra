@@ -1161,6 +1161,9 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
         {
             TableMetadata table = Schema.instance.validateTable(keyspace(), name());
 
+            if ("system_auth".equals(table.keyspace))
+                logger.info("Prepared TableMetadata for SelectStatement {}.{} {}", table.keyspace, table.name, table.id);
+
             List<Selectable> selectables = RawSelector.toSelectables(selectClause, table);
             boolean containsOnlyStaticColumns = selectOnlyStaticColumns(table, selectables);
 

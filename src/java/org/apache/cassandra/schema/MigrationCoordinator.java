@@ -510,12 +510,14 @@ public class MigrationCoordinator
                                                         .filter(this::shouldPullFromEndpoint)
                                                         .findFirst();
 
+        logger.info("Pulling schema from endpoint {}", endpoint);
         return endpoint.map(this::pullSchemaFrom).orElse(ImmediateFuture.success(Collections.emptyList()));
     }
 
 
     void announce(UUID schemaVersion)
     {
+        logger.info("Announcing new schema version {}", schemaVersion);
         if (gossiper.isEnabled())
             gossiper.addLocalApplicationState(ApplicationState.SCHEMA, StorageService.instance.valueFactory.schema(schemaVersion));
         SchemaDiagnostics.versionAnnounced(Schema.instance);
@@ -610,7 +612,7 @@ public class MigrationCoordinator
 
     private void pullSchema(InetAddressAndPort endpoint, RequestCallback<Collection<Mutation>> callback)
     {
-        logger.debug("About to pull schema for endpoint {}", endpoint);
+        logger.info("About to pull schema for endpoint {}", endpoint);
         if (!gossiper.isAlive(endpoint))
         {
             logger.warn("Can't send schema pull request: node {} is down.", endpoint);
@@ -628,7 +630,7 @@ public class MigrationCoordinator
             return;
         }
 
-        logger.debug("Requesting schema from {}", endpoint);
+        logger.info("Requesting schema from {}", endpoint);
         sendMigrationMessage(endpoint, callback);
     }
 

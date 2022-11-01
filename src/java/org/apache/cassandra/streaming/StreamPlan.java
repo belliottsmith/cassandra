@@ -21,6 +21,9 @@ import java.util.*;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.RangesAtEndpoint;
 import org.apache.cassandra.locator.Replica;
@@ -38,6 +41,8 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
  */
 public class StreamPlan
 {
+    private static final Logger logger = LoggerFactory.getLogger(StreamPlan.class);
+
     private static final String[] EMPTY_COLUMN_FAMILIES = new String[0];
     private final TimeUUID planId = nextTimeUUID();
     private final StreamOperation streamOperation;
@@ -178,6 +183,7 @@ public class StreamPlan
      */
     public StreamResultFuture execute()
     {
+        logger.info("Executing stream plan {} for operation {} with coordinator {}", this.planId, streamOperation, coordinator);
         return StreamResultFuture.createInitiator(planId, streamOperation, handlers, coordinator);
     }
 
