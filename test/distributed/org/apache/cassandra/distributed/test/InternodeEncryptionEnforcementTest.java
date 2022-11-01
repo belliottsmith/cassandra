@@ -74,7 +74,7 @@ public final class InternodeEncryptionEnforcementTest extends TestBaseImpl
             SerializableRunnable runnable = () ->
             {
                 // There should be no inbound handlers as authentication fails and we remove handlers.
-                assertEquals(0, MessagingService.instance().messageHandlers.values().size());
+                assertTrue(MessagingService.instance().messageHandlers.isEmpty());
 
                 // There should be no outbound connections as authentication fails.
                 OutboundConnections outbound = getOnlyElement(MessagingService.instance().channelManagers.values());
