@@ -272,17 +272,20 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
 
     private synchronized void reload()
     {
+        logger.debug("Reloading schema from disk");
         DistributedSchema before = this.schema;
         DistributedSchema after = new DistributedSchema(SchemaKeyspace.fetchNonSystemKeyspaces(), SchemaKeyspace.calculateSchemaDigest());
         Keyspaces.KeyspacesDiff diff = Keyspaces.diff(before.getKeyspaces(), after.getKeyspaces());
         SchemaTransformationResult update = new SchemaTransformationResult(before, after, diff);
 
         updateSchema(update, false);
+        logger.debug("Reloaded schema from disk, got schema version {}", this.schema.getVersion());
     }
 
     @Override
     public void reset(boolean local)
     {
+        logger.debug("Resetting schema {}", local ? "locally" : "from another node");
         if (local)
         {
             reload();

@@ -514,6 +514,7 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                                    @Override
                                    public void onFailure(Throwable t)
                                    {
+                                       logger.warn("Index build of {} failed", getIndexNames(groupedIndexes), t);
                                        logAndMarkIndexesFailed(groupedIndexes, t, false);
                                        unbuiltIndexes.addAll(groupedIndexes);
                                        build.tryFailure(t);

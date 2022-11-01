@@ -597,6 +597,7 @@ public class MigrationCoordinator
 
     void announce(UUID schemaVersion)
     {
+        logger.debug("Announcing new schema version {}", schemaVersion);
         if (gossiper.isEnabled())
             gossiper.addLocalApplicationState(ApplicationState.SCHEMA, StorageService.instance.valueFactory.schema(schemaVersion));
         SchemaDiagnostics.versionAnnounced(Schema.instance);

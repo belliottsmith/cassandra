@@ -609,19 +609,19 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         switch (message.type)
         {
             case STREAM_INIT:
-                // at follower, nop
+                assert isFollower();
                 break;
             case PREPARE_SYN:
-                // at follower
+                assert isFollower();
                 PrepareSynMessage msg = (PrepareSynMessage) message;
                 prepare(msg.requests, msg.summaries);
                 break;
             case PREPARE_SYNACK:
-                // at initiator
+                assert !isFollower();
                 prepareSynAck((PrepareSynAckMessage) message);
                 break;
             case PREPARE_ACK:
-                // at follower
+                assert isFollower();
                 prepareAck((PrepareAckMessage) message);
                 break;
             case STREAM:
@@ -632,7 +632,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 received(received.tableId, received.sequenceNumber);
                 break;
             case COMPLETE:
-                // at initiator
+                assert !isFollower();
                 complete();
                 break;
             case KEEP_ALIVE:

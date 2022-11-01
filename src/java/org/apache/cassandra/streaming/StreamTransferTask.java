@@ -90,7 +90,7 @@ public class StreamTransferTask extends StreamTask
             if (stream != null)
                 stream.complete();
 
-            logger.debug("received sequenceNumber {}, remaining files {}", sequenceNumber, streams.keySet());
+            logger.debug("Received sequenceNumber {}, remaining files {}", sequenceNumber, streams.keySet());
             signalComplete = streams.isEmpty();
         }
 
@@ -113,7 +113,7 @@ public class StreamTransferTask extends StreamTask
             if (stream == null) return;
             stream.complete();
 
-            logger.debug("timeout sequenceNumber {}, remaining files {}", sequenceNumber, streams.keySet());
+            logger.debug("Timed out stream at sequenceNumber {}, remaining files {}", sequenceNumber, streams.keySet());
         }
 
         session.sessionTimeout();
@@ -124,6 +124,8 @@ public class StreamTransferTask extends StreamTask
         if (aborted)
             return;
         aborted = true;
+
+        logger.debug("Aborting stream transfer task for tableId {} SN {} session channel {}", this.tableId, this.sequenceNumber, this.session.getChannel());
 
         for (ScheduledFuture<?> future : timeoutTasks.values())
             future.cancel(false);
@@ -197,6 +199,7 @@ public class StreamTransferTask extends StreamTask
     @VisibleForTesting
     public static void shutdownAndWait(long timeout, TimeUnit units) throws InterruptedException, TimeoutException
     {
+        logger.debug("Shutting down stream transfer task executor with timeout {} {}", timeout, units);
         ExecutorUtils.shutdownAndWait(timeout, units, timeoutExecutor);
     }
 }

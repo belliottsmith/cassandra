@@ -95,5 +95,11 @@ public abstract class StreamEvent
             this.session = session;
             this.prepareDirection = prepareDirection;
         }
+
+        @Override
+        public String toString()
+        {
+            return "<SessionPreparedEvent " + planId + " " + session + ">";
+        }
     }
 }
