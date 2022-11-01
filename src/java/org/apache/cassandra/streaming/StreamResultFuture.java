@@ -18,7 +18,10 @@
 package org.apache.cassandra.streaming;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -229,6 +232,7 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
             if (finalState.hasFailedSession())
             {
                 logger.warn("[Stream #{}] Stream failed", planId);
+                logger.warn("Got failed sessions {}", finalState.sessions.stream().filter(SessionInfo::isFailed).collect(Collectors.toList()));
                 tryFailure(new StreamException(finalState, "Stream failed"));
             }
             else if (finalState.hasAbortedSession())
@@ -241,6 +245,12 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
                 logger.info("[Stream #{}] All sessions completed", planId);
                 trySuccess(finalState);
             }
+        }
+        else
+        {
+            Map<StreamSession.State, List<SessionInfo>> sessionInfoByState = coordinator.getAllSessionInfo().stream()
+                                                                                        .collect(Collectors.groupingBy(si -> si.state));
+            logger.debug("[Stream #{}] Cannot complete - not all sessions are finished successfully {}", planId, sessionInfoByState);
         }
     }
 

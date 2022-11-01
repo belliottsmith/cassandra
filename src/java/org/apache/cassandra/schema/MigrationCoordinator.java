@@ -509,12 +509,14 @@ public class MigrationCoordinator
                                                         .filter(this::shouldPullFromEndpoint)
                                                         .findFirst();
 
+        logger.debug("Pulling schema from endpoint {}", endpoint);
         return endpoint.map(this::pullSchemaFrom).orElse(ImmediateFuture.success(Collections.emptyList()));
     }
 
 
     void announce(UUID schemaVersion)
     {
+        logger.debug("Announcing new schema version {}", schemaVersion);
         if (gossiper.isEnabled())
             gossiper.addLocalApplicationState(ApplicationState.SCHEMA, StorageService.instance.valueFactory.schema(schemaVersion));
         SchemaDiagnostics.versionAnnounced(Schema.instance);

@@ -72,4 +72,15 @@ public class ProgressEvent
     {
         return message;
     }
+
+    @Override
+    public String toString()
+    {
+        return "ProgressEvent{" +
+               "type=" + type +
+               ", progressCount=" + progressCount +
+               ", total=" + total +
+               ", message='" + message + '\'' +
+               '}';
+    }
 }

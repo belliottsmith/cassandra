@@ -268,6 +268,22 @@ public class StreamCoordinator
         logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", session.planId(), session.sessionIndex(), session.peer);
     }
 
+    @Override
+    public String toString()
+    {
+        return "StreamCoordinator{" +
+               "connectSequentially=" + connectSequentially +
+               ", peerSessions=" + peerSessions +
+               ", streamOperation=" + streamOperation +
+               ", connectionsPerHost=" + connectionsPerHost +
+               ", follower=" + follower +
+               ", factory=" + factory +
+               ", sessionsToConnect=" + sessionsToConnect +
+               ", pendingRepair=" + pendingRepair +
+               ", previewKind=" + previewKind +
+               '}';
+    }
+
     private class HostStreamingData
     {
         private final Map<Integer, StreamSession> streamSessions = new HashMap<>();
@@ -294,6 +310,7 @@ public class StreamCoordinator
                                                           pendingRepair, previewKind);
                 streamSessions.put(++lastReturned, session);
                 sessionInfos.put(lastReturned, session.getSessionInfo());
+                logger.debug("Created new stream session to peer {} channel {}", peer, session.getChannel());
                 return session;
             }
             // get
@@ -302,7 +319,9 @@ public class StreamCoordinator
                 if (lastReturned >= streamSessions.size() - 1)
                     lastReturned = 0;
 
-                return streamSessions.get(lastReturned++);
+                StreamSession streamSession = streamSessions.get(lastReturned++);
+                logger.debug("Got existing session with peer {} channel {}", peer, streamSession.getChannel());
+                return streamSession;
             }
         }
 
