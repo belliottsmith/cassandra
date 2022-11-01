@@ -1,5 +1,27 @@
+4.0.3.4
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.3 cie-cassandra-4.0.3
+
 4.0.3.3
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.2 cie-cassandra-4.0.3
+* rdar://101817180 (Cherry-pick CASSANDRA-17618 to 4.0.3.2) (#3176)
+* rdar://100047624 (Add logging to debug release blockers for 4.0.3.2) (#3172)
+* Merge pull request #3167 from jkonisa/endpoint-verification
+* rdar://101352162 (Add endpoint verification option to client_encryption_options)
+* rdar://100464829 Default minimum replication factor from 2 to 3
+* rdar://101234268 (CASSANDRA-17969: Keep sstable level when decommissioning and moving nodes) (#3159)
+* Merge pull request #3144 from jkonisa/mtls-internode-authenticator
+* rdar://100183525 Passing additional params for MtlsInternodeAuthenticator
+* Merge pull request #3150 from aweisberg/r100526479
+* rdar://100526479 (StorageService.getNativeaddress does not account for IPv6 addresses in the case NATIVE_ADDRESS_AND_PORT is not present in gossip state for an endpoint)
+* rdar://100477810 Make ACI Cassandra-all implementation API-compatible with OSS Cassandra-all
+* rdar://100244770 (incremental repair migration puts unrepaired data in anticompaction into 1 SSTable, which does not work well for TWCS which expects 1 time window per SSTable) (#3139)
+* rdar://95209681 (Host replacement failing waiting on schema of host to be replaced) (#3111)
+* rdar://95604389 (CME in STCS.getSSTables) (#3123)
+* rdar://92019427 (Only reload compaction strategies if disk boundaries… (#2888)
+* Merge pull request #3099 from jkonisa/outbound-fallback
+* Optionally avoid hint transfer during decommission
+* HintedHandoffAddRemoveNodesTest now accounts for the fact that StorageMetrics.totalHints is not updated synchronously w/ writes
+* rdar://99603910 (Early port CASSANDRA-17877 - Speculative read threshold) (#3116)
+* rdar://99146257 (CASSANDRA-17862: Scrubber falls into infinite loop when the last partition is broken in data file) (#3109)
 
 4.0.3.2
 * rdar://93174400 Create lastRepairSuccess endpoint alternative for content
