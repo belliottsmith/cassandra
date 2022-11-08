@@ -759,6 +759,8 @@ public class TableMetadata implements SchemaElement
             if (partitioner == null)
                 partitioner = DatabaseDescriptor.getPartitioner();
 
+            assert partitioner != null : "Partitioner cannot be null";
+
             if (id == null)
             {
                 // make sure vtables use determiniestic ids so they can be referenced in calls cross-nodes

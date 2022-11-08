@@ -186,16 +186,16 @@ public class SchemaTransformations
                             // preserve exsiting tables which are missing in the new keyspace definition
                             updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.with(curTable));
                         }
-                        /*
-                         * Compare without taking into account tables' IDs; need to do this because for various
-                         * historical reasons we've created some of our system-like tables manually - as part
-                         * of upgrade workflows or otherwise. See rdar://56247982 for context.
-                         */
-                        else if (!desiredTable.equalsWithoutId(desiredTable))
-                        {
-                            updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.without(desiredTable));
 
+                        /* Always avoid changing the TableId of an existing table; need to do this because for various
+                         * historical reasons we've created some of our system-like tables manually with
+                         * non-deterministic IDs - as part of upgrade workflows or otherwise.
+                         * See rdar://56247982 for context.
+                         */
+                        else if (!desiredTable.equals(curTable))
+                        {
                             TableMetadata.Builder updatedBuilder = desiredTable.unbuild();
+                            updatedBuilder.id(curTable.id);
 
                             for (ColumnMetadata column : curTable.regularAndStaticColumns())
                             {
@@ -203,7 +203,7 @@ public class SchemaTransformations
                                     updatedBuilder.addColumn(column);
                             }
 
-                            updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.with(updatedBuilder.build()));
+                            updatedKeyspace = updatedKeyspace.withSwapped(updatedKeyspace.tables.withSwapped(updatedBuilder.build()));
                         }
                     }
                 }
