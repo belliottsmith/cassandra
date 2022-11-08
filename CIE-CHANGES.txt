@@ -1,6 +1,10 @@
 4.0.3.10
 AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.3 cie-cassandra-4.0.3
 
+4.0.3.4
+* rdar://100047624 (Fix CFID mutability in 4.0.3) (#3180)
+* IllegalArgumentException in Gossiper#order due to concurrent mutations to elements being applied (#3178) (#3179)
+
 4.0.3.3
 * rdar://101817180 (Cherry-pick CASSANDRA-17618 to 4.0.3.2) (#3176)
 * rdar://100047624 (Add logging to debug release blockers for 4.0.3.2) (#3172)
