@@ -39,7 +39,7 @@ public final class AuthKeyspace
     }
 
     private static final int DEFAULT_RF = CassandraRelevantProperties.SYSTEM_AUTH_DEFAULT_RF.getInt(
-        DatabaseDescriptor.getDefaultKeyspaceRF());
+    DatabaseDescriptor.getDefaultKeyspaceRF());
 
     /**
      * Generation is used as a timestamp for automatic table creation on startup.
