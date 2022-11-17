@@ -66,7 +66,7 @@ public class CassandraEntireSSTableStreamWriter
     public void write(StreamingDataOutputPlus out) throws IOException
     {
         long totalSize = manifest.totalSize();
-        logger.debug("[Stream #{}] Start streaming sstable {} to {}, repairedAt = {}, totalSize = {}",
+        logger.info("[Stream #{}] Start streaming sstable {} to {}, repairedAt = {}, totalSize = {}",
                      session.planId(),
                      sstable.getFilename(),
                      session.peer,
@@ -81,7 +81,7 @@ public class CassandraEntireSSTableStreamWriter
             long length = manifest.sizeOf(component);
 
             // tracks write progress
-            logger.debug("[Stream #{}] Streaming {}.{} gen {} component {} size {}", session.planId(),
+            logger.info("[Stream #{}] Streaming {}.{} gen {} component {} size {}", session.planId(),
                          sstable.getKeyspaceName(),
                          sstable.getColumnFamilyName(),
                          sstable.descriptor.id,
@@ -95,7 +95,7 @@ public class CassandraEntireSSTableStreamWriter
 
             session.progress(sstable.descriptor.filenameFor(component), ProgressInfo.Direction.OUT, bytesWritten, length);
 
-            logger.debug("[Stream #{}] Finished streaming {}.{} gen {} component {} to {}, xfered = {}, length = {}, totalSize = {}",
+            logger.info("[Stream #{}] Finished streaming {}.{} gen {} component {} to {}, xfered = {}, length = {}, totalSize = {}",
                          session.planId(),
                          sstable.getKeyspaceName(),
                          sstable.getColumnFamilyName(),
@@ -109,7 +109,7 @@ public class CassandraEntireSSTableStreamWriter
 
         out.flush();
 
-        logger.debug("[Stream #{}] Finished streaming sstable {} to {}, xfered = {}, totalSize = {}",
+        logger.info("[Stream #{}] Finished streaming sstable {} to {}, xfered = {}, totalSize = {}",
                      session.planId(),
                      sstable.getFilename(),
                      session.peer,

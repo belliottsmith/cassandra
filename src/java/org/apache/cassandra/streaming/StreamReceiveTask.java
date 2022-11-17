@@ -84,7 +84,7 @@ public class StreamReceiveTask extends StreamTask
         remoteStreamsReceived += stream.getNumFiles();
         bytesReceived += stream.getSize();
         Preconditions.checkArgument(tableId.equals(stream.getTableId()));
-        logger.debug("received {} of {} total files, {} of total bytes {}", remoteStreamsReceived, totalStreams,
+        logger.info("received {} of {} total files, {} of total bytes {}", remoteStreamsReceived, totalStreams,
                      bytesReceived, stream.getSize());
 
         receiver.received(stream);

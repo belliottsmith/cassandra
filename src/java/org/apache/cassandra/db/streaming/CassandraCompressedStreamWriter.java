@@ -59,7 +59,7 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
     public void write(StreamingDataOutputPlus out) throws IOException
     {
         long totalSize = totalSize();
-        logger.debug("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
+        logger.info("[Stream #{}] Start streaming file {} to {}, repairedAt = {}, totalSize = {}", session.planId(),
                      sstable.getFilename(), session.peer, sstable.getSSTableMetadata().repairedAt, totalSize);
         try (ChannelProxy fc = sstable.getDataChannel().newChannel())
         {
@@ -76,7 +76,7 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
                 // length of the section to stream
                 long length = section.end - section.start;
 
-                logger.debug("[Stream #{}] Writing section {} with length {} to stream.", session.planId(), sectionIdx++, length);
+                logger.info("[Stream #{}] Writing section {} with length {} to stream.", session.planId(), sectionIdx++, length);
 
                 // tracks write progress
                 long bytesTransferred = 0;
@@ -97,7 +97,7 @@ public class CassandraCompressedStreamWriter extends CassandraStreamWriter
                     session.progress(sstable.descriptor.filenameFor(Component.DATA), ProgressInfo.Direction.OUT, progress, totalSize);
                 }
             }
-            logger.debug("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
+            logger.info("[Stream #{}] Finished streaming file {} to {}, bytesTransferred = {}, totalSize = {}",
                          session.planId(), sstable.getFilename(), session.peer, FBUtilities.prettyPrintMemory(progress), FBUtilities.prettyPrintMemory(totalSize));
         }
     }

@@ -258,6 +258,7 @@ public class StreamingState implements StreamEventHandler
 
     private void streamPrepared(StreamEvent.SessionPreparedEvent event)
     {
+        logger.info("Prepared stream {}", event);
         SessionInfo session = new SessionInfo(event.session);
         streamProgress.putIfAbsent(session.peer, session);
     }
@@ -271,6 +272,11 @@ public class StreamingState implements StreamEventHandler
         }
         else
         {
+            /*
+            Seeing this a few times on the 4.0.3 host replacement streaming issue repros.
+            Are stream prepares synchronous? If so, I wouldn't expect any progress to preceed acknowledgement of the prepare.
+            If stream prepares are asynchronous, is it possible to introduce a reorder buffer here, to tolerate out-of-order prepare and progress events?
+            */
             logger.warn("[Stream #{}} ID#{}] Recieved stream progress before prepare; peer={}", id, event.progress.sessionIndex, event.progress.peer);
         }
     }

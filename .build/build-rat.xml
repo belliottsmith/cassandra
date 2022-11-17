@@ -47,6 +47,7 @@
     <target name="rat-check" depends="_build_ratinclude" unless="${rat.skip}" description="License checks on source" >
         <rat:report reportFile="${build.dir}/rat.txt">
             <fileset dir="." includesfile="build/.ratinclude">
+                 <exclude name="**/README.md"/>
                  <!-- Config files with not much creativity -->
                  <exclude name="**/.asf.yaml"/>
                  <exclude name="**/ide/**/*"/>

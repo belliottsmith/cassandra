@@ -20,6 +20,9 @@ package org.apache.cassandra.streaming.messages;
 import java.io.IOException;
 import java.util.Objects;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.util.DataInputPlus;
 
@@ -32,6 +35,8 @@ import org.apache.cassandra.streaming.StreamSession;
 
 public class IncomingStreamMessage extends StreamMessage
 {
+    private static final Logger logger = LoggerFactory.getLogger(IncomingStreamMessage.class);
+
     public static Serializer<IncomingStreamMessage> serializer = new Serializer<IncomingStreamMessage>()
     {
         public IncomingStreamMessage deserialize(DataInputPlus input, int version) throws IOException
@@ -53,6 +58,8 @@ public class IncomingStreamMessage extends StreamMessage
             }
             catch (Throwable t)
             {
+                logger.info("Got throwable while trying to deserialize IncomingStreamMessage", t);
+
                 if (t instanceof StreamReceiveException)
                     throw (StreamReceiveException) t;
                 // make sure to wrap so the caller always has access to the session to call onError
