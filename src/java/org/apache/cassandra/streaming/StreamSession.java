@@ -540,7 +540,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         // due to failure, channels should be always closed regardless, even if this is not the initator.
         if (!isFollower || state != State.COMPLETE)
         {
-            logger.debug("[Stream #{}] Will close attached inbound {} and outbound {} channels", planId(), inbound, outbound);
+            logger.info("[Stream #{}] Will close attached inbound {} and outbound {} channels", planId(), inbound, outbound);
             inbound.values().forEach(channel -> futures.add(channel.close()));
             outbound.values().forEach(channel -> futures.add(channel.close()));
         }
@@ -554,6 +554,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private void abortTasks()
     {
+        logger.info("Aborting tasks on stream {} {}; receivers {} transfers {}", planId(), isFollower ? "follower" : "leader", receivers, transfers);
         try
         {
             receivers.values().forEach(StreamReceiveTask::abort);
@@ -572,8 +573,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void state(State newState)
     {
-        if (logger.isDebugEnabled())
-            logger.debug("[Stream #{}] Changing session state from {} to {}", planId(), state, newState);
+        logger.info("[Stream #{}] Changing session state from {} to {}", planId(), state, newState);
 
         sink.recordState(peer, newState);
         state = newState;
@@ -673,13 +673,14 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public synchronized Future<?> onError(Throwable e)
     {
+        logger.warn("Stream session {} handling error", this, e);
         boolean isEofException = e instanceof EOFException || e instanceof ClosedChannelException;
         if (isEofException)
         {
             State state = this.state;
             if (state.finalState)
             {
-                logger.debug("[Stream #{}] Socket closed after session completed with state {}", planId(), state);
+                logger.info("[Stream #{}] Socket closed after session completed with state {}", planId(), state);
 
                 return null;
             }
@@ -1058,6 +1059,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         {
             receivers.get(message.header.tableId).received(message.stream);
         }
+        catch (Throwable t)
+        {
+            logger.info("Got throwable while handling stream receive", t);
+            throw t;
+        }
         finally
         {
             long latencyNanos = nanoTime() - receivedStartNanos;
@@ -1079,13 +1085,15 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
+        // How can we guarantee that progress events get fired on completion, when bytes == total, in addition to the potential completion event?
+        // Is it feasible that what appears to be streams dropping off is actually a failure to fire progress events on completion?
         logger.info("Got stream progress event {} for file {} bytes {} out of total {}", progress, filename, bytes, total);
         streamResult.handleProgress(progress);
     }
 
     public void received(TableId tableId, int sequenceNumber)
     {
-        logger.info("Finished receiving table {}", tableId);
+        logger.info("Peer finished receiving table {}", tableId);
         transfers.get(tableId).complete(sequenceNumber);
     }
 
@@ -1094,7 +1102,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public synchronized void complete()
     {
-        logger.debug("[Stream #{}] handling Complete message, state = {}", planId(), state);
+        logger.info("[Stream #{}] handling Complete message, state = {}", planId(), state);
 
         if (!isFollower) // initiator
         {
@@ -1141,12 +1149,20 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private void initiatorCompleteOrWait()
     {
+        logger.info("initiatorCompleteOrWait current state is {}", state);
+
         // This is called when coordination completes AND when COMPLETE message is seen; it is possible that the
         // COMPLETE method is seen first!
         if (state == State.WAIT_COMPLETE)
+        {
+            logger.info("Currently in WAIT_COMPLETE, closing session and moving to COMPLETE");
             closeSession(State.COMPLETE);
+        }
         else
+        {
+            logger.info("Moving to WAIT_COMPLETE");
             state(State.WAIT_COMPLETE);
+        }
     }
 
     /**
@@ -1247,6 +1263,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             streamResult.handleSessionPrepared(this);
 
         state(State.STREAMING);
+
+        logger.info("Starting to stream files to peer {}; expected transfers are {}", peer, transfers);
 
         for (StreamTransferTask task : transfers.values())
         {
@@ -1354,7 +1372,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         if (state.isFinalState())
         {
-            logger.debug("[Stream #{}] Stream session with peer {} is already in a final state on abort.", planId(), peer);
+            logger.info("[Stream #{}] Stream session with peer {} is already in a final state on abort.", planId(), peer);
             return;
         }
 

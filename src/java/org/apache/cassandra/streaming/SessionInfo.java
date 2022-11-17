@@ -205,4 +205,19 @@ public final class SessionInfo implements Serializable
     {
         return new SessionSummary(FBUtilities.getBroadcastAddressAndPort(), peer, receivingSummaries, sendingSummaries);
     }
+
+    @Override
+    public String toString()
+    {
+        return "SessionInfo{" +
+               "peer=" + peer +
+               ", sessionIndex=" + sessionIndex +
+               ", connecting=" + connecting +
+               ", receivingSummaries=" + receivingSummaries +
+               ", sendingSummaries=" + sendingSummaries +
+               ", state=" + state +
+               ", receivingFiles=" + receivingFiles +
+               ", sendingFiles=" + sendingFiles +
+               '}';
+    }
 }

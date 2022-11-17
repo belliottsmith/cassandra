@@ -192,6 +192,7 @@ public class StreamingMultiplexedChannel
         }
         catch (Exception e)
         {
+            logger.error("Could not send control message {}", message, e);
             close();
             session.onError(e);
             return ImmediateFuture.failure(e);
@@ -297,8 +298,10 @@ public class StreamingMultiplexedChannel
         @Override
         public void run()
         {
-            if (!acquirePermit(SEMAPHORE_UNAVAILABLE_LOG_INTERVAL))
+            if (!acquirePermit(SEMAPHORE_UNAVAILABLE_LOG_INTERVAL)) {
+                logger.info("Could not acquire permit for FileStreamTask {}", msg);
                 return;
+            }
 
             StreamingChannel channel = null;
             try
@@ -313,6 +316,7 @@ public class StreamingMultiplexedChannel
             }
             catch (Exception e)
             {
+                logger.error("Got exception in FileStreamTask when trying to acquire output stream and serialize msg", e);
                 session.onError(e);
             }
             catch (Throwable t)
@@ -323,6 +327,7 @@ public class StreamingMultiplexedChannel
                 }
                 else
                 {
+                    logger.error("Got throwable in FileStreamTask when trying to acquire output stream and serialize msg", t);
                     inspectThrowable(t);
                     if (!session.state().isFinalState())
                         session.onError(t);
@@ -331,6 +336,7 @@ public class StreamingMultiplexedChannel
             finally
             {
                 fileTransferSemaphore.release(1);
+                logger.info("Finished FileStreamTask, semaphore has {} permits out of {} total", fileTransferSemaphore.permits(), MAX_PARALLEL_TRANSFERS);
             }
         }
 

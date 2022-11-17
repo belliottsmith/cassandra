@@ -93,5 +93,11 @@ public abstract class StreamEvent
             super(Type.STREAM_PREPARED, planId);
             this.session = session;
         }
+
+        @Override
+        public String toString()
+        {
+            return "<SessionPreparedEvent " + planId + " " + session + ">";
+        }
     }
 }

@@ -18,7 +18,10 @@
 package org.apache.cassandra.streaming;
 
 import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -241,6 +244,10 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
                 logger.info("[Stream #{}] All sessions completed", planId);
                 trySuccess(finalState);
             }
+        } else {
+            Map<StreamSession.State, List<SessionInfo>> sessionInfoByState = coordinator.getAllSessionInfo().stream()
+                                                                             .collect(Collectors.groupingBy(si -> si.state));
+            logger.warn("Can't complete - not all sessions are finished successfully {}", sessionInfoByState);
         }
     }
 
