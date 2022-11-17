@@ -83,8 +83,11 @@ public final class SystemDistributedKeyspace
      * gen 5: add ttl and TWCS to repair_history tables
      * gen 6: disable xmas patch and enable unsafe_aggressive_sstable_expiration
      * gen 7: add denylist table - out of source order, but this is deployed release order
+     *        NOTE 4.0.0 branch used gen7 for the flush change, however startup diffs schema and updates to this
+     *        schema, and the update timestamp will advance to show a change.
+     * gen 8: reintroduce memtable flush period, users cannot adjust and repair history mean commitlog fills to max
      */
-    public static final long GENERATION = 7;
+    public static final long GENERATION = 8;
 
     public static final String REPAIR_HISTORY = "repair_history";
 
@@ -168,6 +171,7 @@ public final class SystemDistributedKeyspace
         return CreateTableStatement.parse(format(cql, table), SchemaConstants.DISTRIBUTED_KEYSPACE_NAME)
                                    .id(TableId.forSystemTable(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, table))
                                    .comment(description)
+                                   .memtableFlushPeriod((int) TimeUnit.HOURS.toMillis(1))
                                    .compaction(CompactionParams.DEFAULT_SYSTEM);
     }
 
