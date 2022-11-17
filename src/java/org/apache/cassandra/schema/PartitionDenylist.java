@@ -446,22 +446,19 @@ public class PartitionDenylist
                 logger.debug("active in legacy mode");
                 return legacyMode;
             }
-            else
+            else if (hasLegacyDenylist)
             {
-                if (hasLegacyDenylist)
-                {
-                    // If legacy and denylist tables exist, use both until the legacy one is removed. Otherwise if
-                    // keys are removed from the denylist they could still be loaded/migrated from the legacy table.
-                    logger.debug("active in mixed mode");
-                    return mixedMode;
-                }
-                else // Cluster created without the legacy tables or they have been removed
-                {
-                    // Move over to the new schema.  Rely on per-instance upgrades having migrated
-                    // from the original tables and some read repair. Worst case will have to re-issue some denylist requests.
-                    logger.debug("active in upgraded mode");
-                    return upgraded;
-                }
+                // If legacy and denylist tables exist, use both until the legacy one is removed. Otherwise if
+                // keys are removed from the denylist they could still be loaded/migrated from the legacy table.
+                logger.debug("active in mixed mode");
+                return mixedMode;
+            }
+            else // Cluster created without the legacy tables or they have been removed
+            {
+                // Move over to the new schema.  Rely on per-instance upgrades having migrated
+                // from the original tables and some read repair. Worst case will have to re-issue some denylist requests.
+                logger.debug("active in upgraded mode");
+                return upgraded;
             }
         }
 
