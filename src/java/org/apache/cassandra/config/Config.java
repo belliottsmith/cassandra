@@ -45,7 +45,6 @@ import org.apache.cassandra.service.StartupChecks.StartupCheckType;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_MATERIALIZEDVIEWS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.DEFAULT_REPLICATION_FACTOR;
-import static org.apache.cassandra.config.CassandraRelevantProperties.ENABLE_SECONDARY_INDEX;
 
 /**
  * A class that contains configuration properties for the cassandra node it runs within.
