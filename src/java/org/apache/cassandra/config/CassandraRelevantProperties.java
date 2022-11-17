@@ -306,7 +306,7 @@ public enum CassandraRelevantProperties
     // rdar://60088220 p27729987 PRO/RST Restrict replication strategy and factor
     // that was partially replaced by CASSANDRA-14557
     // rdar://100464829 (Min RF default could lead to data loss)
-    // In ACI Cassandra we have a more strict minimum_keyspace_rf than in upstream (2),
+    // In ACI Cassandra we have a more strict minimum_replication_factor_fail_threshold than in upstream (2),
     // this is to avoid data loss or failure to repair when one replica is down.
     MINIMUM_ALLOWED_REPLICATION_FACTOR("cassandra.minimum_replication_factor", "3"),
     DEFAULT_REPLICATION_FACTOR("cassandra.default_replication_factor", "3"),
