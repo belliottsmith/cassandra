@@ -131,7 +131,7 @@ public class ValidationManager
                 CompactionManager.instance.markValidationActive(cfs.metadata().id, sessionData);
                 MerkleTrees trees = createMerkleTrees(vi, validator.desc.ranges, cfs);
                 // validate the CF as we iterate over it
-            validator.prepare(cfs, trees, topPartitionCollector);
+                validator.prepare(cfs, trees, topPartitionCollector);
                 while (vi.hasNext())
                 {
                     try (UnfilteredRowIterator partition = vi.next())
