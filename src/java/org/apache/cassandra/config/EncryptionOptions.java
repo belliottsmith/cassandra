@@ -297,7 +297,7 @@ public class EncryptionOptions
         }
     }
 
-    protected static void putSslContextFactoryParameter(Map<String,Object> existingParameters, ConfigKey configKey,
+    protected static void putSslContextFactoryParameter(Map<String, Object> existingParameters, ConfigKey configKey,
                                                Object value)
     {
         if (value != null) {
