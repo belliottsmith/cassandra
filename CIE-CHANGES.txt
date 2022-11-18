@@ -1,5 +1,9 @@
+4.0.3.6
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.5 cie-cassandra-4.0.3
+
 4.0.3.5
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.4 cie-cassandra-4.0.3
+* rdar://100047624 (Add instrumentation to streaming paths for 4.0.3 qualification) (#3184)
+* rdar://101081155 (4.0.3: Reintroduce memtable flush timeout for system_distributed) (#3155)
 
 4.0.3.4
 * rdar://100047624 (Fix CFID mutability in 4.0.3) (#3180)
