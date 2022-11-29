@@ -20,6 +20,7 @@ package org.apache.cassandra.service;
 
 import org.apache.cassandra.locator.EndpointsByReplica;
 import org.apache.cassandra.locator.ReplicaCollection;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -155,5 +156,20 @@ public class StorageServiceTest
         expectedResult.put(new Replica(aAddress, eRange, true), new Replica(cAddress, eRange, false));
         expectedResult.put(new Replica(aAddress, dRange, false), new Replica(bAddress, dRange, false));
         assertMultimapEqualsIgnoreOrder(result, expectedResult.build());
+    }
+
+    @Test
+    public void testLocalDatacenterNodesExcludedDuringRebuild()
+    {
+        StorageService service = StorageService.instance;
+        try
+        {
+            service.rebuild(DatabaseDescriptor.getLocalDataCenter(), "StorageServiceTest", null, null, true);
+            fail();
+        }
+        catch (IllegalArgumentException e)
+        {
+            Assert.assertEquals("Cannot set source data center to be local data center, when excludeLocalDataCenter flag is set", e.getMessage());
+        }
     }
 }
