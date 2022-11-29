@@ -198,4 +198,19 @@ public class StorageServiceTest
         // fast tasks are shut down as part of the Runtime shutdown hook.
         assertFalse(ScheduledExecutors.scheduledFastTasks.isTerminated());
     }
+
+    @Test
+    public void testLocalDatacenterNodesExcludedDuringRebuild()
+    {
+        StorageService service = StorageService.instance;
+        try
+        {
+            service.rebuild(DatabaseDescriptor.getLocalDataCenter(), "StorageServiceTest", null, null, true);
+            fail();
+        }
+        catch (IllegalArgumentException e)
+        {
+            Assert.assertEquals("Cannot set source data center to be local data center, when excludeLocalDataCenter flag is set", e.getMessage());
+        }
+    }
 }
