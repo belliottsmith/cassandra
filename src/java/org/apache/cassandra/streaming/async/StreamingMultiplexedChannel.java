@@ -160,7 +160,7 @@ public class StreamingMultiplexedChannel
 
     private StreamingChannel createControlChannel() throws IOException
     {
-        logger.debug("Creating stream session to {} as {}", to, session.isFollower() ? "follower" : "initiator");
+        logger.info("Creating control channel to {} as {}", to, session.isFollower() ? "follower" : "initiator");
 
         StreamingChannel channel = factory.create(to, messagingVersion, StreamingChannel.Kind.CONTROL);
         executorFactory().startThread(String.format("Stream-Deserializer-%s-%s", to.toString(), channel.id()),
