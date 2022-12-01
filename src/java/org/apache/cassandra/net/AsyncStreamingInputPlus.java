@@ -89,7 +89,7 @@ public class AsyncStreamingInputPlus extends RebufferingInputStream implements S
      * @throws ClosedChannelException when no further reading from this instance should occur. Implies this instance is closed.
      */
     @Override
-    protected void reBuffer() throws ClosedChannelException
+    protected void reBuffer() throws IOException
     {
         if (isConsumerClosed)
             throw new ClosedChannelException();
@@ -117,7 +117,7 @@ public class AsyncStreamingInputPlus extends RebufferingInputStream implements S
         if (next == Unpooled.EMPTY_BUFFER) // the indicator that the input is closed
         {
             isConsumerClosed = true;
-            throw new ClosedChannelException();
+            throw new EOFException();
         }
 
         currentBuf = next;

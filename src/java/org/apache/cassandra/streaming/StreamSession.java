@@ -604,6 +604,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public synchronized void messageReceived(StreamMessage message)
     {
+        logger.info("Received StreamMessage {} operation {} peer {} isFollower {} index {}", message, streamOperation, peer, isFollower(), index);
+
         if (message.type != StreamMessage.Type.KEEP_ALIVE)
             failIfFinished();
 
@@ -612,19 +614,19 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         switch (message.type)
         {
             case STREAM_INIT:
-                // at follower, nop
+                assert isFollower();
                 break;
             case PREPARE_SYN:
-                // at follower
+                assert isFollower();
                 PrepareSynMessage msg = (PrepareSynMessage) message;
                 prepare(msg.requests, msg.summaries);
                 break;
             case PREPARE_SYNACK:
-                // at initiator
+                assert !isFollower();
                 prepareSynAck((PrepareSynAckMessage) message);
                 break;
             case PREPARE_ACK:
-                // at follower
+                assert isFollower();
                 prepareAck((PrepareAckMessage) message);
                 break;
             case STREAM:
@@ -635,7 +637,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 received(received.tableId, received.sequenceNumber);
                 break;
             case COMPLETE:
-                // at initiator
+                assert !isFollower();
                 complete();
                 break;
             case KEEP_ALIVE:
@@ -647,6 +649,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             default:
                 throw new AssertionError("unhandled StreamMessage type: " + message.getClass().getName());
         }
+
+        logger.info("After handling stream message, state is now {}", state());
     }
 
     /**

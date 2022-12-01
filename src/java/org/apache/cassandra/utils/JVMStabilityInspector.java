@@ -102,6 +102,7 @@ public final class JVMStabilityInspector
 
     public static void inspectThrowable(Throwable t, Consumer<Throwable> fn) throws OutOfMemoryError
     {
+        logger.info("Inspecting throwable with consumer {}", fn, t);
         boolean isUnstable = false;
         if (t instanceof OutOfMemoryError)
         {

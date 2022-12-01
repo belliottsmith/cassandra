@@ -224,6 +224,7 @@ public class BigTableZeroCopyWriter extends SSTable implements SSTableMultiWrite
         }
         catch (EOFException e)
         {
+            logger.info("Got EOFException while trying to write component {} with length {}, closing input", writer.getPath(), prettyPrintMemory(size), e);
             in.close();
         }
         catch (ClosedChannelException e)
@@ -231,6 +232,7 @@ public class BigTableZeroCopyWriter extends SSTable implements SSTableMultiWrite
             // FSWriteError triggers disk failure policy, but if we get a connection issue we do not want to do that
             // so rethrow so the error handling logic higher up is able to deal with this
             // see CASSANDRA-17116
+            logger.info("Got ClosedChannelException while trying to write component {} with length {}, re-throwing", writer.getPath(), prettyPrintMemory(size), e);
             throw e;
         }
         catch (IOException e)
