@@ -1,5 +1,10 @@
+4.0.3.7
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.6 cie-cassandra-4.0.3
+
 4.0.3.6
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.5 cie-cassandra-4.0.3
+* rdar://100047624 (Evaluate fixes + add logging for 4.0.3.x streaming issues) (#3198)
+* rdar://100047624 (Evaluate fixes + add logging for 4.0.3.x streaming issues) (#3197)
+* Add flag to exclude nodes from local DC when running nodetool rebuild (#3189)
 
 4.0.3.5
 * rdar://100047624 (Add instrumentation to streaming paths for 4.0.3 qualification) (#3184)
