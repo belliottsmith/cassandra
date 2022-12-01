@@ -1037,6 +1037,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     // ACI Cassandra - permit mocking control messages to test OOTR patch
     protected Future<?> sendControlMessage(StreamMessage message)
     {
+        logger.info("Sending control message {} peer {} index {} planId {}", message, peer, index, planId());
         return channel.sendControlMessage(message);
     }
 
