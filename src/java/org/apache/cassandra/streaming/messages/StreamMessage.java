@@ -50,6 +50,14 @@ public abstract class StreamMessage
         return type.inSerializer.deserialize(in, version);
     }
 
+    @Override
+    public String toString()
+    {
+        return "StreamMessage{" +
+               "type=" + type +
+               '}';
+    }
+
     /** StreamMessage serializer */
     public static interface Serializer<V extends StreamMessage>
     {
