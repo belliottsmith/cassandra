@@ -535,7 +535,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
         // Channels should only be closed by the initiator; but, if this session closed
         // due to failure, channels should be always closed regardless, even if this is not the initator.
-        if (!isFollower || state != State.COMPLETE)
+        if (!isFollower || (state != State.WAIT_COMPLETE && state != State.COMPLETE))
         {
             logger.info("[Stream #{}] Will close attached inbound {} and outbound {} channels", planId(), inbound, outbound);
             inbound.values().forEach(channel -> futures.add(channel.close()));
@@ -647,7 +647,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
                 throw new AssertionError("unhandled StreamMessage type: " + message.getClass().getName());
         }
 
-        logger.info("After handling stream message, state is now {}", state());
+        logger.info("After handling stream message {}, state is now {}", message, state());
     }
 
     /**
@@ -1092,7 +1092,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
         // How can we guarantee that progress events get fired on completion, when bytes == total, in addition to the potential completion event?
         // Is it feasible that what appears to be streams dropping off is actually a failure to fire progress events on completion?
-        logger.info("Got stream progress event {} for file {} bytes {} out of total {}", progress, filename, bytes, total);
+        // logger.info("Got stream progress event {} for file {} bytes {} out of total {}", progress, filename, bytes, total);
         streamResult.handleProgress(progress);
     }
 

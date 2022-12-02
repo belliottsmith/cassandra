@@ -26,6 +26,7 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.distributed.Constants;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -210,18 +211,23 @@ public class HostReplacementTest extends TestBaseImpl
         fixDistributedSchemas(cluster);
         init(cluster);
 
+        cluster.forEach(instance -> instance.runOnInstance(() -> {
+            DatabaseDescriptor.setSecondaryIndexEnabled(true);
+        }));
+
         populate(cluster);
         cluster.forEach(i -> i.flush(KEYSPACE));
     }
 
     static void populate(Cluster cluster)
     {
-        cluster.schemaChange("CREATE TABLE IF NOT EXISTS " + KEYSPACE + ".tbl (pk int PRIMARY KEY)");
-        for (int i = 0; i < 10; i++)
+        cluster.schemaChange("CREATE TABLE IF NOT EXISTS " + KEYSPACE + ".tbl (pk int, ck int, PRIMARY KEY(pk, ck))");
+        cluster.schemaChange("CREATE INDEX tbl_index ON " + KEYSPACE + ".tbl (ck)");
+        for (int i = 0; i < 1_000; i++)
         {
-            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk) VALUES (?)",
+            cluster.coordinator(1).execute("INSERT INTO " + KEYSPACE + ".tbl (pk, ck) VALUES (?, ?)",
                                            ConsistencyLevel.ALL,
-                                           i);
+                                           i, i);
         }
     }
 
