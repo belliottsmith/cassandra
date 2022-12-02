@@ -268,6 +268,22 @@ public class StreamCoordinator
         logger.info("[Stream #{}, ID#{}] Beginning stream session with {}", session.planId(), session.sessionIndex(), session.peer);
     }
 
+    @Override
+    public String toString()
+    {
+        return "StreamCoordinator{" +
+               "connectSequentially=" + connectSequentially +
+               ", peerSessions=" + peerSessions +
+               ", streamOperation=" + streamOperation +
+               ", connectionsPerHost=" + connectionsPerHost +
+               ", follower=" + follower +
+               ", factory=" + factory +
+               ", sessionsToConnect=" + sessionsToConnect +
+               ", pendingRepair=" + pendingRepair +
+               ", previewKind=" + previewKind +
+               '}';
+    }
+
     private class HostStreamingData
     {
         private final Map<Integer, StreamSession> streamSessions = new HashMap<>();

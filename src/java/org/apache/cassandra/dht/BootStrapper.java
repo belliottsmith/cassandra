@@ -120,7 +120,7 @@ public class BootStrapper extends ProgressEventNotifierSupport
                         StreamEvent.SessionPreparedEvent prepared = (StreamEvent.SessionPreparedEvent) event;
                         int currentTotal = totalFilesToReceive.addAndGet((int) prepared.session.getTotalFilesToReceive());
                         ProgressEvent prepareProgress = new ProgressEvent(ProgressEventType.PROGRESS, receivedFiles.get(), currentTotal, "prepare with " + prepared.session.peer + " complete");
-                        fireProgressEvent("bootstrap", prepareProgress);
+                        fireProgressEvent("bootstrap.prepared", prepareProgress);
                         break;
 
                     case FILE_PROGRESS:
@@ -129,14 +129,14 @@ public class BootStrapper extends ProgressEventNotifierSupport
                         {
                             int received = receivedFiles.incrementAndGet();
                             ProgressEvent currentProgress = new ProgressEvent(ProgressEventType.PROGRESS, received, totalFilesToReceive.get(), "received file " + progress.progress.fileName);
-                            fireProgressEvent("bootstrap", currentProgress);
+                            fireProgressEvent("bootstrap.fileprogress", currentProgress);
                         }
                         break;
 
                     case STREAM_COMPLETE:
                         StreamEvent.SessionCompleteEvent completeEvent = (StreamEvent.SessionCompleteEvent) event;
                         ProgressEvent completeProgress = new ProgressEvent(ProgressEventType.PROGRESS, receivedFiles.get(), totalFilesToReceive.get(), "session with " + completeEvent.peer + " complete");
-                        fireProgressEvent("bootstrap", completeProgress);
+                        fireProgressEvent("bootstrap.streamcomplete", completeProgress);
                         break;
                 }
             }

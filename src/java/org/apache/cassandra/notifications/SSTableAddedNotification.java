@@ -59,4 +59,13 @@ public class SSTableAddedNotification implements INotification
     {
         return Optional.ofNullable(memtable);
     }
+
+    @Override
+    public String toString()
+    {
+        return "SSTableAddedNotification{" +
+               "added=" + added +
+               ", memtable=" + memtable +
+               '}';
+    }
 }

@@ -232,6 +232,7 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
             if (finalState.hasFailedSession())
             {
                 logger.warn("[Stream #{}] Stream failed", planId);
+                logger.warn("Got failed sessions {}", finalState.sessions.stream().filter(SessionInfo::isFailed));
                 tryFailure(new StreamException(finalState, "Stream failed"));
             }
             else if (finalState.hasAbortedSession())

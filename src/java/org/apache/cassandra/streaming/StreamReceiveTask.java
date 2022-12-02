@@ -139,6 +139,7 @@ public class StreamReceiveTask extends StreamTask
             }
             catch (Throwable t)
             {
+                logger.warn("Caught throwable from StreamReceiveTask.OnCompleteRunnable", t);
                 JVMStabilityInspector.inspectThrowable(t);
                 task.session.onError(t);
             }
