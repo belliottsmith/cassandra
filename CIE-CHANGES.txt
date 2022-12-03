@@ -1,5 +1,8 @@
 4.0.3.10
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.6 cie-cassandra-4.0.3
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.7 cie-cassandra-4.0.3
+
+4.0.3.7
+* rdar://100047624 (Evaluate fixes + add logging for 4.0.3.x streaming issues)  (#3199)
 
 4.0.3.6
 * rdar://100047624 (Evaluate fixes + add logging for 4.0.3.x streaming issues) (#3198)
