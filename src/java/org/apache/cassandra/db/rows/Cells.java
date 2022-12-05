@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.util.Comparator;
 import java.util.Iterator;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.context.CounterContext;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ValueAccessor;
@@ -364,7 +365,9 @@ public abstract class Cells
 
     private static <L, R> int compareValues(Cell<L> left, Cell<R> right)
     {
-        return ValueAccessor.compare(left.value(), left.accessor(), right.value(), right.accessor());
+        return DatabaseDescriptor.useLegacyCellReconciliation()
+               ? ValueAccessor.compareSigned(left.value(), left.accessor(), right.value(), right.accessor())
+               : ValueAccessor.compare(left.value(), left.accessor(), right.value(), right.accessor());
     }
 
     public static <L, R> boolean valueEqual(Cell<L> left, Cell<R> right)
