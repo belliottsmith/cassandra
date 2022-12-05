@@ -3733,6 +3733,11 @@ public class DatabaseDescriptor
         return conf.repair_command_pool_full_strategy;
     }
 
+    public static boolean useLegacyCellReconciliation()
+    {
+        return conf.use_legacy_cell_reconciliation;
+    }
+
     public static FullQueryLoggerOptions getFullQueryLogOptions()
     {
         if (conf.full_query_logging_options.log_dir.isEmpty() && conf.full_query_log_dir != null && !conf.full_query_log_dir.isEmpty())

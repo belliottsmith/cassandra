@@ -218,6 +218,87 @@ public class ValueAccessorTest extends ValueAccessorTester
                     integers().between(0, 3)).checkAssert(ValueAccessorTest::testUnsignedShort);
     }
 
+    private interface Comparison
+    {
+        int compareBuffers(ByteBuffer left, ByteBuffer right);
+        <V> int compareValue(V left, V right, ValueAccessor<V> accessor);
+        String name();
+
+        Comparison SIGNED = new Comparison()
+        {
+            public int compareBuffers(ByteBuffer left, ByteBuffer right)
+            {
+                return left.compareTo(right);
+            }
+
+            public <V> int compareValue(V left, V right, ValueAccessor<V> accessor)
+            {
+                return accessor.compareSigned(left, right, accessor);
+            }
+
+            public String name()
+            {
+                return "SIGNED";
+            }
+        };
+
+        Comparison UNSIGNED = new Comparison()
+        {
+            public int compareBuffers(ByteBuffer left, ByteBuffer right)
+            {
+                return ByteBufferUtil.compareUnsigned(left, right);
+            }
+
+            public <V> int compareValue(V left, V right, ValueAccessor<V> accessor)
+            {
+                return accessor.compare(left, right, accessor);
+            }
+
+            public String name()
+            {
+                return "UNSIGNED";
+            }
+        };
+    }
+
+    private static <V> void testComparison(ByteBuffer bLeft, ByteBuffer bRight, V vLeft, V vRight, ValueAccessor<V> accessor, Comparison comparison)
+    {
+        int bCmp = comparison.compareBuffers(bLeft, bRight);
+        int vCmp = comparison.compareValue(vLeft, vRight, accessor);
+        if (bCmp != vCmp)
+            throw new AssertionError(String.format("Buffer and value comparisons differ for %s comparison and %s values 0x%s 0x%s",
+                                                   comparison.name(), accessor, accessor.toHex(vLeft), accessor.toHex(vRight)));
+    }
+
+
+    private static <V> void testComparison(ByteBuffer left, ByteBuffer right, ValueAccessor<V> accessor, Comparison comparison)
+    {
+        V vLeft = accessor.valueOf(left);
+        V vRight = accessor.valueOf(right);
+        testComparison(left, right, vLeft, vRight, accessor, comparison);
+        testComparison(right, left, vRight, vLeft, accessor, comparison);
+    }
+
+    private static <V> void testComparison(ValueAccessor<V> accessor, Comparison comparison)
+    {
+        testComparison(ByteBuffer.allocate(4), ByteBuffer.allocate(5), accessor, comparison);
+        testComparison(ByteBufferUtil.bytes(5), ByteBufferUtil.bytes(6), accessor, comparison);
+    }
+
+    @Test
+    public void testSignedComparison()
+    {
+        testComparison(ByteBufferAccessor.instance, Comparison.SIGNED);
+        testComparison(ByteArrayAccessor.instance, Comparison.SIGNED);
+    }
+
+    @Test
+    public void testUnsignedComparison()
+    {
+        testComparison(ByteBufferAccessor.instance, Comparison.UNSIGNED);
+        testComparison(ByteArrayAccessor.instance, Comparison.UNSIGNED);
+    }
+
     private static Gen<ByteArraySlice> slices(Gen<byte[]> arrayGen)
     {
         return td -> {
