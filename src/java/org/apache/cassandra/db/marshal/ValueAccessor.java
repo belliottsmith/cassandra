@@ -231,6 +231,26 @@ public interface ValueAccessor<V>
      * lexicographically compare {@param left} to {@param right}
      * @param <VR> backing type of
      */
+    default <VR> int compareSigned(V left, VR right, ValueAccessor<VR> accessorR)
+    {
+        int lSize = size(left);
+        int rSize = accessorR.size(right);
+        int length = Math.min(lSize, rSize);
+        if (length < 0)
+            return -1;
+        for (int i=0; i<length; i++)
+        {
+            int cmp = Byte.compare(getByte(left, i), accessorR.getByte(right, i));
+            if (cmp != 0)
+                return cmp;
+        }
+        return lSize - rSize;
+    }
+
+    /**
+     * lexicographically compare {@param left} to {@param right}
+     * @param <VR> backing type of
+     */
     <VR> int compare(V left, VR right, ValueAccessor<VR> accessorR);
 
     /**
@@ -404,6 +424,11 @@ public interface ValueAccessor<V>
      * returns the {@link ValueAccessor.ObjectFactory} for the backing type {@param <V>}
      */
     ObjectFactory<V> factory();
+
+    public static <L, R> int compareSigned(L left, ValueAccessor<L> leftAccessor, R right, ValueAccessor<R> rightAccessor)
+    {
+        return leftAccessor.compareSigned(left, right, rightAccessor);
+    }
 
     /**
      * lexicographically compare {@param left} to {@param right}

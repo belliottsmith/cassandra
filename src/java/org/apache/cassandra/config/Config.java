@@ -121,6 +121,12 @@ public class Config
 
     public volatile boolean use_deterministic_table_id = Boolean.parseBoolean(System.getProperty("cassandra.use_deterministic_table_id", "true"));
 
+    /*
+     * FIXME: added for non-carry CK partitions, convert and remove once Transactional Metadata allows us to without races
+     *  see rdar://102722552 (Cell conflict resolution by coordinators on different versions conflict)
+     */
+    public boolean use_legacy_cell_reconciliation = false;
+
     /* initial token in the ring */
     public String initial_token;
     public Integer num_tokens;
