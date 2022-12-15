@@ -257,4 +257,14 @@ public class NettyStreamingChannel extends ChannelInboundHandlerAdapter implemen
         trackInboundHandlers = true;
     }
 
+    @Override
+    public String toString()
+    {
+        return "NettyStreamingChannel{" +
+               "messagingVersion=" + messagingVersion +
+               ", channel=" + channel +
+               ", in=" + in +
+               ", closed=" + closed +
+               '}';
+    }
 }

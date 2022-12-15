@@ -89,12 +89,12 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
         this.migrationCoordinator = migrationCoordinator == null ? createMigrationCoordinator(messagingService) : migrationCoordinator;
         Gossiper.instance.register(this);
         SchemaPushVerbHandler.instance.register(msg -> {
-            logger.info("Handling schema push {} {}", msg, msg.payload);
+            logger.debug("Handling schema push {} {}", msg, msg.payload);
             applyMutations(msg.payload);
         });
         SchemaPullVerbHandler.instance.register(msg -> {
             Collection<Mutation> schemaMutations = getSchemaMutations();
-            logger.info("Handling schema pull {} {}", msg, schemaMutations);
+            logger.debug("Handling schema pull {} {}", msg, schemaMutations);
             messagingService.send(msg.responseWith(schemaMutations), msg.from());
         });
     }
@@ -243,7 +243,7 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
     private void updateSchema(SchemaTransformationResult update, boolean local)
     {
         this.schema = update.after;
-        logger.info("Schema updated: {}", update);
+        logger.debug("Schema updated: {}", update);
         updateCallback.accept(update, true);
         if (!local)
         {
@@ -253,21 +253,21 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
 
     private synchronized SchemaTransformationResult reload()
     {
-        logger.info("Reloading schema from disk");
+        logger.debug("Reloading schema from disk");
         DistributedSchema before = this.schema;
         DistributedSchema after = new DistributedSchema(SchemaKeyspace.fetchNonSystemKeyspaces(), SchemaKeyspace.calculateSchemaDigest());
         Keyspaces.KeyspacesDiff diff = Keyspaces.diff(before.getKeyspaces(), after.getKeyspaces());
         SchemaTransformationResult update = new SchemaTransformationResult(before, after, diff);
 
         updateSchema(update, false);
-        logger.info("Reloaded schema from disk, got schema version {}", this.schema.getVersion());
+        logger.debug("Reloaded schema from disk, got schema version {}", this.schema.getVersion());
         return update;
     }
 
     @Override
     public SchemaTransformationResult reset(boolean local)
     {
-        logger.info("Resetting schema {}", local ? "locally" : "from another node");
+        logger.debug("Resetting schema {}", local ? "locally" : "from another node");
         return local
                ? reload()
                : migrationCoordinator.pullSchemaFromAnyNode()

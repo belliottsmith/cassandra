@@ -645,8 +645,8 @@ public class Schema implements SchemaProvider
     @VisibleForTesting
     public synchronized void mergeAndUpdateVersion(SchemaTransformationResult result, boolean dropData)
     {
-        logger.info("Handling schema merge {}", result);
-        logger.info("Current schema TableMetadatas before merge: {}", this.distributedKeyspaces.stream().flatMap(ks -> ks.tables.stream().map(TableMetadata::toDebugString)).collect(Collectors.toList()));
+        logger.debug("Handling schema merge {}", result);
+        logger.debug("Current schema TableMetadatas before merge: {}", this.distributedKeyspaces.stream().flatMap(ks -> ks.tables.stream().map(TableMetadata::toDebugString)).collect(Collectors.toList()));
         if (online)
             SystemKeyspace.updateSchemaVersion(result.after.getVersion());
         result = localDiff(result);

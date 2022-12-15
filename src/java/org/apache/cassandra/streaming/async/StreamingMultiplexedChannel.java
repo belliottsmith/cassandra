@@ -161,9 +161,9 @@ public class StreamingMultiplexedChannel
 
     private StreamingChannel createControlChannel() throws IOException
     {
-        logger.info("Creating control channel to {} as {}", to, session.isFollower() ? "follower" : "initiator");
-
         StreamingChannel channel = factory.create(to, messagingVersion, StreamingChannel.Kind.CONTROL);
+        logger.info("Created control channel to {} as {}; channel {}", to, session.isFollower() ? "follower" : "initiator", channel);
+
         executorFactory().startThread(String.format("Stream-Deserializer-%s-%s", to.toString(), channel.id()),
                                       new StreamDeserializingTask(session, channel, messagingVersion));
         session.attachInbound(channel);
@@ -175,9 +175,9 @@ public class StreamingMultiplexedChannel
     
     private StreamingChannel createFileChannel(InetAddressAndPort connectTo) throws IOException
     {
-        logger.debug("Creating stream session to {} as {}", to, session.isFollower() ? "follower" : "initiator");
-
         StreamingChannel channel = factory.create(to, connectTo, messagingVersion, StreamingChannel.Kind.FILE);
+        logger.info("Created file channel to {} as {}; channel {}", to, session.isFollower() ? "follower" : "initiator", channel);
+
         session.attachOutbound(channel);
 
         logger.debug("Creating file {}", channel.description());
