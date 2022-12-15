@@ -19,12 +19,6 @@ package org.apache.cassandra.index.internal;
 
 import java.util.Collection;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-
-import com.google.common.util.concurrent.Uninterruptibles;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
@@ -37,9 +31,7 @@ import org.apache.cassandra.index.SecondaryIndexBuilder;
 import org.apache.cassandra.io.sstable.ReducingKeyIterator;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.TimeUUID;
-import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 
@@ -48,8 +40,6 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
  */
 public class CollatedViewIndexBuilder extends SecondaryIndexBuilder
 {
-    private static final Logger logger = LoggerFactory.getLogger(CollatedViewIndexBuilder.class);
-
     private final ColumnFamilyStore cfs;
     private final Set<Index> indexers;
     private final ReducingKeyIterator iter;
@@ -82,8 +72,6 @@ public class CollatedViewIndexBuilder extends SecondaryIndexBuilder
             int pageSize = cfs.indexManager.calculateIndexingPageSize();
             RegularAndStaticColumns targetPartitionColumns = extractIndexedColumns();
 
-            logger.info("Starting index build for {} num sstables {} indexers {} page size {} target columns {}", this.cfs.metadata(), this.sstables.size(), this.indexers, pageSize, targetPartitionColumns);
-
             while (iter.hasNext())
             {
                 if (isStopRequested())
@@ -92,15 +80,8 @@ public class CollatedViewIndexBuilder extends SecondaryIndexBuilder
                 cfs.indexManager.indexPartition(key, indexers, pageSize, targetPartitionColumns);
             }
         }
-        catch (Throwable t)
-        {
-            logger.warn("Got throwable while trying to build index", t);
-            throw t;
-        }
         finally
         {
-            logger.info("Starting index build for {} num sstables {} indexers {}", this.cfs.metadata(), this.sstables.size(), this.indexers);
-            logger.info("Closing iter {}", iter);
             iter.close();
         }
     }

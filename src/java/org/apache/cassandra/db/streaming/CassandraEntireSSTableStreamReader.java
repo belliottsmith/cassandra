@@ -149,8 +149,10 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
             logger.error("[Stream {}] Error while reading sstable from stream for table = {}", session.planId(), cfs.metadata(), e);
             if (writer != null)
             {
-                e = writer.abort(e);
-                logger.info("Aborted stream writer returned specific error", e);
+                Throwable abortThrowable = writer.abort(e);
+                if (!e.equals(abortThrowable))
+                    logger.info("Stream read error for table {} got extra error from writer abort, original {}", cfs.metadata(), e, abortThrowable);
+                e = abortThrowable;
             }
             throw e;
         }

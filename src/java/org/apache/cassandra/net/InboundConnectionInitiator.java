@@ -43,6 +43,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.logging.ByteBufFormat;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
@@ -58,6 +59,7 @@ import org.apache.cassandra.security.SSLFactory;
 import org.apache.cassandra.streaming.StreamDeserializingTask;
 import org.apache.cassandra.streaming.StreamingChannel;
 import org.apache.cassandra.streaming.async.NettyStreamingChannel;
+import org.apache.cassandra.utils.NettyPipelineUtil;
 import org.apache.cassandra.utils.memory.BufferPools;
 
 import static java.lang.Math.*;
@@ -495,6 +497,10 @@ public class InboundConnectionInitiator
             BufferPools.forNetworking().setRecycleWhenFreeForCurrentThread(false);
             NettyStreamingChannel streamingChannel = new NettyStreamingChannel(current_version, channel, StreamingChannel.Kind.CONTROL);
             pipeline.replace(this, "streamInbound", streamingChannel);
+
+            // Temporary, for debugging CASSANDRA-18110
+            pipeline.addLast(NettyPipelineUtil.getDebugHandlers());
+
             executorFactory().startThread(String.format("Stream-Deserializer-%s-%s", from, channel.id()),
                                           new StreamDeserializingTask(null, streamingChannel, current_version));
 

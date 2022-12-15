@@ -538,9 +538,9 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
         // Channels should only be closed by the initiator; but, if this session closed
         // due to failure, channels should be always closed regardless, even if this is not the initator.
-        if (!isFollower || (state != State.WAIT_COMPLETE && state != State.COMPLETE))
+        if (!isFollower || state != State.COMPLETE)
         {
-            logger.info("[Stream #{}] Will close attached inbound {} and outbound {} channels", planId(), inbound, outbound);
+            logger.debug("[Stream #{}] Will close attached inbound {} and outbound {} channels", planId(), inbound, outbound);
             inbound.values().forEach(channel -> futures.add(channel.close()));
             outbound.values().forEach(channel -> futures.add(channel.close()));
         }
@@ -1154,20 +1154,12 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private void initiatorCompleteOrWait()
     {
-        logger.info("initiatorCompleteOrWait current state is {}", state);
-
         // This is called when coordination completes AND when COMPLETE message is seen; it is possible that the
         // COMPLETE method is seen first!
         if (state == State.WAIT_COMPLETE)
-        {
-            logger.info("Currently in WAIT_COMPLETE, closing session and moving to COMPLETE");
             closeSession(State.COMPLETE);
-        }
         else
-        {
-            logger.info("Moving to WAIT_COMPLETE");
             state(State.WAIT_COMPLETE);
-        }
     }
 
     /**

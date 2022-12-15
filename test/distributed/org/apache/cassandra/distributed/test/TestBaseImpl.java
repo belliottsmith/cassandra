@@ -75,6 +75,10 @@ public class TestBaseImpl extends DistributedTestBase
         CassandraRelevantProperties.ALLOW_DISABLED_COMPRESSION.setBoolean(true);
         CassandraRelevantProperties.ALLOW_GROUP_BY.setBoolean(true);
         ICluster.setup();
+
+        // For debugging CASSANDRA-18110, allow jvm-dtests to use epoll, so TCP_USER_TIMEOUT is set appropriately
+        // See org.apache.cassandra.net.SocketFactory.newClientBootstrap
+        System.setProperty("io.netty.transport.noNative", "false");
     }
 
     @Override
