@@ -674,7 +674,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         AsyncResult<Void> result = cache.getWriteResult(txnId);
         if (result != null)
         {
-            return result.toChain();
+            return result;
         }
 
         if (canApplyWithCurrentScope(safeStore))
