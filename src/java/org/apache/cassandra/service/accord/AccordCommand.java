@@ -654,18 +654,13 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         return true;
     }
 
-    private AsyncResult<Void> applyWithCorrectScope(CommandStore unsafeStore)
+    private AsyncChain<Void> applyWithCorrectScope(CommandStore unsafeStore)
     {
         TxnId txnId = txnId();
-        AsyncResult.Settable<Void> result = AsyncResults.settable();
-        unsafeStore.execute(this, safeStore -> {
+        return unsafeStore.submit(this, safeStore -> {
             AccordCommand command = (AccordCommand) safeStore.command(txnId);
-            command.applyChain(safeStore, false).begin(result.settingCallback());
-        }).begin((unused, throwable) -> {
-            if (throwable != null)
-                result.tryFailure(throwable);
-        });
-        return result;
+            return command.applyChain(safeStore, false);
+        }).flatMap(i -> i);
     }
 
     private AsyncChain<Void> applyChain(SafeCommandStore safeStore, boolean canReschedule)
@@ -709,8 +704,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         if (result != null)
             return result;
 
-        AsyncChain<Data> chain = super.read(safeStore);
-        result = AsyncResults.forChain(chain);
+        result = super.read(safeStore).beginAsResult();
         cache.setReadResult(txnId, result);
         return result;
     }
