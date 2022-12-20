@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
@@ -106,11 +107,11 @@ public class AsyncLoader
     }
 
 
-    private <K, V extends AccordState<K>> List<AsyncResult<Void>> referenceAndDispatchReads(Iterable<K> keys,
+    private <K, V extends AccordState<K>> List<AsyncChain<Void>> referenceAndDispatchReads(Iterable<K> keys,
                                                                                            AccordStateCache.Instance<K, V> cache,
                                                                                            Map<K, V> context,
                                                                                            Function<V, AsyncResult<Void>> readFunction,
-                                                                                           List<AsyncResult<Void>> results,
+                                                                                           List<AsyncChain<Void>> results,
                                                                                            Object callback)
     {
         for (K key : keys)
@@ -166,7 +167,7 @@ public class AsyncLoader
 
     private AsyncResult<Void> referenceAndDispatchReads(AsyncContext context, Object callback)
     {
-        List<AsyncResult<Void>> results = null;
+        List<AsyncChain<Void>> results = null;
 
         results = referenceAndDispatchReads(txnIds,
                                             commandStore.commandCache(),

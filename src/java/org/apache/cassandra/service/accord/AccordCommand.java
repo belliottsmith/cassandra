@@ -679,8 +679,7 @@ public class AccordCommand extends Command implements AccordState<TxnId>
 
         if (canApplyWithCurrentScope(safeStore))
         {
-            AsyncChain<Void> chain = super.applyChain(safeStore);
-            result = AsyncResults.forChain(chain);
+            result = super.applyChain(safeStore).beginAsResult();
         }
         else
         {
@@ -688,11 +687,11 @@ public class AccordCommand extends Command implements AccordState<TxnId>
             // have the appropriate commandsForKey in scope, so start a new operation
             // with the correct scope and notify the caller when that completes
             Preconditions.checkArgument(canReschedule);
-            return applyWithCorrectScope(safeStore.commandStore()).toChain();
+            return applyWithCorrectScope(safeStore.commandStore());
         }
         cache.setWriteResult(txnId, result);
 
-        return result.toChain();
+        return result;
     }
 
     @Override
@@ -708,12 +707,12 @@ public class AccordCommand extends Command implements AccordState<TxnId>
         AccordStateCache.Instance<TxnId, AccordCommand> cache = ((AccordCommandStore) safeStore).commandCache();
         AsyncResult<Data> result = cache.getReadResult(txnId);
         if (result != null)
-            return result.toChain();
+            return result;
 
         AsyncChain<Data> chain = super.read(safeStore);
         result = AsyncResults.forChain(chain);
         cache.setReadResult(txnId, result);
-        return result.toChain();
+        return result;
     }
 
     private CommandListener maybeWrapListener(CommandListener listener)

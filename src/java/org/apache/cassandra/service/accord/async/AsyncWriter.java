@@ -36,6 +36,7 @@ import accord.primitives.Routable;
 import accord.primitives.Seekable;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.concurrent.Stage;
@@ -82,12 +83,12 @@ public class AsyncWriter
         Mutation apply(AccordCommandStore commandStore, V state, long timestamp);
     }
 
-    private static <K, V extends AccordState<K>> List<AsyncResult<Void>> dispatchWrites(AsyncContext.Group<K, V> ctxGroup,
+    private static <K, V extends AccordState<K>> List<AsyncChain<Void>> dispatchWrites(AsyncContext.Group<K, V> ctxGroup,
                                                                                 AccordStateCache.Instance<K, V> cache,
                                                                                 StateMutationFunction<K, V> mutationFunction,
                                                                                 long timestamp,
                                                                                 AccordCommandStore commandStore,
-                                                                                List<AsyncResult<Void>> results,
+                                                                                List<AsyncChain<Void>> results,
                                                                                 Object callback)
     {
         for (V item : ctxGroup.items.values())
@@ -140,7 +141,7 @@ public class AsyncWriter
 
     private AsyncResult<Void> maybeDispatchWrites(AsyncContext context, Object callback) throws IOException
     {
-        List<AsyncResult<Void>> results = null;
+        List<AsyncChain<Void>> results = null;
 
         long timestamp = commandStore.nextSystemTimestampMicros();
         results = dispatchWrites(context.commands,
