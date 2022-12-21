@@ -244,9 +244,6 @@ public class MessagingService extends MessagingServiceMBeanImpl
     // a public hook for filtering messages intended for delivery to this node
     public final InboundSink inboundSink = new InboundSink(this);
 
-    // the inbound global reserve limits and associated wait queue
-    private final InboundMessageHandlers.GlobalResourceLimits inboundGlobalReserveLimits = new InboundMessageHandlers.GlobalResourceLimits(
-        new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes()));
 
     // the socket bindings we accept incoming connections on
     private final InboundSockets inboundSockets = new InboundSockets(new InboundConnectionSettings()
@@ -256,8 +253,6 @@ public class MessagingService extends MessagingServiceMBeanImpl
     // a public hook for filtering messages intended for delivery to another node
     public final OutboundSink outboundSink = new OutboundSink(this::doSend);
 
-    final ResourceLimits.Limit outboundGlobalReserveLimit =
-        new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes());
 
     private volatile boolean isShuttingDown;
 
