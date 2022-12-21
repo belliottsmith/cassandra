@@ -50,7 +50,6 @@ import static org.apache.cassandra.net.ConnectionType.URGENT_MESSAGES;
 import static org.apache.cassandra.net.ConnectionType.LARGE_MESSAGES;
 import static org.apache.cassandra.net.ConnectionType.SMALL_MESSAGES;
 import static org.apache.cassandra.net.ResourceLimits.*;
-import static org.apache.cassandra.net.Verb.Priority.P0;
 import static org.apache.cassandra.utils.concurrent.Condition.newOneTimeCondition;
 
 /**
@@ -250,6 +249,11 @@ public class OutboundConnections
     public long usingReserveBytes()
     {
         return reserveCapacity.using();
+    }
+
+    public void endpointReserveCapacity(long newCapacity)
+    {
+        reserveCapacity.setLimit(newCapacity);
     }
 
     long expiredCallbacks()

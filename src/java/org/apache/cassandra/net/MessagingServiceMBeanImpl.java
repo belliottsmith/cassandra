@@ -24,8 +24,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.EncryptionOptions;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.metrics.InternodeOutboundMetrics;
 import org.apache.cassandra.metrics.MessagingMetrics;
@@ -35,6 +39,7 @@ import org.apache.cassandra.utils.MBeanWrapper;
 public class MessagingServiceMBeanImpl implements MessagingServiceMBean
 {
     public static final String MBEAN_NAME = "org.apache.cassandra.net:type=MessagingService";
+    private static final Logger logger = LoggerFactory.getLogger(MessagingServiceMBeanImpl.class);
 
     // we use CHM deliberately instead of NBHM, as both are non-blocking for readers (which this map mostly is used for)
     // and CHM permits prompter GC
@@ -43,6 +48,13 @@ public class MessagingServiceMBeanImpl implements MessagingServiceMBean
 
     public final EndpointMessagingVersions versions;
     public final MessagingMetrics metrics;
+
+    // the inbound global reserve limits and associated wait queue
+    protected final InboundMessageHandlers.GlobalResourceLimits inboundGlobalReserveLimits = new InboundMessageHandlers.GlobalResourceLimits(
+        new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes()));
+
+    protected final ResourceLimits.Limit outboundGlobalReserveLimit =
+        new ResourceLimits.Concurrent(DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes());
 
     public MessagingServiceMBeanImpl(boolean testOnly, EndpointMessagingVersions versions, MessagingMetrics metrics)
     {
@@ -282,6 +294,103 @@ public class MessagingServiceMBeanImpl implements MessagingServiceMBean
         final EncryptionOptions clientOpts = DatabaseDescriptor.getNativeProtocolEncryptionOptions();
         SSLFactory.validateSslCerts(serverOpts, clientOpts);
         SSLFactory.checkCertFilesForHotReloading(serverOpts, clientOpts);
+    }
+
+    public int getInternodeMaxMessageSizeInBytes()
+    {
+        return DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+    }
+
+    public void setInternodeMaxMessageSizeInBytes(int maxMessageSize)
+    {
+        try
+        {
+            DatabaseDescriptor.setInternodeMaxMessageSizeInBytes(maxMessageSize);
+        }
+        catch (ConfigurationException ce)
+        {
+            throw new IllegalArgumentException(ce.getMessage());
+        }
+        logger.info("internode_max_message_size changed to {} bytes.", maxMessageSize);
+    }
+
+    public int getInternodeApplicationSendQueueReserveEndpointCapacityInBytes()
+    {
+        return DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes();
+    }
+
+    public void setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(int newCapacity)
+    {
+        try
+        {
+            DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity);
+        }
+        catch (ConfigurationException ce)
+        {
+            throw new IllegalArgumentException(ce.getMessage());
+        }
+        channelManagers.values()
+                       .forEach(outboundConnections -> outboundConnections.endpointReserveCapacity(newCapacity));
+        logger.info("internode_application_send_queue_reserve_endpoint_capacity changed to {} bytes.", newCapacity);
+    }
+
+    public int getInternodeApplicationSendQueueReserveGlobalCapacityInBytes()
+    {
+        return (int) outboundGlobalReserveLimit.limit();
+    }
+
+    public void setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(int newCapacity)
+    {
+        try
+        {
+            DatabaseDescriptor.setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(newCapacity);
+        }
+        catch (ConfigurationException ce)
+        {
+            throw new IllegalArgumentException(ce.getMessage());
+        }
+        outboundGlobalReserveLimit.setLimit(newCapacity);
+        logger.info("internode_application_send_queue_reserve_global_capacity changed to {} bytes.", newCapacity);
+    }
+
+    public int getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes()
+    {
+        return DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes();
+    }
+
+    public void setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(int newCapacity)
+    {
+        try
+        {
+            DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity);
+        }
+        catch (ConfigurationException ce)
+        {
+            throw new IllegalArgumentException(ce.getMessage());
+        }
+
+        messageHandlers.values()
+                       .forEach(inboundMessageHandlers -> inboundMessageHandlers.endpontReserveCapacity(newCapacity));
+        logger.info("internode_application_receive_queue_reserve_endpoint_capacity changed to {} bytes.", newCapacity);
+    }
+
+    public int getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes()
+    {
+        return (int) inboundGlobalReserveLimits.reserveCapacity.limit();
+    }
+
+    public void setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(int newCapacity)
+    {
+        try
+        {
+            DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(newCapacity);
+        }
+        catch (ConfigurationException ce)
+        {
+            throw new IllegalArgumentException(ce.getMessage());
+        }
+        inboundGlobalReserveLimits.reserveCapacity.setLimit(newCapacity);
+        logger.info("internode_application_receive_queue_reserve_global_capacity changed to {} bytes.", newCapacity);
     }
 
     @Override
