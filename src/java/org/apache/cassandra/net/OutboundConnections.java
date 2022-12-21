@@ -251,6 +251,11 @@ public class OutboundConnections
         return reserveCapacity.using();
     }
 
+    public void endpointReserveCapacity(long newCapacity)
+    {
+        reserveCapacity.setLimit(newCapacity);
+    }
+
     long expiredCallbacks()
     {
         return metrics.expiredCallbacks.getCount();

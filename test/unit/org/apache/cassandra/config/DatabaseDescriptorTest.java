@@ -22,11 +22,12 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.function.Consumer;
-
 
 import com.google.common.base.Throwables;
 import org.junit.Assert;
@@ -814,5 +815,188 @@ public class DatabaseDescriptorTest
     public void testInvalidSub1DefaultRFs() throws IllegalArgumentException
     {
         DatabaseDescriptor.setDefaultKeyspaceRF(0);
+    }
+
+    @Test
+    public void testInternodeApplicationSendQueueReserveGlobalCapacityConfiguredToBeLessThanEndpointCapacity()
+    {
+        Config config = new Config();
+        config.internode_application_send_queue_reserve_global_capacity = new DataStorageSpec.IntBytesBound(1024);
+        config.internode_application_send_queue_reserve_endpoint_capacity = new DataStorageSpec.IntBytesBound(1024 + 1);
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.applyInternodeMaxMessageSize(config))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_send_queue_reserve_endpoint_capacity must not exceed internode_application_send_queue_reserve_global_capacity");
+    }
+
+    @Test
+    public void testInternodeApplicationReceiveQueueReserveGlobalCapacityConfiguredToBeLessThanEndpointCapacity()
+    {
+        Config config = new Config();
+        config.internode_application_receive_queue_reserve_global_capacity = new DataStorageSpec.IntBytesBound(1024);
+        config.internode_application_receive_queue_reserve_endpoint_capacity = new DataStorageSpec.IntBytesBound(1024 + 1);
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.applyInternodeMaxMessageSize(config))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_receive_queue_reserve_endpoint_capacity must not exceed internode_application_receive_queue_reserve_global_capacity");
+    }
+
+    @Test
+    public void testSetInternodeMaxMessageSizeDecreasingValue()
+    {
+        // Here trying to decrease internode_max_message_size to a value which is less than configured. Since existing
+        // value satisfies the condition of internode_max_message_size <= send/receive queue endpoint capacity
+        // <= send/receive queue global capacity, it should succedded.
+        int existingValue = DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+        int newValue = existingValue - 1;
+        DatabaseDescriptor.setInternodeMaxMessageSizeInBytes(newValue - 1);
+    }
+
+    @Test
+    public void testSetInternodeMaxMessageSizeIncreasingAboveGlobalCapacity()
+    {
+        int newCapacity = 1 + Math.max(
+        Math.max(DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes(),
+                 DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes()),
+        Math.max(DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes(),
+                 DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes()));
+        DatabaseDescriptor.setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(newCapacity);
+        DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity);
+        DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(newCapacity);
+        DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity);
+        DatabaseDescriptor.setInternodeMaxMessageSizeInBytes(newCapacity);
+    }
+
+    @Test
+    public void testSetInternodeMaxMessageIncreasingValueWihoutUpdatingEndpointOrGlobalCapacities()
+    {
+        List<Integer> newValues = new ArrayList<>(4);
+        newValues.add(DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes() + 1);
+        newValues.add(DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes() + 1);
+        newValues.add(DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes() + 1);
+        newValues.add(DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes() + 1);
+
+        for (Integer newValue : newValues)
+        {
+            Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeMaxMessageSizeInBytes(newValue))
+                      .isInstanceOf(ConfigurationException.class);
+        }
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveEndpointCapacityInBytesToInternodeMaxMessageSize()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+        DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveEndpointCapacityInBytesToGlobalCapacity()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes();
+        DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveEndpointCapacityInBytesLessThanInternodeMaxMessageSize()
+    {
+        int internodeMaxMessageSize = DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+        int newCapacity = internodeMaxMessageSize - 1;
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_send_queue_reserve_endpoint_capacity " + newCapacity +
+                              " bytes is less than internode_max_message_size " + internodeMaxMessageSize + " bytes");
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveEndpointCapacityInBytesGreaterThanGlobalCapacity()
+    {
+        int globalCapacity = DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes();
+        int newCapacity = globalCapacity + 1;
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_send_queue_reserve_endpoint_capacity " + newCapacity +
+                              " bytes must not exceed internode_application_send_queue_reserve_global_capacity " +
+                              globalCapacity + " bytes");
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveGlobalCapacityInBytesToEndpointCapacity()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes();
+        DatabaseDescriptor.setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationSendQueueReserveGlobalCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationSendQueueReserveGlobalCapacityInBytesToLessThanEndpointCapacity()
+    {
+        int endpointCapacity = DatabaseDescriptor.getInternodeApplicationSendQueueReserveEndpointCapacityInBytes();
+        int newCapacity = endpointCapacity - 1;
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_send_queue_reserve_global_capacity " + newCapacity +
+                              " bytes is less than internode_application_send_queue_reserve_endpoint_capacity " +
+                              endpointCapacity + " bytes");
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveEndpointCapacityInBytesToInternodeMaxMessageSize()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+        DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveEndpointCapacityInBytesToGlobalCapacity()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes();
+        DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveEndpointCapacityInBytesToLessThanInternodeMaxMessageSize()
+    {
+        int internodeMaxMessageSize = DatabaseDescriptor.getInternodeMaxMessageSizeInBytes();
+        int newCapacity = internodeMaxMessageSize - 1;
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_receive_queue_reserve_endpoint_capacity " + newCapacity +
+                              " bytes is less than internode_max_message_size " + internodeMaxMessageSize + " bytes");
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveEndpointCapacityInBytesToGreaterThanGlobalCapacity()
+    {
+        int globalCapacity = DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes();
+        int newCapacity = globalCapacity + 1;
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_receive_queue_reserve_endpoint_capacity " + newCapacity +
+                              " bytes must not exceed internode_application_receive_queue_reserve_global_capacity " +
+                              globalCapacity + " bytes");
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveGlobalCapacityInBytesToEndpointCapacity()
+    {
+        int newCapacity = DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes();
+        DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(newCapacity);
+        assertEquals(newCapacity, DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes());
+    }
+
+    @Test
+    public void testSetInternodeApplicationReceiveQueueReserveGlobalCapacityInBytesToLessThanEndpointCapacity()
+    {
+        int currentCapacity = DatabaseDescriptor.getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes();
+        int newCapacity = currentCapacity - 1;
+
+        Assertions.assertThatThrownBy(() -> DatabaseDescriptor.setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(newCapacity))
+                  .isInstanceOf(ConfigurationException.class)
+                  .hasMessage("internode_application_receive_queue_reserve_global_capacity " + newCapacity +
+                              " bytes is less than internode_application_receive_queue_reserve_endpoint_capacity " +
+                              currentCapacity + " bytes");
     }
 }
