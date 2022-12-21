@@ -855,30 +855,7 @@ public class DatabaseDescriptor
             }
         }
 
-        if (conf.internode_max_message_size != null)
-        {
-            long maxMessageSize = conf.internode_max_message_size.toBytes();
-
-            if (maxMessageSize > conf.internode_application_receive_queue_reserve_endpoint_capacity.toBytes())
-                throw new ConfigurationException("internode_max_message_size must no exceed internode_application_receive_queue_reserve_endpoint_capacity", false);
-
-            if (maxMessageSize > conf.internode_application_receive_queue_reserve_global_capacity.toBytes())
-                throw new ConfigurationException("internode_max_message_size must no exceed internode_application_receive_queue_reserve_global_capacity", false);
-
-            if (maxMessageSize > conf.internode_application_send_queue_reserve_endpoint_capacity.toBytes())
-                throw new ConfigurationException("internode_max_message_size must no exceed internode_application_send_queue_reserve_endpoint_capacity", false);
-
-            if (maxMessageSize > conf.internode_application_send_queue_reserve_global_capacity.toBytes())
-                throw new ConfigurationException("internode_max_message_size must no exceed internode_application_send_queue_reserve_global_capacity", false);
-        }
-        else
-        {
-            long maxMessageSizeInBytes =
-            Math.min(conf.internode_application_receive_queue_reserve_endpoint_capacity.toBytes(),
-                     conf.internode_application_send_queue_reserve_endpoint_capacity.toBytes());
-
-            conf.internode_max_message_size = DataStorageSpec.inBytes(maxMessageSizeInBytes);
-        }
+        applyInternodeMaxMessageSize(conf);
 
         validateMaxConcurrentAutoUpgradeTasksConf(conf.max_concurrent_automatic_sstable_upgrades);
 
@@ -968,6 +945,56 @@ public class DatabaseDescriptor
     static void applyTrackWarningsValidations(Config config)
     {
         config.track_warnings.validate("track_warnings");
+    }
+
+    /**
+     * Validates internode application send and receive queue capacities.
+     *
+     * @param config
+     */
+    private static void validateInternodeApplicationQueueCapacities(Config config)
+    {
+        if (config.internode_application_send_queue_reserve_endpoint_capacity.toBytes() >
+            config.internode_application_send_queue_reserve_global_capacity.toBytes())
+        {
+            throw new ConfigurationException("internode_application_send_queue_reserve_endpoint_capacity must not " +
+                                             "exceed internode_application_send_queue_reserve_global_capacity", false);
+        }
+
+        if (config.internode_application_receive_queue_reserve_endpoint_capacity.toBytes() >
+            config.internode_application_receive_queue_reserve_global_capacity.toBytes())
+        {
+            throw new ConfigurationException("internode_application_receive_queue_reserve_endpoint_capacity must not " +
+                                             "exceed internode_application_receive_queue_reserve_global_capacity", false);
+        }
+    }
+
+    private static void validateInternodeMaxMessageSizeInBytes(Config config, long value) throws ConfigurationException
+    {
+        if (value > config.internode_application_receive_queue_reserve_endpoint_capacity.toBytes())
+            throw new ConfigurationException("internode_max_message_size must not exceed internode_application_receive_queue_reserve_endpoint_capacity", false);
+
+        if (value > config.internode_application_send_queue_reserve_endpoint_capacity.toBytes())
+            throw new ConfigurationException("internode_max_message_size must not exceed internode_application_send_queue_reserve_endpoint_capacity", false);
+    }
+
+    @VisibleForTesting
+    static void applyInternodeMaxMessageSize(Config config)
+    {
+        validateInternodeApplicationQueueCapacities(config);
+
+        if (config.internode_max_message_size != null)
+        {
+            validateInternodeMaxMessageSizeInBytes(config, config.internode_max_message_size.toBytes());
+        }
+        else
+        {
+            long maxMessageSizeInBytes =
+            Math.min(config.internode_application_receive_queue_reserve_endpoint_capacity.toBytes(),
+                     config.internode_application_send_queue_reserve_endpoint_capacity.toBytes());
+
+            config.internode_max_message_size = DataStorageSpec.inBytes(maxMessageSizeInBytes);
+        }
     }
 
     public static GuardrailsOptions getGuardrailsConfig()
@@ -2509,9 +2536,41 @@ public class DatabaseDescriptor
         return conf.internode_application_send_queue_reserve_endpoint_capacity.toBytesAsInt();
     }
 
+    public static void setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(int newCapacity)
+    {
+        if (newCapacity < getInternodeMaxMessageSizeInBytes())
+        {
+            throw new ConfigurationException("internode_application_send_queue_reserve_endpoint_capacity " +
+                                             newCapacity + " bytes is less than internode_max_message_size " +
+                                             getInternodeMaxMessageSizeInBytes() + " bytes", false);
+        }
+
+        int sendQueueGlobalCapacity = getInternodeApplicationSendQueueReserveGlobalCapacityInBytes();
+        if (newCapacity > sendQueueGlobalCapacity)
+        {
+            throw new ConfigurationException("internode_application_send_queue_reserve_endpoint_capacity " +
+                                             newCapacity + " bytes must not exceed internode_application_send_queue_reserve_global_capacity " +
+                                             sendQueueGlobalCapacity + " bytes", false);
+        }
+
+        conf.internode_application_send_queue_reserve_endpoint_capacity = DataStorageSpec.inBytes(newCapacity);
+    }
+
     public static int getInternodeApplicationSendQueueReserveGlobalCapacityInBytes()
     {
         return conf.internode_application_send_queue_reserve_global_capacity.toBytesAsInt();
+    }
+
+    public static void setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(int newCapacity)
+    {
+        int endpointCapacity = getInternodeApplicationSendQueueReserveEndpointCapacityInBytes();
+        if (newCapacity < endpointCapacity)
+        {
+            throw new ConfigurationException("internode_application_send_queue_reserve_global_capacity " + newCapacity +
+                                             " bytes is less than internode_application_send_queue_reserve_endpoint_capacity " +
+                                             endpointCapacity + " bytes", false);
+        }
+        conf.internode_application_send_queue_reserve_global_capacity = DataStorageSpec.inBytes(newCapacity);
     }
 
     public static int getInternodeApplicationReceiveQueueCapacityInBytes()
@@ -2524,9 +2583,40 @@ public class DatabaseDescriptor
         return conf.internode_application_receive_queue_reserve_endpoint_capacity.toBytesAsInt();
     }
 
+    public static void setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(int newCapacity)
+    {
+        if (newCapacity < getInternodeMaxMessageSizeInBytes())
+        {
+            throw new ConfigurationException("internode_application_receive_queue_reserve_endpoint_capacity " +
+                                             newCapacity + " bytes is less than internode_max_message_size " +
+                                             getInternodeMaxMessageSizeInBytes() + " bytes", false);
+        }
+
+        int receiveQueueGlobalCapacity = getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes();
+        if (newCapacity > receiveQueueGlobalCapacity)
+        {
+            throw new ConfigurationException("internode_application_receive_queue_reserve_endpoint_capacity " +
+                                             newCapacity + " bytes must not exceed internode_application_receive_queue_reserve_global_capacity " +
+                                             receiveQueueGlobalCapacity + " bytes", false);
+        }
+        conf.internode_application_receive_queue_reserve_endpoint_capacity = DataStorageSpec.inBytes(newCapacity);
+    }
+
     public static int getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes()
     {
         return conf.internode_application_receive_queue_reserve_global_capacity.toBytesAsInt();
+    }
+
+    public static void setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(int newCapacity)
+    {
+        int endpointCapacity = getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes();
+        if (newCapacity < endpointCapacity)
+        {
+            throw new ConfigurationException("internode_application_receive_queue_reserve_global_capacity " +
+                                             newCapacity + " bytes is less than internode_application_receive_queue_reserve_endpoint_capacity " +
+                                             endpointCapacity + " bytes", false);
+        }
+        conf.internode_application_receive_queue_reserve_global_capacity = DataStorageSpec.inBytes(newCapacity);
     }
 
     public static int getInternodeTcpConnectTimeoutInMS()
@@ -2564,9 +2654,9 @@ public class DatabaseDescriptor
         return conf.internode_max_message_size.toBytesAsInt();
     }
 
-    @VisibleForTesting
-    public static void setInternodeMaxMessageSizeInBytes(int value)
+    public static void setInternodeMaxMessageSizeInBytes(long value) throws ConfigurationException
     {
+        validateInternodeMaxMessageSizeInBytes(conf, value);
         conf.internode_max_message_size = DataStorageSpec.inBytes(value);
     }
 

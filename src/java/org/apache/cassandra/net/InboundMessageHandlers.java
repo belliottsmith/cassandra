@@ -328,6 +328,11 @@ public final class InboundMessageHandlers
         return endpointReserveCapacity.using();
     }
 
+    public void endpontReserveCapacity(long newCapacity)
+    {
+        endpointReserveCapacity.setLimit(newCapacity);
+    }
+
     public long corruptFramesRecovered()
     {
         return sumHandlers(h -> h.corruptFramesRecovered) + closedCorruptFramesRecovered;

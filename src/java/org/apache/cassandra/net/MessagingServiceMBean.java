@@ -133,4 +133,24 @@ public interface MessagingServiceMBean
     public int getVersion(String address) throws UnknownHostException;
 
     void reloadSslCertificates() throws IOException;
+
+    int getInternodeMaxMessageSizeInBytes();
+
+    void setInternodeMaxMessageSizeInBytes(int maxMessageSize);
+
+    int getInternodeApplicationSendQueueReserveEndpointCapacityInBytes();
+
+    void setInternodeApplicationSendQueueReserveEndpointCapacityInBytes(int newCapcity);
+
+    int getInternodeApplicationSendQueueReserveGlobalCapacityInBytes();
+
+    void setInternodeApplicationSendQueueReserveGlobalCapacityInBytes(int newCapacity);
+
+    int getInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes();
+
+    void setInternodeApplicationReceiveQueueReserveEndpointCapacityInBytes(int newCapacity);
+
+    int getInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes();
+
+    void setInternodeApplicationReceiveQueueReserveGlobalCapacityInBytes(int newCapacity);
 }
