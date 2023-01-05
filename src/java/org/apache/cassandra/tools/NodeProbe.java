@@ -2090,6 +2090,16 @@ public class NodeProbe implements AutoCloseable
     {
         return ssProxy.getDefaultKeyspaceReplicationFactor();
     }
+
+    public String getLastRepairTimeForKey(String keyspace, String table, String key)
+    {
+        return ssProxy.getLastRepairTimeForKey(keyspace, table, key);
+    }
+
+    public String getLastRepairTimeForToken(String keyspace, String table, String token)
+    {
+        return ssProxy.getLastRepairTimeForToken(keyspace, table, token);
+    }
 }
 
 class ColumnFamilyStoreMBeanIterator implements Iterator<Map.Entry<String, ColumnFamilyStoreMBean>>

@@ -1130,4 +1130,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public boolean getSkipStreamDiskSpaceCheck();
     public void setForceNewPreparedStatementBehaviour(boolean value);
     public boolean getForceNewPreparedStatementBehaviour();
+
+    String getLastRepairTimeForKey(String keyspace, String table, String key);
+    String getLastRepairTimeForToken(String keyspace, String table, String token);
 }

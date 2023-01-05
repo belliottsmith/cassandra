@@ -5302,7 +5302,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             Multimap<InetAddressAndPort, Range<Token>> map =  HashMultimap.create();
             for (Entry<Replica, EndpointsForRange> r : entry.getValue().entrySet())
             {
-                map.put(r.getKey().endpoint(), r.getValue().range());
+                EndpointsForRange epr = r.getValue();
+                epr.endpoints().forEach(e -> map.put(e, epr.range()));
             }
 
             for(Map.Entry<InetAddressAndPort, Collection<Range<Token>>> addressRangeEntry :  map.asMap().entrySet())
@@ -7329,5 +7330,23 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setForceNewPreparedStatementBehaviour(boolean value)
     {
         DatabaseDescriptor.setForceNewPreparedStatementBehaviour(value);
+    }
+
+    public String getLastRepairTimeForKey(String keyspace, String table, String key)
+    {
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(keyspace, table);
+        IPartitioner p = DatabaseDescriptor.getPartitioner();
+        Token t = p.decorateKey( cfs.metadata().partitionKeyType.fromString(key)).getToken();
+        int time = cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(t);
+        return String.format("%s (%s)", Instant.ofEpochSecond(time).toString(), time);
+    }
+
+    public String getLastRepairTimeForToken(String keyspace, String table, String token)
+    {
+        IPartitioner p = DatabaseDescriptor.getPartitioner();
+        Token t = p.getTokenFactory().fromString(token);
+        ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(keyspace, table);
+        int time = cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(t);
+        return String.format("%s (%s)", Instant.ofEpochSecond(time).toString(), time);
     }
 }
