@@ -164,6 +164,7 @@ public class NodeTool
                 InvalidateRowCache.class,
                 Join.class,
                 ListPendingHints.class,
+                LastRepairTime.class,
                 ListSnapshots.class,
                 Move.class,
                 NetStats.class,
