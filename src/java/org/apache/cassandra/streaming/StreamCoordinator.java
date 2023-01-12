@@ -310,7 +310,7 @@ public class StreamCoordinator
                                                           pendingRepair, previewKind);
                 streamSessions.put(++lastReturned, session);
                 sessionInfos.put(lastReturned, session.getSessionInfo());
-                logger.info("Created new stream session to peer {} channel {}", peer, session.getChannel());
+                logger.debug("Created new stream session to peer {} channel {}", peer, session.getChannel());
                 return session;
             }
             // get
@@ -320,7 +320,7 @@ public class StreamCoordinator
                     lastReturned = 0;
 
                 StreamSession streamSession = streamSessions.get(lastReturned++);
-                logger.info("Got existing session with peer {} channel {}", peer, streamSession.getChannel());
+                logger.debug("Got existing session with peer {} channel {}", peer, streamSession.getChannel());
                 return streamSession;
             }
         }

@@ -88,15 +88,8 @@ public class DefaultSchemaUpdateHandler implements SchemaUpdateHandler, IEndpoin
         this.updateCallback = updateCallback;
         this.migrationCoordinator = migrationCoordinator == null ? createMigrationCoordinator(messagingService) : migrationCoordinator;
         Gossiper.instance.register(this);
-        SchemaPushVerbHandler.instance.register(msg -> {
-            logger.debug("Handling schema push {} {}", msg, msg.payload);
-            applyMutations(msg.payload);
-        });
-        SchemaPullVerbHandler.instance.register(msg -> {
-            Collection<Mutation> schemaMutations = getSchemaMutations();
-            logger.debug("Handling schema pull {} {}", msg, schemaMutations);
-            messagingService.send(msg.responseWith(schemaMutations), msg.from());
-        });
+        SchemaPushVerbHandler.instance.register(msg -> applyMutations(msg.payload));
+        SchemaPullVerbHandler.instance.register(msg -> messagingService.send(msg.responseWith(getSchemaMutations()), msg.from()));
     }
 
     public synchronized void start()

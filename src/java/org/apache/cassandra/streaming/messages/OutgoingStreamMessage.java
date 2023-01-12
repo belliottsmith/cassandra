@@ -21,9 +21,6 @@ import java.io.IOException;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.streaming.OutgoingStream;
@@ -33,8 +30,6 @@ import org.apache.cassandra.utils.FBUtilities;
 
 public class OutgoingStreamMessage extends StreamMessage
 {
-    private static final Logger logger = LoggerFactory.getLogger(OutgoingStreamMessage.class);
-
     public static Serializer<OutgoingStreamMessage> serializer = new Serializer<OutgoingStreamMessage>()
     {
         public OutgoingStreamMessage deserialize(DataInputPlus in, int version)
@@ -49,11 +44,6 @@ public class OutgoingStreamMessage extends StreamMessage
             {
                 message.serialize(out, version, session);
                 session.streamSent(message);
-            }
-            catch (Throwable t)
-            {
-                logger.warn("Got throwable while trying to serialize OutgoingStreamMessage", t);
-                throw t;
             }
             finally
             {

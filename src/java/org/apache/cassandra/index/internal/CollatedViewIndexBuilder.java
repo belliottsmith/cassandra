@@ -108,7 +108,7 @@ public class CollatedViewIndexBuilder extends SecondaryIndexBuilder
             if (isPartitionIndex)
                 return cfs.metadata().regularAndStaticColumns();
         }
-        
+
         return builder.build();
     }
 }

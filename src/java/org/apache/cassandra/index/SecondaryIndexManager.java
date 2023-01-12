@@ -23,7 +23,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -41,6 +40,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.FutureTask;
 import org.apache.cassandra.concurrent.ImmediateExecutor;
+import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.statements.schema.IndexTarget;
 import org.apache.cassandra.db.*;
@@ -66,6 +66,8 @@ import org.apache.cassandra.notifications.SSTableAddedNotification;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.IndexMetadata;
 import org.apache.cassandra.schema.Indexes;
+import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.pager.SinglePartitionPager;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.ProtocolVersion;
@@ -475,8 +477,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         if (indexes.isEmpty())
             return;
 
-        logger.info("Building indexes for num sstables {} numIndexes {} isFullRebuild {}", sstables.size(), indexes.size(), isFullRebuild);
-
         // Mark all indexes as building: this step must happen first, because if any index can't be marked, the whole
         // process needs to abort
         markIndexesBuilding(indexes, isFullRebuild, false);
@@ -536,13 +536,10 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
                            });
 
             // Finally wait for the index builds to finish and flush the indexes that built successfully
-            logger.info("All {} index rebuilds have been submitted, waiting for completion", futures.size());
             FBUtilities.waitOnFutures(futures);
-            logger.info("All index rebuilds have completed");
         }
         catch (Exception e)
         {
-            logger.warn("Got exception while trying to rebuild secondary indexes", e);
             accumulatedFail = e;
             throw e;
         }
@@ -910,8 +907,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
         if (!indexes.isEmpty())
         {
-            // logger.info("Indexing partition {}", baseCfs.metadata().partitionKeyType.getString(key.getKey()));
-
             SinglePartitionReadCommand cmd = SinglePartitionReadCommand.create(baseCfs.metadata(),
                                                                                FBUtilities.nowInSeconds(),
                                                                                ColumnFilter.selection(columns),
@@ -990,11 +985,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
 
                         indexers.forEach(Index.Indexer::finish);
                     }
-                }
-                catch (Throwable t)
-                {
-                    logger.warn("Got throwable while trying to index page", t);
-                    throw t;
                 }
             }
         }
@@ -1567,14 +1557,6 @@ public class SecondaryIndexManager implements IndexRegistry, INotificationConsum
         if (!indexes.isEmpty() && notification instanceof SSTableAddedNotification)
         {
             SSTableAddedNotification notice = (SSTableAddedNotification) notification;
-            AtomicLong numTables = new AtomicLong();
-
-            logger.info("Handling SSTableAddedNotification {} for indexed table; notification {}", notice.hashCode(), notice);
-            notice.added.forEach(sst -> {
-                logger.info("SSTableAddedNotification includes TableMetadata {} file {}", sst.metadata(), sst.getFilename());
-                numTables.incrementAndGet();
-            });
-            logger.info("SSTableAddedNotification {} for indexed table includes {} files", notice.hashCode(), numTables);
 
             // SSTables asociated to a memtable come from a flush, so their contents have already been indexed
             if (!notice.memtable().isPresent())

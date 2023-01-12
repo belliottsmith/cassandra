@@ -108,7 +108,6 @@ public class CassandraStreamReceiver implements StreamReceiver
         }
         catch (Throwable t)
         {
-            logger.warn("Got throwable while trying to receive IncomingStream", t);
             Throwables.maybeFail(sstable.abort(t));
         }
         txn.update(finished, false);
@@ -244,7 +243,7 @@ public class CassandraStreamReceiver implements StreamReceiver
                 finishTransaction();
 
                 // add sstables (this will build secondary indexes too, see CASSANDRA-10130)
-                logger.info("[Stream #{}] Received {} sstables from {} ({})", session.planId(), readers.size(), session.peer, readers);
+                logger.debug("[Stream #{}] Received {} sstables from {} ({})", session.planId(), readers.size(), session.peer, readers);
                 cfs.addSSTables(readers);
 
                 //invalidate row and counter cache

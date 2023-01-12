@@ -245,10 +245,12 @@ public final class StreamResultFuture extends AsyncFuture<StreamState>
                 logger.info("[Stream #{}] All sessions completed", planId);
                 trySuccess(finalState);
             }
-        } else {
+        }
+        else
+        {
             Map<StreamSession.State, List<SessionInfo>> sessionInfoByState = coordinator.getAllSessionInfo().stream()
-                                                                             .collect(Collectors.groupingBy(si -> si.state));
-            logger.warn("Can't complete - not all sessions are finished successfully {}", sessionInfoByState);
+                                                                                        .collect(Collectors.groupingBy(si -> si.state));
+            logger.debug("[Stream #{}] Cannot complete - not all sessions are finished successfully {}", planId, sessionInfoByState);
         }
     }
 

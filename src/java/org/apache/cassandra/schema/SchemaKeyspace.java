@@ -940,14 +940,11 @@ public final class SchemaKeyspace
 
     private static TableMetadata fetchTable(String keyspaceName, String tableName, Types types)
     {
-        logger.info("Fetching table {}.{}", keyspaceName, tableName);
         String query = String.format("SELECT * FROM %s.%s WHERE keyspace_name = ? AND table_name = ?", SchemaConstants.SCHEMA_KEYSPACE_NAME, TABLES);
         UntypedResultSet rows = query(query, keyspaceName, tableName);
         if (rows.isEmpty())
             throw new RuntimeException(String.format("%s:%s not found in the schema definitions keyspace.", keyspaceName, tableName));
         UntypedResultSet.Row row = rows.one();
-
-        logger.info("Found table {}.{} has ID {}", keyspaceName, tableName, row.getUUID("id"));
 
         Set<TableMetadata.Flag> flags = TableMetadata.Flag.fromStringSet(row.getFrozenSet("flags", UTF8Type.instance));
         return TableMetadata.builder(keyspaceName, tableName, TableId.fromUUID(row.getUUID("id")))

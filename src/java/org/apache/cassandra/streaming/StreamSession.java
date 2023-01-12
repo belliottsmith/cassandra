@@ -423,9 +423,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         assert all(fullRanges, Replica::isSelf) || RangesAtEndpoint.isDummyList(fullRanges) : fullRanges.toString();
         assert all(transientRanges, Replica::isSelf) || RangesAtEndpoint.isDummyList(transientRanges) : transientRanges.toString();
 
-        StreamRequest request = new StreamRequest(keyspace, fullRanges, transientRanges, columnFamilies);
-        logger.info("Created request {} for keyspace {} ranges {} tables {}", request, keyspace, fullRanges, columnFamilies);
-        requests.add(request);
+        requests.add(new StreamRequest(keyspace, fullRanges, transientRanges, columnFamilies));
     }
 
     /**
@@ -551,7 +549,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     private void abortTasks()
     {
-        logger.info("Aborting tasks on stream {} {}; receivers {} transfers {}", planId(), isFollower ? "follower" : "leader", receivers, transfers);
         try
         {
             receivers.values().forEach(StreamReceiveTask::abort);
@@ -570,7 +567,8 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public void state(State newState)
     {
-        logger.info("[Stream #{}] Changing session state from {} to {}", planId(), state, newState);
+        if (logger.isDebugEnabled())
+            logger.debug("[Stream #{}] Changing session state from {} to {}", planId(), state, newState);
 
         sink.recordState(peer, newState);
         state = newState;
@@ -601,8 +599,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
     public synchronized void messageReceived(StreamMessage message)
     {
-        logger.info("Received StreamMessage {} operation {} peer {} isFollower {} index {}", message, streamOperation, peer, isFollower(), index);
-
         if (message.type != StreamMessage.Type.KEEP_ALIVE)
             failIfFinished();
 
@@ -646,8 +642,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
             default:
                 throw new AssertionError("unhandled StreamMessage type: " + message.getClass().getName());
         }
-
-        logger.info("After handling stream message {}, state is now {}", message, state());
     }
 
     /**
@@ -674,14 +668,13 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public Future<?> onError(Throwable e)
     {
-        logger.warn("Stream session {} handling error", this, e);
         boolean isEofException = e instanceof EOFException || e instanceof ClosedChannelException;
         if (isEofException)
         {
             State state = this.state;
             if (state.finalState)
             {
-                logger.info("[Stream #{}] Socket closed after session completed with state {}", planId(), state);
+                logger.debug("[Stream #{}] Socket closed after session completed with state {}", planId(), state);
 
                 return null;
             }
@@ -1037,7 +1030,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     // ACI Cassandra - permit mocking control messages to test OOTR patch
     protected Future<?> sendControlMessage(StreamMessage message)
     {
-        logger.info("Sending control message {} peer {} index {} planId {}", message, peer, index, planId());
         return channel.sendControlMessage(message);
     }
 
@@ -1064,11 +1056,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
         {
             receivers.get(message.header.tableId).received(message.stream);
         }
-        catch (Throwable t)
-        {
-            logger.info("Got throwable while handling stream receive", t);
-            throw t;
-        }
         finally
         {
             long latencyNanos = nanoTime() - receivedStartNanos;
@@ -1090,15 +1077,11 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
     {
         ProgressInfo progress = new ProgressInfo(peer, index, filename, direction, bytes, total);
-        // How can we guarantee that progress events get fired on completion, when bytes == total, in addition to the potential completion event?
-        // Is it feasible that what appears to be streams dropping off is actually a failure to fire progress events on completion?
-        // logger.info("Got stream progress event {} for file {} bytes {} out of total {}", progress, filename, bytes, total);
         streamResult.handleProgress(progress);
     }
 
     public void received(TableId tableId, int sequenceNumber)
     {
-        logger.info("Peer finished receiving table {}", tableId);
         transfers.get(tableId).complete(sequenceNumber);
     }
 
@@ -1107,7 +1090,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
      */
     public synchronized void complete()
     {
-        logger.info("[Stream #{}] handling Complete message, state = {}", planId(), state);
+        logger.debug("[Stream #{}] handling Complete message, state = {}", planId(), state);
 
         if (!isFollower) // initiator
         {
@@ -1261,8 +1244,6 @@ public class StreamSession implements IEndpointStateChangeSubscriber
 
         state(State.STREAMING);
 
-        logger.info("Starting to stream files to peer {}; expected transfers are {}", peer, transfers);
-
         for (StreamTransferTask task : transfers.values())
         {
             Collection<OutgoingStreamMessage> messages = task.getFileMessages();
@@ -1369,7 +1350,7 @@ public class StreamSession implements IEndpointStateChangeSubscriber
     {
         if (state.isFinalState())
         {
-            logger.info("[Stream #{}] Stream session with peer {} is already in a final state on abort.", planId(), peer);
+            logger.debug("[Stream #{}] Stream session with peer {} is already in a final state on abort.", planId(), peer);
             return;
         }
 

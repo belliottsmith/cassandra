@@ -20,7 +20,6 @@ package org.apache.cassandra.schema;
 import java.time.Duration;
 import java.util.*;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -573,8 +572,6 @@ public class Schema implements SchemaProvider
      */
     private synchronized void updateVersion(UUID version)
     {
-        logger.info("Updating schema version from {} to {}", this.version, version);
-        logger.info("Current schema TableMetadatas before version update: {}", this.distributedKeyspaces.stream().flatMap(ks -> ks.tables.stream().map(TableMetadata::toDebugString)).collect(Collectors.toList()));
         this.version = version;
         SchemaDiagnostics.versionUpdated(this);
     }
@@ -645,8 +642,6 @@ public class Schema implements SchemaProvider
     @VisibleForTesting
     public synchronized void mergeAndUpdateVersion(SchemaTransformationResult result, boolean dropData)
     {
-        logger.debug("Handling schema merge {}", result);
-        logger.debug("Current schema TableMetadatas before merge: {}", this.distributedKeyspaces.stream().flatMap(ks -> ks.tables.stream().map(TableMetadata::toDebugString)).collect(Collectors.toList()));
         if (online)
             SystemKeyspace.updateSchemaVersion(result.after.getVersion());
         result = localDiff(result);
