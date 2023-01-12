@@ -84,7 +84,7 @@ public class StreamReceiveTask extends StreamTask
         remoteStreamsReceived += stream.getNumFiles();
         bytesReceived += stream.getSize();
         Preconditions.checkArgument(tableId.equals(stream.getTableId()));
-        logger.info("received {} of {} total files, {} of total bytes {}", remoteStreamsReceived, totalStreams,
+        logger.debug("received {} of {} total files, {} of total bytes {}", remoteStreamsReceived, totalStreams,
                      bytesReceived, stream.getSize());
 
         receiver.received(stream);
@@ -139,7 +139,6 @@ public class StreamReceiveTask extends StreamTask
             }
             catch (Throwable t)
             {
-                logger.warn("Caught throwable from StreamReceiveTask.OnCompleteRunnable", t);
                 JVMStabilityInspector.inspectThrowable(t);
                 task.session.onError(t);
             }

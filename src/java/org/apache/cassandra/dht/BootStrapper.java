@@ -85,7 +85,7 @@ public class BootStrapper extends ProgressEventNotifierSupport
 
     public Future<StreamState> bootstrap(StreamStateStore stateStore, boolean useStrictConsistency)
     {
-        logger.info("Beginning bootstrap process");
+        logger.trace("Beginning bootstrap process");
 
         RangeStreamer streamer = new RangeStreamer(tokenMetadata,
                                                    tokens,

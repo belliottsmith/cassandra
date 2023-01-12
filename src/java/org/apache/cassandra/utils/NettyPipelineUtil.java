@@ -34,7 +34,8 @@ import io.netty.handler.logging.ByteBufFormat;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 
-// For debugging streaming channel events, see CASSANDRA-18110
+// Optional ChannelHandlers for debugging Netty pipelines
+@SuppressWarnings("unused")
 public class NettyPipelineUtil
 {
     public static ChannelHandler[] getDebugHandlers()

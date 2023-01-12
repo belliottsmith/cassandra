@@ -99,7 +99,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
         ComponentManifest manifest = header.componentManifest;
         long totalSize = manifest.totalSize();
 
-        logger.info("[Stream #{}] Started receiving sstable #{} from {}, size = {}, table = {}",
+        logger.debug("[Stream #{}] Started receiving sstable #{} from {}, size = {}, table = {}",
                      session.planId(),
                      fileSequenceNumber,
                      session.peer,
@@ -116,7 +116,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
             {
                 long length = manifest.sizeOf(component);
 
-                logger.info("[Stream #{}] Started receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
+                logger.debug("[Stream #{}] Started receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
                              session.planId(),
                              component,
                              session.peer,
@@ -128,7 +128,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
                 session.progress(writer.descriptor.filenameFor(component), ProgressInfo.Direction.IN, length, length);
                 bytesRead += length;
 
-                logger.info("[Stream #{}] Finished receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
+                logger.debug("[Stream #{}] Finished receiving {} component from {}, componentSize = {}, readBytes = {}, totalSize = {}",
                              session.planId(),
                              component,
                              session.peer,
@@ -148,12 +148,7 @@ public class CassandraEntireSSTableStreamReader implements IStreamReader
         {
             logger.error("[Stream {}] Error while reading sstable from stream for table = {}", session.planId(), cfs.metadata(), e);
             if (writer != null)
-            {
-                Throwable abortThrowable = writer.abort(e);
-                if (!e.equals(abortThrowable))
-                    logger.info("Stream read error for table {} got extra error from writer abort, original {}", cfs.metadata(), e, abortThrowable);
-                e = abortThrowable;
-            }
+                e = writer.abort(e);
             throw e;
         }
     }

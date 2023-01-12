@@ -78,7 +78,6 @@ public class StreamDeserializingTask implements Runnable
         }
         catch (Throwable t)
         {
-            logger.warn("Got throwable while trying to deserialize stream {}", session, t);
             JVMStabilityInspector.inspectThrowable(t);
             if (session != null)
             {

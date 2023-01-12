@@ -160,9 +160,9 @@ public class StreamingMultiplexedChannel
 
     private StreamingChannel createControlChannel() throws IOException
     {
-        StreamingChannel channel = factory.create(to, messagingVersion, StreamingChannel.Kind.CONTROL);
-        logger.info("Created control channel to {} as {}; channel {}", to, session.isFollower() ? "follower" : "initiator", channel);
+        logger.debug("Creating stream session to {} as {}", to, session.isFollower() ? "follower" : "initiator");
 
+        StreamingChannel channel = factory.create(to, messagingVersion, StreamingChannel.Kind.CONTROL);
         executorFactory().startThread(String.format("Stream-Deserializer-%s-%s", to.toString(), channel.id()),
                                       new StreamDeserializingTask(session, channel, messagingVersion));
         session.attachInbound(channel);
@@ -174,9 +174,9 @@ public class StreamingMultiplexedChannel
     
     private StreamingChannel createFileChannel(InetAddressAndPort connectTo) throws IOException
     {
-        StreamingChannel channel = factory.create(to, connectTo, messagingVersion, StreamingChannel.Kind.FILE);
-        logger.info("Created file channel to {} as {}; channel {}", to, session.isFollower() ? "follower" : "initiator", channel);
+        logger.debug("Creating stream session to {} as {}", to, session.isFollower() ? "follower" : "initiator");
 
+        StreamingChannel channel = factory.create(to, connectTo, messagingVersion, StreamingChannel.Kind.FILE);
         session.attachOutbound(channel);
 
         logger.debug("Creating file {}", channel.description());
@@ -192,7 +192,6 @@ public class StreamingMultiplexedChannel
         }
         catch (Exception e)
         {
-            logger.error("Could not send control message {}", message, e);
             close();
             session.onError(e);
             return ImmediateFuture.failure(e);
@@ -298,10 +297,8 @@ public class StreamingMultiplexedChannel
         @Override
         public void run()
         {
-            if (!acquirePermit(SEMAPHORE_UNAVAILABLE_LOG_INTERVAL)) {
-                logger.info("Could not acquire permit for FileStreamTask {}", msg);
+            if (!acquirePermit(SEMAPHORE_UNAVAILABLE_LOG_INTERVAL))
                 return;
-            }
 
             StreamingChannel channel = null;
             try
@@ -316,7 +313,6 @@ public class StreamingMultiplexedChannel
             }
             catch (Exception e)
             {
-                logger.error("Got exception in FileStreamTask when trying to acquire output stream and serialize msg", e);
                 session.onError(e);
             }
             catch (Throwable t)
@@ -327,7 +323,6 @@ public class StreamingMultiplexedChannel
                 }
                 else
                 {
-                    logger.error("Got throwable in FileStreamTask when trying to acquire output stream and serialize msg", t);
                     inspectThrowable(t);
                     if (!session.state().isFinalState())
                         session.onError(t);
@@ -336,7 +331,6 @@ public class StreamingMultiplexedChannel
             finally
             {
                 fileTransferSemaphore.release(1);
-                logger.info("Finished FileStreamTask, semaphore has {} permits out of {} total", fileTransferSemaphore.permits(), MAX_PARALLEL_TRANSFERS);
             }
         }
 

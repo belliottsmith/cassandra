@@ -29,18 +29,13 @@ import com.google.common.annotations.VisibleForTesting;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.EventLoop;
-import io.netty.handler.logging.ByteBufFormat;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.Future; // checkstyle: permit this import
 import org.apache.cassandra.net.ConnectionCategory;
-import org.apache.cassandra.net.InternodeConnectionUtils;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.OutboundConnectionInitiator.Result;
 import org.apache.cassandra.net.OutboundConnectionInitiator.Result.StreamingSuccess;
 import org.apache.cassandra.net.OutboundConnectionSettings;
 import org.apache.cassandra.streaming.StreamingChannel;
-import org.apache.cassandra.utils.NettyPipelineUtil;
 
 import static org.apache.cassandra.locator.InetAddressAndPort.getByAddress;
 import static org.apache.cassandra.net.InternodeConnectionUtils.isSSLError;
@@ -77,10 +72,6 @@ public class NettyStreamingConnectionFactory implements StreamingChannel.Factory
                         ChannelPipeline pipeline = channel.pipeline();
                         pipeline.addLast("stream", streamingChannel);
                     }
-
-                    // Temporary, for debugging CASSANDRA-18110
-                    channel.pipeline().addLast(NettyPipelineUtil.getDebugHandlers());
-
                     return streamingChannel;
                 }
                 cause = result.cause();
