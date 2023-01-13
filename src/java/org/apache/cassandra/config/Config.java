@@ -958,6 +958,9 @@ public class Config
     public volatile DurationSpec streaming_state_expires = DurationSpec.inDays(3);
     public volatile DataStorageSpec streaming_state_size = DataStorageSpec.inMebibytes(40);
 
+    public volatile boolean streaming_stats_enabled = true;
+    public volatile DurationSpec streaming_slow_events_log_timeout = new DurationSpec("10s");
+
     /** The configuration of startup checks. */
     public volatile Map<StartupCheckType, Map<String, Object>> startup_checks = new HashMap<>();
 

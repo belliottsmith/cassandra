@@ -4430,6 +4430,33 @@ public class DatabaseDescriptor
         }
     }
 
+    public static boolean getStreamingStatsEnabled()
+    {
+        return conf.streaming_stats_enabled;
+    }
+
+    public static void setStreamingStatsEnabled(boolean streamingStatsEnabled)
+    {
+        if (conf.streaming_stats_enabled != streamingStatsEnabled)
+        {
+            logger.info("Setting streaming_stats_enabled to {}", streamingStatsEnabled);
+            conf.streaming_stats_enabled = streamingStatsEnabled;
+        }
+    }
+
+    public static DurationSpec getStreamingSlowEventsLogTimeout() {
+        return conf.streaming_slow_events_log_timeout;
+    }
+
+    public static void setStreamingSlowEventsLogTimeout(String value) {
+        DurationSpec next = new DurationSpec(value);
+        if (!conf.streaming_slow_events_log_timeout.equals(next))
+        {
+            logger.info("Setting streaming_slow_events_log to " + value);
+            conf.streaming_slow_events_log_timeout = next;
+        }
+    }
+
     public static boolean isUUIDSSTableIdentifiersEnabled()
     {
         return conf.enable_uuid_sstable_identifiers;
