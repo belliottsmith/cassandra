@@ -993,6 +993,9 @@ public class Config
     public volatile DurationSpec.LongNanosecondsBound streaming_state_expires = new DurationSpec.LongNanosecondsBound("3d");
     public volatile DataStorageSpec.LongBytesBound streaming_state_size = new DataStorageSpec.LongBytesBound("40MiB");
 
+    public volatile boolean streaming_stats_enabled = true;
+    public volatile DurationSpec.LongNanosecondsBound  streaming_slow_events_log_timeout = new DurationSpec.LongNanosecondsBound("10s");
+
     /** The configuration of startup checks. */
     public volatile Map<StartupCheckType, Map<String, Object>> startup_checks = new HashMap<>();
 
