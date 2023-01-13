@@ -50,7 +50,7 @@ public class StreamTestUtils
         {
 
             @Override
-            public void progress(String filename, ProgressInfo.Direction direction, long bytes, long total)
+            public void progress(String filename, ProgressInfo.Direction direction, long bytes, long deltas, long total)
             {
                 //no-op
             }
