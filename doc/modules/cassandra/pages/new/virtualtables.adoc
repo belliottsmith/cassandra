@@ -68,6 +68,12 @@ recent_hit_rate_per_second, recent_request_rate_per_second, request_count, and s
 
 |clients |Lists information about all connected clients.
 
+|commitlog_tables |Commitlog usage by keyspace/table
+
+|commitlog_segments |Unflushed tables for each active commitlog segment
+
+|commitlog_segments_map |Which tables have unflushed data in each active commitlog segment
+
 |coordinator_read_latency |Records counts, keyspace_name, table_name, max, median, and per_second for coordinator reads.
 
 |coordinator_scan |Records counts, keyspace_name, table_name, max, median, and per_second for coordinator scans.
