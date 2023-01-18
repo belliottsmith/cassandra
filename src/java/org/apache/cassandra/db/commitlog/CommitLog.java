@@ -421,6 +421,65 @@ public class CommitLog implements CommitLogMBean
         return segmentRatios;
     }
 
+    /** Immutable class for holding per-table commitlog usage infomation
+     */
+    public static final class CommitLogUsage
+    {
+        public final TableId tableId;
+        /** Path to earliest segment with unflushed data from this table */
+        public final String earliestSegmentPath;
+        /** Size of all commitlog segments after the oldest dirty segment */
+        public final long onDiskBytesBlocked;
+        /** Number of segments that contain unflushed data from this table */
+        public final int numDirtySegments;
+
+        public CommitLogUsage(TableId tableId, String earliestSegmentPath, long onDiskBytesBlocked, int numDirtySegments)
+        {
+            this.tableId = tableId;
+            this.earliestSegmentPath = earliestSegmentPath;
+            this.onDiskBytesBlocked = onDiskBytesBlocked;
+            this.numDirtySegments = numDirtySegments;
+        }
+    }
+
+    /** Summarize commitlog segment usage for tables with unflushed data
+     *
+     * @return unordered usage summary, no ordering guaranteed
+     */
+    public Collection<CommitLogUsage> activeSegmentUsageByTableId()
+    {
+        Map<TableId, CommitLogSegment> earliestSegment = new HashMap<>();
+        Map<TableId, Integer> segmentCount = new HashMap<>();
+        Map<Long, Long> cumulativeOnDiskSizeBySegmentId = new HashMap<>();
+
+        // Segments are in order, tail is active
+        Collection<CommitLogSegment> activeSegments = segmentManager.getActiveSegments();
+
+        // Build maps of the earliest segment per tableid, count of dirty segments by tableid
+        // and the cumulative size of on disk bytes for each active segment.
+        long cumulativeOnDisk = 0;
+        for (CommitLogSegment segment: activeSegments)
+        {
+            for (TableId tableId : segment.getDirtyTableIds())
+            {
+                earliestSegment.merge(tableId, segment, (current, candidate) -> candidate.id < current.id ? candidate : current);
+                segmentCount.merge(tableId, 1, Integer::sum);
+            }
+
+            cumulativeOnDiskSizeBySegmentId.put(segment.id, cumulativeOnDisk);
+            cumulativeOnDisk += segment.onDiskSize();
+        }
+        final long activeSegmentOnDiskSize = cumulativeOnDisk;
+        List<CommitLogUsage> result = new ArrayList<>(earliestSegment.size());
+        earliestSegment.forEach((tableId, earliest) -> {
+            result.add(new CommitLogUsage(tableId,
+                                          earliest.getPath(),
+                                          activeSegmentOnDiskSize - cumulativeOnDiskSizeBySegmentId.get(earliest.id),
+                                          segmentCount.get(tableId)));
+        });
+        return result;
+    }
+
     @Override
     public boolean getCDCBlockWrites()
     {
