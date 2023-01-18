@@ -165,7 +165,7 @@ public class DiskBoundaries
         return directories.subList(firstIndex, lastIndex + 1);
     }
 
-    public boolean isEquivalent(DiskBoundaries oldBoundaries)
+    public boolean isEquivalentTo(DiskBoundaries oldBoundaries)
     {
         return oldBoundaries != null &&
                Objects.equals(positions, oldBoundaries.positions) &&
