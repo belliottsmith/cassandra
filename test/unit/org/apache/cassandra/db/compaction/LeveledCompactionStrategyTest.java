@@ -1125,7 +1125,7 @@ public class LeveledCompactionStrategyTest
             level++;
         }
         // reload the compaction strategy
-        compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
+        compactionStrategyManager.reloadParamsFromJMX(compactionStrategyManager.getCompactionParams());
 
         assertEquals(0, compactionStrategyManager.getSSTableCountPerLevel()[0]);
         assertEquals(1, compactionStrategyManager.getSSTableCountPerLevel()[1]);
@@ -1149,13 +1149,13 @@ public class LeveledCompactionStrategyTest
             assertTrue(CompactionManager.instance.getEnableAggressiveGCCompaction());
 
             // We have tombstoneCompactionInterval high so it considers the sstables as too young to compact
-            compactionStrategyManager.setNewLocalCompactionStrategy(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "3600")));
+            compactionStrategyManager.reloadParamsFromJMX(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "3600")));
             // waits for pending compactions to complete
             cfs.enableAutoCompaction(true);
             assertEquals(2, cfs.getLiveSSTables().size());
 
             // Now set tombstoneCompactionInterval=0 so we should compact
-            compactionStrategyManager.setNewLocalCompactionStrategy(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "0")));
+            compactionStrategyManager.reloadParamsFromJMX(CompactionParams.lcs(Collections.singletonMap(AbstractCompactionStrategy.TOMBSTONE_COMPACTION_INTERVAL_OPTION, "0")));
 
             // Set one to be repaired so check it doesn't compact them together
             Iterator<SSTableReader> it = cfs.getLiveSSTables().iterator();
@@ -1165,7 +1165,7 @@ public class LeveledCompactionStrategyTest
             UUID repairUUID = UUID.randomUUID();
             sstable1.descriptor.getMetadataSerializer().mutateRepairMetadata(sstable1.descriptor, System.currentTimeMillis(), null, false);
             sstable1.reloadSSTableMetadata();
-            compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
+            compactionStrategyManager.reloadParamsFromJMX(compactionStrategyManager.getCompactionParams());
 
             cfs.enableAutoCompaction(true);
             assertEquals(2, cfs.getLiveSSTables().size());
@@ -1173,7 +1173,7 @@ public class LeveledCompactionStrategyTest
             // Now set the other to be repaired and it should finally compact them
             sstable2.descriptor.getMetadataSerializer().mutateRepairMetadata(sstable2.descriptor, System.currentTimeMillis(), null, false);
             sstable2.reloadSSTableMetadata();
-            compactionStrategyManager.setNewLocalCompactionStrategy(compactionStrategyManager.getCompactionParams());
+            compactionStrategyManager.reloadParamsFromJMX(compactionStrategyManager.getCompactionParams());
 
             cfs.enableAutoCompaction(true);
             assertEquals(1, cfs.getLiveSSTables().size());
