@@ -133,6 +133,7 @@ public class DatabaseDescriptorRefTest
     "org.apache.cassandra.config.TransparentDataEncryptionOptions",
     "org.apache.cassandra.config.StartupChecksOptions",
     "org.apache.cassandra.config.SubnetGroups",
+    "org.apache.cassandra.config.SubnetGroups$Group",
     "org.apache.cassandra.config.TrackWarnings",
     "org.apache.cassandra.db.ConsistencyLevel",
     "org.apache.cassandra.db.commitlog.CommitLogSegmentManagerFactory",
@@ -251,6 +252,7 @@ public class DatabaseDescriptorRefTest
 
         ClassLoader cl = new ClassLoader(null)
         {
+            Package dummyPackage = null;
             final Map<String, Class<?>> classMap = new HashMap<>();
 
             public URL getResource(String name)
@@ -261,6 +263,18 @@ public class DatabaseDescriptorRefTest
             public InputStream getResourceAsStream(String name)
             {
                 return delegate.getResourceAsStream(name);
+            }
+
+            // setting default InfoSec scanners config triggers class initialization in IP-address library which
+            // builds a string using cls.getPackage().getName() so have to provide a dummy to avoid NPE
+            @Override
+            protected Package getPackage(String name)
+            {
+                if (name.equals("dummy_name"))
+                    return null;
+                if (dummyPackage == null)
+                    dummyPackage = definePackage("dummy_name", null, null, null, null, null, null, null);
+                return dummyPackage;
             }
 
             protected Class<?> findClass(String name) throws ClassNotFoundException
