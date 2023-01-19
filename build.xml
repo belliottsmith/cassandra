@@ -65,6 +65,7 @@
     <property name="benchmark.name" value=""/>
     <property name="test.methods" value=""/>
     <property name="test.anttasks.src" value="${test.dir}/anttasks"/>
+    <property name="test.showoutput" value="false"/>
     <property name="test.unit.src" value="${test.dir}/unit"/>
     <property name="test.long.src" value="${test.dir}/long"/>
     <property name="test.burn.src" value="${test.dir}/burn"/>
@@ -1526,7 +1527,7 @@
     <attribute name="inputdir" />
     <attribute name="timeout" default="${test.timeout}" />
     <attribute name="forkmode" default="perTest"/>
-    <attribute name="showoutput" default="true"/>
+    <attribute name="showoutput" default="${test.showoutput}"/>
     <element name="optjvmargs" implicit="true" optional="true" />
     <attribute name="filter" default="**/${test.name}.java"/>
     <attribute name="exclude" default="" />
@@ -1537,7 +1538,7 @@
       <testmacrohelper inputdir="@{inputdir}" timeout="@{timeout}"
                        forkmode="@{forkmode}" filter="@{filter}"
                        exclude="@{exclude}" filelist="@{filelist}"
-                       testtag="@{testtag}" showoutput="false" >
+                       testtag="@{testtag}" showoutput="@{showoutput}">
           <optjvmargs/>
       </testmacrohelper>
       <fail message="Some test(s) failed.">
