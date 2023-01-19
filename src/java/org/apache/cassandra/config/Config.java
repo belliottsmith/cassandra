@@ -19,10 +19,12 @@ package org.apache.cassandra.config;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -940,8 +942,55 @@ public class Config
      */
     boolean all_regular_and_queried_static_column_filter_enabled = false;
 
-    public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups();
-    public volatile SubnetGroups internode_error_reporting_exclusions = new SubnetGroups();
+    // https://infosec.apple.com/guidance/engineering/resources/network/scanning/scanner_source_ips/
+    // Last updated: 02/28/2022 (from bottom of page), internal scanners only as Cassandra should never be internet
+    // facing.
+    private static final List<String> INFOSEC_SCANNER_IPS = Arrays.asList(
+    // Internal Scanners
+    // Vulnerability scans originating from Apple internal network infrastructure come from these subnet ranges:
+    // AMR
+    "10.110.60.0/26",
+    "10.180.100.128/25",
+    "10.180.168.0/25",
+    "17.8.64.0/21",
+    "17.8.88.0/21",
+    "17.140.41.0/27",
+    "17.157.12.0/24",
+    "17.157.16.0/24",
+    "17.157.224.0/23",
+    "17.168.112.64/26",
+    "17.178.33.0/27",
+    "2620:149:42:4200::/64",
+    "2620:149:57a::/48",
+    "2620:149:142:4200::/64",
+    "2620:149:fb:4200::/64",
+    "2620:149:ff:4200::/64",
+
+    // EMEIA
+    "10.45.45.0/27",
+    "10.45.47.0/27",
+    "2a01:b740:5fa::/48",
+
+    // APAC
+    "2403:300:5fa::/48",
+
+    // Desktop Scanners
+    // Vulnerability scans originating from Apple desktop network infrastructure come from these subnet ranges:
+    // AMR
+    "17.102.228.0/24",
+    "17.104.24.0/24",
+    "17.104.29.128/25",
+    "17.193.133.0/26",
+    "17.198.218.191",
+    "17.198.218.195",
+    "17.217.24.81-85",
+    // Additional Internal Resources
+    // Vulnerability Response manages a set of services to help provide testing:
+    "17.123.20.16" // ssrf.corp.apple.com
+    );
+
+    public volatile SubnetGroups client_error_reporting_exclusions = new SubnetGroups(INFOSEC_SCANNER_IPS);
+    public volatile SubnetGroups internode_error_reporting_exclusions = new SubnetGroups(INFOSEC_SCANNER_IPS);
 
     public volatile int keyspaces_warn_threshold = -1;
     public volatile int keyspaces_fail_threshold = -1;
