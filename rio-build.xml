@@ -6,7 +6,6 @@
   <property name="artifact.remoteRepository.java.net2" value="https://artifacts.apple.com/libs-release"/>
   <property name="artifact.remoteRepository.jclouds" value="https://artifacts.apple.com/libs-release"/>
   <property name="artifact.remoteRepository.oauth" value="https://artifacts.apple.com/libs-release"/>
-  <property name="maven-ant-tasks.url" value="https://artifacts.apple.com/libs-release/org/apache/maven/maven-ant-tasks" />
   <property name="resolver-ant-tasks.url" value="https://artifacts.apple.com/repo1-cache/org/apache/maven/resolver/maven-resolver-ant-tasks" />
   <property name="artifact.github.release" value="https://artifacts.apple.com/github-releases"/>
   <property name="artifact.python.pypi" value="https://artifacts.apple.com/pypi-python-org-cache/"/>
