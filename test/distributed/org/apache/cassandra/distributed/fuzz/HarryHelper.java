@@ -18,10 +18,14 @@
 
 package org.apache.cassandra.distributed.fuzz;
 
-import java.io.File;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import harry.core.Configuration;
+import harry.ddl.ColumnSpec;
+import harry.ddl.SchemaGenerators;
+import harry.ddl.SchemaSpec;
+import harry.generators.Surjections;
 import harry.model.OpSelectors;
 import harry.model.clock.OffsetClock;
 import harry.model.sut.PrintlnSut;
@@ -39,20 +43,60 @@ public class HarryHelper
         System.setProperty("cassandra.disable_tcactive_openssl", "true");
         System.setProperty("relocated.shaded.io.netty.transport.noNative", "true");
         System.setProperty("org.apache.cassandra.disable_mbean_registration", "true");
-
-        InJvmSut.init();
-        QueryingNoOpChecker.init();
-        Configuration.registerSubtypes(PrintlnSut.PrintlnSutConfiguration.class);
-        Configuration.registerSubtypes(Configuration.NoOpMetricReporterConfiguration.class);
-        Configuration.registerSubtypes(Configuration.RecentPartitionsValidatorConfiguration.class);
     }
-    
-    public static Configuration configuration(String... args) throws Exception
+
+    private static AtomicInteger counter = new AtomicInteger();
+
+    public static Surjections.Surjection<SchemaSpec> schemaSpecGen(String keyspace, String prefix)
     {
-        File configFile = harry.runner.HarryRunner.loadConfig(args);
-        Configuration configuration = Configuration.fromFile(configFile);
-        System.out.println("Using configuration generated from: " + configFile);
-        return configuration;
+        return new SchemaGenerators.Builder(keyspace, () -> prefix + counter.getAndIncrement())
+               .partitionKeySpec(1, 4,
+                                 ColumnSpec.int8Type,
+                                 ColumnSpec.int16Type,
+                                 ColumnSpec.int32Type,
+                                 ColumnSpec.int64Type,
+                                 ColumnSpec.floatType,
+                                 ColumnSpec.doubleType,
+                                 ColumnSpec.asciiType,
+                                 ColumnSpec.textType)
+               .clusteringKeySpec(1, 4,
+                                  ColumnSpec.int8Type,
+                                  ColumnSpec.int16Type,
+                                  ColumnSpec.int32Type,
+                                  ColumnSpec.int64Type,
+                                  ColumnSpec.floatType,
+                                  ColumnSpec.doubleType,
+                                  ColumnSpec.asciiType,
+                                  ColumnSpec.textType,
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.int8Type),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.int16Type),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.int32Type),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.int64Type),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.floatType),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.doubleType),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.asciiType),
+                                  ColumnSpec.ReversedType.getInstance(ColumnSpec.textType))
+               .regularColumnSpec(1, 10,
+                                  ColumnSpec.int8Type,
+                                  ColumnSpec.int16Type,
+                                  ColumnSpec.int32Type,
+                                  ColumnSpec.int64Type,
+                                  ColumnSpec.floatType,
+                                  ColumnSpec.doubleType,
+                                  ColumnSpec.asciiType(4, 256),
+                                  ColumnSpec.asciiType(4, 512),
+                                  ColumnSpec.asciiType(4, 2048))
+               .staticColumnSpec(0, 10,
+                                 ColumnSpec.int8Type,
+                                 ColumnSpec.int16Type,
+                                 ColumnSpec.int32Type,
+                                 ColumnSpec.int64Type,
+                                 ColumnSpec.floatType,
+                                 ColumnSpec.doubleType,
+                                 ColumnSpec.asciiType(4, 256),
+                                 ColumnSpec.asciiType(4, 512),
+                                 ColumnSpec.asciiType(4, 2048))
+               .surjection();
     }
 
     public static Configuration.ConfigurationBuilder defaultConfiguration() throws Exception
@@ -62,7 +106,7 @@ public class HarryHelper
                .setCreateSchema(true)
                .setTruncateTable(false)
                .setDropSchema(false)
-               .setSchemaProvider(new Configuration.DefaultSchemaProviderConfiguration())
+               .setSchemaProvider((seed, sut) -> schemaSpecGen("harry", "tbl_").inflate(seed))
                .setClock(new Configuration.ApproximateMonotonicClockConfiguration(7300, 1, TimeUnit.SECONDS))
                .setClusteringDescriptorSelector(defaultClusteringDescriptorSelectorConfiguration().build())
                .setPartitionDescriptorSelector(new Configuration.DefaultPDSelectorConfiguration(100, 10))
