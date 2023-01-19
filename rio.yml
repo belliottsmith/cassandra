@@ -417,11 +417,7 @@ builds:
       steps:
         - ./rio/run-harry-prb.sh
       template: freestyle:v4:prb
-    timeout: 30
-    package:
-      freeform:
-        - publish:
-            - repo: cie-release-local
+    timeout: 120
     reports:
       junit: false
     machine:
@@ -435,6 +431,13 @@ builds:
       names:
         - rio-api-token
         - rio-test-user-email
+    reports:
+      junit:
+        paths:
+          - build/test/output/*
+      logs:
+        paths:
+          - build/test/logs/**/*
 
   #
   # Publish in-JVM dtest jar and trigger Harry build using it
