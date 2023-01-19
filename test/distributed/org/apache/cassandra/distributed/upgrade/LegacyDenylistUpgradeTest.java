@@ -76,7 +76,7 @@ public class LegacyDenylistUpgradeTest extends UpgradeTestBase
         .nodes(NUM_NODES)
         .singleUpgrade(v30)
         .withConfig(config -> config.with(Feature.GOSSIP, Feature.NETWORK)
-                                    .set("key_cache_size_in_mb", 0)
+                                    .set("key_cache_size", "0MiB")
                                     .set("blacklist_refresh_period_seconds", 1)
                                     .set("blacklist_initial_load_retry_seconds", 1)
                                     .set("enable_partition_blacklist", "true")
