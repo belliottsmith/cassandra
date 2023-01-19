@@ -213,6 +213,9 @@ public class MessagingService extends MessagingServiceMBeanImpl
     static AcceptVersions accept_messaging = new AcceptVersions(minimum_version, current_version);
     static AcceptVersions accept_streaming = new AcceptVersions(current_version, current_version);
 
+    @VisibleForTesting
+    public static long shutdownTimeoutMinutes = 3;
+
     public enum Version
     {
         VERSION_30(10),
@@ -502,7 +505,7 @@ public class MessagingService extends MessagingServiceMBeanImpl
      */
     public void shutdown()
     {
-        shutdown(1L, MINUTES, true, true);
+        shutdown(shutdownTimeoutMinutes, MINUTES, true, true);
     }
 
     public void shutdown(long timeout, TimeUnit units, boolean shutdownGracefully, boolean shutdownExecutors)
@@ -528,9 +531,11 @@ public class MessagingService extends MessagingServiceMBeanImpl
             long deadline = nanoTime() + units.toNanos(timeout);
             maybeFail(() -> FutureCombiner.nettySuccessListener(closing).get(timeout, units),
                       () -> {
+                          logger.info("Shutting down inbound executors ({})...", inboundSockets.sockets() != null ? inboundSockets.sockets().size() : "NULL");
                           List<ExecutorService> inboundExecutors = new ArrayList<>();
                           inboundSockets.close(synchronizedList(inboundExecutors)::add).get();
                           ExecutorUtils.awaitTermination(1L, TimeUnit.MINUTES, inboundExecutors);
+                          logger.info("Inbound executors shut down");
                       },
                       () -> {
                           if (shutdownExecutors)
@@ -560,6 +565,7 @@ public class MessagingService extends MessagingServiceMBeanImpl
                       inboundSink::clear,
                       outboundSink::clear);
         }
+        logger.info("MessagingService successfully shut down");
     }
 
     private void shutdownExecutors(long deadlineNanos) throws TimeoutException, InterruptedException

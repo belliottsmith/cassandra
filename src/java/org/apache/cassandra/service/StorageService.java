@@ -5054,17 +5054,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 public void run()
                 {
+                    logger.info("Shutting down client servers");
                     shutdownClientServers();
                     Gossiper.instance.stop();
-                    try
-                    {
-                        MessagingService.instance().shutdown();
-                    }
-                    catch (IOError ioe)
-                    {
-                        logger.info("failed to shutdown message service: {}", ioe);
-                    }
-
+                    shutdownMessagingServiceWithRetry();
                     Stage.shutdownNow();
                     SystemKeyspace.setBootstrapState(SystemKeyspace.BootstrapState.DECOMMISSIONED);
                     setMode(Mode.DECOMMISSIONED, true);
@@ -5085,6 +5078,48 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         finally
         {
             isDecommissioning.set(false);
+        }
+    }
+
+    /**
+     * Tries to gracefully shutdown MessagingService, if that fails, try ungracefully.
+     *
+     * Doesn't throw TimeoutException and IOError, only logs
+     */
+    private static void shutdownMessagingServiceWithRetry()
+    {
+        try
+        {
+            MessagingService.instance().shutdown();
+        }
+        catch (IOError ioe)
+        {
+            logger.info("Failed to shutdown message service", ioe);
+        }
+        catch (Exception e)
+        {
+            if (e.getCause() instanceof TimeoutException)
+            {
+                try
+                {
+                    logger.error("Failed shutting down MessagingService gracefully, retrying non-gracefully", e);
+                    HeapUtils.maybeCreateHeapDump();
+                    // if we can't shut down gracefully, try hard shutdown
+                    MessagingService.instance().shutdown(MessagingService.shutdownTimeoutMinutes, MINUTES, false, true);
+                }
+                catch (Exception innerEx)
+                {
+                    if (innerEx.getCause() instanceof TimeoutException)
+                        logger.error("Timed out shutting down MessagingService", e);
+                    else
+                        throw innerEx;
+                }
+
+            }
+            else
+            {
+                throw e;
+            }
         }
     }
 
