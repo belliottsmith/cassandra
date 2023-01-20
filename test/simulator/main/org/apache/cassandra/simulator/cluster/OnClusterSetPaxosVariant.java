@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.simulator.cluster;
 
-import org.apache.cassandra.config.Config.PaxosVariant;
+import org.apache.cassandra.config.Config.PaxosBackCompatVariant;
 import org.apache.cassandra.simulator.Action;
 import org.apache.cassandra.simulator.ActionList;
 
@@ -28,9 +28,9 @@ import static org.apache.cassandra.simulator.Action.Modifiers.RELIABLE;
 class OnClusterSetPaxosVariant extends Action
 {
     private final ClusterActions actions;
-    final PaxosVariant newVariant;
+    final PaxosBackCompatVariant newVariant;
 
-    OnClusterSetPaxosVariant(ClusterActions actions, PaxosVariant newVariant)
+    OnClusterSetPaxosVariant(ClusterActions actions, PaxosBackCompatVariant newVariant)
     {
         super("Set Paxos Variant to " + newVariant, RELIABLE, NONE);
         this.actions = actions;

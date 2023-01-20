@@ -18,7 +18,7 @@
 
 package org.apache.cassandra.simulator.cluster;
 
-import org.apache.cassandra.config.Config.PaxosVariant;
+import org.apache.cassandra.config.Config.PaxosBackCompatVariant;
 import org.apache.cassandra.distributed.api.IInvokableInstance;
 import org.apache.cassandra.distributed.api.IIsolatedExecutor;
 import org.apache.cassandra.service.paxos.Paxos;
@@ -33,9 +33,9 @@ class OnInstanceSetPaxosVariant extends Action
 {
     final IInvokableInstance instance;
     final int on;
-    final PaxosVariant newVariant;
+    final PaxosBackCompatVariant newVariant;
 
-    OnInstanceSetPaxosVariant(ClusterActions actions, int on, PaxosVariant newVariant)
+    OnInstanceSetPaxosVariant(ClusterActions actions, int on, PaxosBackCompatVariant newVariant)
     {
         super(lazy(() -> "Set Paxos Variant to " + newVariant + " on node" + on), RELIABLE, NONE);
         this.instance = actions.cluster.get(on);
@@ -49,8 +49,8 @@ class OnInstanceSetPaxosVariant extends Action
         return ActionList.empty();
     }
 
-    static IIsolatedExecutor.SerializableRunnable invokableSetVariant(PaxosVariant to)
+    static IIsolatedExecutor.SerializableRunnable invokableSetVariant(PaxosBackCompatVariant to)
     {
-        return () -> Paxos.setPaxosVariant(to);
+        return () -> Paxos.setPaxosVariant(to.variant);
     }
 }
