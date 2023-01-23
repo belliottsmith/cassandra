@@ -2124,12 +2124,7 @@ def read_options(cmdlineargs, environment):
 
     username_from_cqlshrc = option_with_default(configs.get, 'authentication', 'username')
     password_from_cqlshrc = option_with_default(rawconfigs.get, 'authentication', 'password')
-    if username_from_cqlshrc or password_from_cqlshrc:
-        if password_from_cqlshrc and not is_file_secure(os.path.expanduser(CONFIG_FILE)):
-            print("\nWarning: Password is found in an insecure cqlshrc file. The file is owned or readable by other users on the system.",
-                  end='', file=sys.stderr)
-        print("\nNotice: Credentials in the cqlshrc file is deprecated and will be ignored in the future."
-              "\nPlease use a credentials file to specify the username and password.\n", file=sys.stderr)
+    # Removed insecure warning -rdar://104555309 (CASSANDRA-16983 deprecated credentials in cqlshrc, move to mTLS or use new credentials arg)
 
     optvalues = optparse.Values()
 
