@@ -48,9 +48,9 @@ def ssl_settings(host, config_file, env=os.environ):
         except configparser.Error:
             return None
 
+    # Drop this patch after this is resolved in mgr
+    # rdar://104510669 (CqlshHandler should not downgrade TLS protocol version and disable validations
     def get_best_tls_protocol(ssl_ver_str):
-        if ssl_ver_str:
-            print("Warning: Explicit SSL and TLS versions in the cqlshrc file or in SSL_VERSION environment property are ignored as the protocol is auto-negotiated.\n")
         return ssl.PROTOCOL_TLS
 
     ssl_validate = env.get('SSL_VALIDATE')
