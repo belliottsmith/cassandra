@@ -1,6 +1,8 @@
 4.0.3.10
 AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.8 cie-cassandra-4.0.3
 
+Skipped 4.0.3.9 due to rebase.
+
 4.0.3.8
 * rdar://100047624 (Streaming instrumentation for CASSANDRA-18110) (#3216)
 * rdar://102722552 (Cell conflict resolution by coordinators on different versions conflict) (#3196)
