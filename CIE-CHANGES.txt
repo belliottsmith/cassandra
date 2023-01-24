@@ -1,5 +1,34 @@
+4.0.3.11
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.10 cie-cassandra-4.0.3
+
 4.0.3.10
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.8 cie-cassandra-4.0.3
+* Skip 4.0.3.9 in CIE-CHANGES.txt
+* rdar://104555309 (CASSANDRA-16983 deprecated credentials in cqlshrc, move to mTLS or use new credentials arg)
+* rdar://104510669 (CqlshHandler should not downgrade TLS protocol vers… (#3242)
+* rdar://104402997 (4.0.3: Handle sstable metadata stats file getting a… (#3238)
+* fixup! rdar://96245626 (Adapt upstream paxos2 verbs to internal apple paxos verbs) (#3226)
+* fixup! rdar://60088255 p25991887 PRO/FTR Blacklist CQL partitions
+* rdar://99984004 (Make upgrade tests check 4.0.0 to 4.0.3)
+* rdar://104402109 (4.0.3: Make Harry PRBs more reliable/direct by running them on Rio not forking out into Kube) (#3234)
+* rdar://104352090 (4.0.3: Early port CASSANDRA-17750 remove Maven Ant Tasks) (#3233)
+* rdar://85418281 (Backport CASSANDRA-17151 (Guardrails for column size) to CIE 4.0.3) (#3232)
+* rdar://101081860 (4.0.3: Default to excluding error reports from InfoSec scanners) (#3231)
+* rdar://100761274 (CASSANDRA-17985: StorageService operationMode stuck at "LEAVING" during decommission) (#3166) (#3170)
+* rdar://104351701 (4.0.3: Create virtual tables to inspect commitlog usage by table) (#3228)
+* rdar://59391677 (Fix flaky test com.apple.cie.cql3.functions.ApnsCoalescingMapQtTest qtTest) (#2972) (#3227)
+* rdar://103398524 (Backport CASSANDRA-17874 only reload compaction strategies if disk boundaries change to 4.0.0 and 4.0.3) (#3218)
+* rdar://104195085 (4.0.3: Early port CASSANDRA-17999 - PaxosV2 single DC write timeout) (#3223)
+* rdar://103218567 (CASSANDRA-18110: Streaming fails during multiple concurrent host replacements) (#3221)
+* rdar://100047624 (Revert temporary instrumentation for 4.0.3 qualification) (#3222)
+* rdar://104195085 (4.0.3: Early port CASSANDRA-17999 - PaxosV2 single DC write timeout) (#3223)
+* rdar://103218567 (CASSANDRA-18110: Streaming fails during multiple concurrent host replacements) (#3221)
+* rdar://100047624 (Revert temporary instrumentation for 4.0.3 qualification) (#3222)
+* Send last repair time updates to correct endpoints during decommission (4.0.3) (#3204)
+* rdar://102901131 Cherry-pick CASSANDRA-18086 to 4.0.3 (#3220)
+* rdar://100727755 exposing internode props as hot props. (#3203)
+* Send last repair time updates to correct endpoints during decommission (4.0.3) (#3204)
+* rdar://102901131 Cherry-pick CASSANDRA-18086 to 4.0.3 (#3220)
+* rdar://100727755 exposing internode props as hot props. (#3203)
 
 Skipped 4.0.3.9 due to rebase.
 
