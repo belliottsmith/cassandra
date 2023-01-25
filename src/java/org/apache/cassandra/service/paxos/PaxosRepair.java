@@ -654,8 +654,8 @@ public class PaxosRepair extends AbstractPaxosRepair
         if (version == null)
             return false;
 
-        // assume 4.0 is ok
-        return (version.major == 4 && version.minor > 0) || version.major > 4;
+        // ACI Cassandra renamed 4.1 as 4.0.3 so include that.
+        return (version.major == 4 && version.minor == 0 && version.patch > 2) || (version.major == 4 && version.minor > 0) || version.major > 4;
     }
 
     static String getPeerVersion(InetAddressAndPort peer)
