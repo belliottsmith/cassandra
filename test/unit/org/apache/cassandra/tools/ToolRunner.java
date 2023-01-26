@@ -46,9 +46,7 @@ import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.distributed.api.IInstance;
 import org.apache.cassandra.distributed.api.NodeToolResult;
 import org.apache.cassandra.utils.Pair;
-import org.assertj.core.api.Assertions;
 import org.assertj.core.util.Lists;
-import org.assertj.core.util.Strings;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertTrue;
