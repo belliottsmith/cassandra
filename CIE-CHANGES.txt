@@ -1,5 +1,8 @@
+4.0.3.12
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.11 cie-cassandra-4.0.3
+
 4.0.3.11
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.10 cie-cassandra-4.0.3
+* rdar://104654563 (4.0.3: Update PaxosRepair.validateVersionCompatibility for 4.0.3 rename) (#3249)
 
 4.0.3.10
 * Skip 4.0.3.9 in CIE-CHANGES.txt
