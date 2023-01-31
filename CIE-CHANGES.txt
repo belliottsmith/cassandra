@@ -1,5 +1,9 @@
+4.0.3.13
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.12 cie-cassandra-4.0.3
+
 4.0.3.12
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.11 cie-cassandra-4.0.3
+* rdar://104750132 (4.0.3: NPE in PaxosPrepare.checkForLinearizabilityViolation)
+* rdar://104757303 Backport CASSANDRA-18164 and CASSANDRA-18194: PaxosPrepare may add instances to the Electorate that are not in gossip (#3257)
 
 4.0.3.11
 * rdar://104654563 (4.0.3: Update PaxosRepair.validateVersionCompatibility for 4.0.3 rename) (#3249)
