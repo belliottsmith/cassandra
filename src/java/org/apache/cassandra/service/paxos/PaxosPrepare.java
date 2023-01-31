@@ -699,7 +699,7 @@ public class PaxosPrepare extends PaxosRequestCallback<PaxosPrepare.Response> im
             return false;
 
         // If we discovered an incomplete proposal, it could have since completed successfullly
-        if (latestAccepted != null && outcome.outcome == FOUND_INCOMPLETE_ACCEPTED)
+        if (latestAccepted != null && outcome != null && outcome.outcome == FOUND_INCOMPLETE_ACCEPTED)
         {
             switch (permitted.latestCommitted.compareWith(latestAccepted))
             {
