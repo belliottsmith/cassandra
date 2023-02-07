@@ -19,8 +19,8 @@ package org.apache.cassandra.cql3.statements;
 
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
@@ -106,7 +106,7 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
 {
     private static final Logger logger = LoggerFactory.getLogger(SelectStatement.class);
-    private static final NoSpamLogger nospam1m = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
+    private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(SelectStatement.logger, 1, TimeUnit.MINUTES);
 
     public static final int DEFAULT_PAGE_SIZE = 10000;
 
@@ -260,7 +260,7 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
             {
                 String maskedStatement = String.format("column mapping = %s, table metadata = %s", this.getSelection().getColumnMapping(), this.table);
                 String userNullOrName = String.format("user%s", state.getUser() == null ? "=null" : String.format(".name=%s", state.getUser().getName()));
-                nospam1m.warn("Non-superuser SELECT statement references column salted_hash, which will be deprecated in a future release; statement={} {} remoteAddress={}", maskedStatement, userNullOrName, state.getRemoteAddress());
+                noSpamLogger.warn("Non-superuser SELECT statement references column salted_hash, which will be deprecated in a future release; statement={} {} remoteAddress={}", maskedStatement, userNullOrName, state.getRemoteAddress());
             }
             else
             {
@@ -475,10 +475,14 @@ public class SelectStatement implements CQLStatement.SingleKeyspaceCqlStatement
             if (!restrictions.hasPartitionKeyRestrictions())
             {
                 warn("Aggregation query used without partition key");
+                noSpamLogger.warn(String.format("Aggregation query used without partition key on table %s.%s, aggregation type: %s",
+                                                 keyspace(), table(), aggregationSpec.kind()));
             }
             else if (restrictions.keyIsInRelation())
             {
                 warn("Aggregation query used on multiple partition keys (IN restriction)");
+                noSpamLogger.warn(String.format("Aggregation query used on multiple partition keys (IN restriction) on table %s.%s, aggregation type: %s",
+                                                 keyspace(), table(), aggregationSpec.kind()));
             }
         }
 
