@@ -159,10 +159,8 @@ final class LogFile implements AutoCloseable
     /**
      * Check a variety of the internals of the LogRecord as well as the state of the LogRecord vs. the files found on disk
      * to ensure they remain correct and nothing was changed external to the process.
-     * @param skipStatsTS We can't trust the timestap on the STATS file as a race in notification on compaction completion
-     *                    can lead to mutation of the mtime. This should become considerably less common after CASSANDRA-17874
      */
-    boolean verify(boolean skipStatsTS)
+    boolean verify()
     {
         records.clear();
         if (!replicas.readRecords(records))
@@ -184,7 +182,7 @@ final class LogFile implements AutoCloseable
                 String key = record.absolutePath.get();
                 existingFiles = recordFiles.getOrDefault(key, Collections.emptyList());
             }
-            LogFile.verifyRecord(record, existingFiles, skipStatsTS);
+            LogFile.verifyRecord(record, existingFiles);
         }
 
         Optional<LogRecord> firstInvalid = records.stream().filter(LogRecord::isInvalidOrPartial).findFirst();
@@ -225,9 +223,8 @@ final class LogFile implements AutoCloseable
 
     /**
      * Sets the {@link LogRecord.Status#error} if something wrong is found with the record.
-     * @param skipStatsTS Optionally skip calculation of STATS file for timestamp on the LogRecord
      */
-    static void verifyRecord(LogRecord record, List<File> existingFiles, boolean skipStatsTS)
+    static void verifyRecord(LogRecord record, List<File> existingFiles)
     {
         if (record.checksum != record.computeChecksum())
         {
@@ -248,10 +245,17 @@ final class LogFile implements AutoCloseable
         // file that obsoleted the very same files. So we check the latest update time and make sure
         // it matches. Because we delete files from oldest to newest, the latest update time should
         // always match.
-        record.status.onDiskRecord = record.withExistingFiles(existingFiles, skipStatsTS);
+        record.status.onDiskRecord = record.withExistingFiles(existingFiles);
         // we can have transaction files with mismatching updateTime resolutions due to switching between jdk8 and jdk11, truncate both to be consistent:
         if (truncateMillis(record.updateTime) != truncateMillis(record.status.onDiskRecord.updateTime) && record.status.onDiskRecord.updateTime > 0)
         {
+            // handle the case where we have existing broken transaction file on disk, where the update time is
+            // based on the stats file. This is just for the first upgrade, patched versions never base the update
+            // time on the stats file.
+            LogRecord statsIncluded = LogRecord.make(record.type, existingFiles, existingFiles.size(), record.absolutePath(), true);
+            if (truncateMillis(statsIncluded.updateTime) == truncateMillis(record.updateTime))
+                return;
+
             record.setError(String.format("Unexpected files detected for sstable [%s]: " +
                                           "last update time [%tc] (%d) should have been [%tc] (%d)",
                                           record.fileName(),

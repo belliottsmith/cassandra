@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.CRC32;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +49,8 @@ import org.apache.cassandra.utils.FBUtilities;
 final class LogRecord
 {
     private static final Logger logger = LoggerFactory.getLogger(LogRecord.class);
+    @VisibleForTesting
+    static boolean INCLUDE_STATS_FOR_TESTS = false;
 
     public enum Type
     {
@@ -72,7 +75,10 @@ final class LogRecord
             return this == record.type;
         }
 
-        public boolean isFinal() { return this == Type.COMMIT || this == Type.ABORT; }
+        public boolean isFinal()
+        {
+            return this == Type.COMMIT || this == Type.ABORT;
+        }
     }
 
     /**
@@ -158,7 +164,7 @@ final class LogRecord
     public static LogRecord make(Type type, SSTable table)
     {
         String absoluteTablePath = absolutePath(table.descriptor.baseFilename());
-        return make(type, getExistingFiles(absoluteTablePath), table.getAllFilePaths().size(), absoluteTablePath, false);
+        return make(type, getExistingFiles(absoluteTablePath), table.getAllFilePaths().size(), absoluteTablePath);
     }
 
     public static Map<SSTable, LogRecord> make(Type type, Iterable<SSTableReader> tables)
@@ -176,7 +182,7 @@ final class LogRecord
             List<File> filesOnDisk = entry.getValue();
             String baseFileName = entry.getKey();
             SSTable sstable = absolutePaths.get(baseFileName);
-            records.put(sstable, make(type, filesOnDisk, sstable.getAllFilePaths().size(), baseFileName, false));
+            records.put(sstable, make(type, filesOnDisk, sstable.getAllFilePaths().size(), baseFileName));
         }
         return records;
     }
@@ -186,27 +192,40 @@ final class LogRecord
         return FileUtils.getCanonicalPath(baseFilename + Component.separator);
     }
 
-    public LogRecord withExistingFiles(List<File> existingFiles, boolean skipStatsTS)
+    public LogRecord withExistingFiles(List<File> existingFiles)
     {
         if (!absolutePath.isPresent())
         {
             throw new IllegalStateException(String.format("Cannot create record from existing files for type %s - file '%s' is not present",
                     type, absolutePath.get()));
         }
-        return make(type, existingFiles, 0, absolutePath.get(), skipStatsTS);
+        return make(type, existingFiles, 0, absolutePath.get());
     }
 
     /**
-     * We create a LogRecord based on the files on disk; there's some subtlety around how we handle stats files based
-     * on the skipStatsTS param. If we want to skip it, we still need to let the operator know if we see a timestamp
-     * mismatch on the file (as that's indicative of a non-life-threatening bug somewhere in compaction likely), and
-     * we also still need to consider the STATS file in our total file count even if we ignore its timestamp on validation.
+     * We create a LogRecord based on the files on disk; there's some subtlety around how we handle stats files as the
+     * timestamp can be mutated by the async completion of compaction if things race with node shutdown. To work around this,
+     * we don't take the stats file timestamp into account when calculating nor using the timestamps for all the components
+     * as we build the LogRecord.
      */
-    public static LogRecord make(Type type, List<File> files, int minFiles, String absolutePath, boolean skipStatsTS)
+    public static LogRecord make(Type type, List<File> files, int minFiles, String absolutePath)
+    {
+        return make(type, files, minFiles, absolutePath, INCLUDE_STATS_FOR_TESTS);
+    }
+
+    /**
+     * In most cases we skip including the stats file timestamp entirely as it can be mutated during anticompaction
+     * and thus "invalidate" the LogRecord. There is an edge case where we have a LogRecord that was written w/the wrong
+     * timestamp (i.e. included a mutated stats file) and we need the node to come up, so we need to expose the selective
+     * ability to either include the stats file timestamp or not.
+     *
+     * See {@link LogFile#verifyRecord}
+     */
+    static LogRecord make(Type type, List<File> files, int minFiles, String absolutePath, boolean includeStatsFile)
     {
         List<File> toVerify;
         File statsFile = null;
-        if (skipStatsTS && !files.isEmpty())
+        if (!includeStatsFile && !files.isEmpty())
         {
             toVerify = new ArrayList<>(files.size() - 1);
             for (File f : files)
@@ -231,10 +250,10 @@ final class LogRecord
                         " in compaction changing mtime on the file. Ignoring mismatch so startup can continue. File: '{}'",
                         Component.STATS.name(), statsFile.name());
 
-        // We need to preserve the file count for the number of existing files found on disk even if we ignored the
+        // We need to preserve the file count for the number of existing files found on disk even though we ignored the
         // stats file during our timestamp calculation. If the stats file still exists, we add in the count of it as
         // a separate validation assumption that it's one of the files considered valid in this LogRecord.
-        boolean addStatTS = skipStatsTS && statsFile != null && statsFile.exists();
+        boolean addStatTS = statsFile != null && statsFile.exists();
         int positiveTSCount = addStatTS ? positiveModifiedTimes.size() + 1 : positiveModifiedTimes.size();
         return new LogRecord(type, absolutePath, lastModified, Math.max(minFiles, positiveTSCount));
     }

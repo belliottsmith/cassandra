@@ -37,7 +37,6 @@ import java.util.stream.Stream;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -680,7 +679,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
             assertEquals(2, logFiles.size());
 
             // insert a partial sstable record and a full commit record
-            String sstableRecord = LogRecord.make(LogRecord.Type.ADD, Collections.emptyList(), 0, "abc", true).raw;
+            String sstableRecord = LogRecord.make(LogRecord.Type.ADD, Collections.emptyList(), 0, "abc").raw;
             int toChop = sstableRecord.length() / 2;
             FileUtils.append(logFiles.get(0), sstableRecord.substring(0, sstableRecord.length() - toChop));
             FileUtils.append(logFiles.get(1), sstableRecord);
@@ -699,7 +698,7 @@ public class LogTransactionTest extends AbstractTransactionalTest
             assertEquals(2, logFiles.size());
 
             // insert a partial sstable record and a full commit record
-            String sstableRecord = LogRecord.make(LogRecord.Type.ADD, Collections.emptyList(), 0, "abc", true).raw;
+            String sstableRecord = LogRecord.make(LogRecord.Type.ADD, Collections.emptyList(), 0, "abc").raw;
             int toChop = sstableRecord.length() / 2;
             FileUtils.append(logFiles.get(0), sstableRecord);
             FileUtils.append(logFiles.get(1), sstableRecord.substring(0, sstableRecord.length() - toChop));
@@ -1334,22 +1333,58 @@ public class LogTransactionTest extends AbstractTransactionalTest
             // Confirm we can remove leftovers when the STATS file mismatches
             log.prepareToCommit(); // commit so that obsolete sstable components will be removed.
             log.commit();
-            LogTransaction.removeUnfinishedLeftovers(cfs.metadata());
+            assertTrue(LogTransaction.removeUnfinishedLeftovers(cfs.metadata()));
         }
-        assertFalse("Found STATS file but expected it to be cleaned up.", Files.exists(sFile.toPath()));
 
         sstableAfterModifiedTstamp.selfRef().release();
         sstable.selfRef().release();
     }
 
+    @Test
+    public void testWrongTimestampInTxnFile() throws IOException, InterruptedException
+    {
+        ColumnFamilyStore cfs = MockSchema.newCFS(KEYSPACE);
+        File dataFolder = new Directories(cfs.metadata()).getDirectoryForNewSSTables();
+        SSTableReader sstable = sstable(dataFolder, cfs, 0, 128);
+
+        File sFile = new File(sstable.descriptor.filenameFor(Component.STATS));
+        assertTrue("STATS file not created successfully in test setup", Files.exists(sFile.toPath()));
+
+        LogRecord.INCLUDE_STATS_FOR_TESTS = true;
+
+        Thread.sleep(2000);
+        assertTrue("Failed to set mtime for STATS file to currentTimeMillis()", sFile.trySetLastModified(System.currentTimeMillis()));
+
+        // Confirm we can remove leftovers even if the STATS file doesn't match
+        try(LogTransaction log = new LogTransaction(OperationType.COMPACTION))
+        {
+            assertNotNull(log);
+            // Need to flag the transaction as having a REMOVE entry so it'll trigger the path to calculate stats on list
+            log.obsoleted(sstable);
+            // Need to sleep for long enough to bypass the millisecond truncation logic due to jdk8 and jdk11 change
+            // Confirm we have an mtime mismatch
+            File dFile = new File(sstable.descriptor.filenameFor(Component.DATA));
+            assertNotEquals(sFile.lastModified(), dFile.lastModified());
+
+            // We need to add another LogRecord as we allow partial or incorrect entries as the last record...
+            log.trackNew(sstable(dataFolder, cfs, 2, 128));
+
+            assertTrue("STATS file gone before removeUnfinished...", Files.exists(sFile.toPath()));
+            // Confirm we can remove leftovers when the STATS file mismatches
+            LogRecord.INCLUDE_STATS_FOR_TESTS = false;
+            assertTrue(LogTransaction.removeUnfinishedLeftovers(cfs.metadata()));
+        }
+
+        sstable.selfRef().release();
+    }
+
     /**
-     * This is the one case where a stats file mtime mismatch is expected to flag the LogRecord as in error
+     * We do not consider the stats file's ts for any cases at this point
      */
     @Test
     public void testStatsTSMismatchDuringList() throws Throwable
     {
         SSTableReader sstable = null;
-        boolean sawFailure = false;
         try
         {
             ColumnFamilyStore cfs = MockSchema.newCFS(KEYSPACE);
@@ -1377,16 +1412,9 @@ public class LogTransactionTest extends AbstractTransactionalTest
                 // We need to add another LogRecord as we allow partial or incorrect entries as the last record...
                 log.trackNew(sstable(dataFolder, cfs, 2, 128));
 
-                // Confirm we get a mismatch LogRecord error when the STATS file is different
+                // Confirm we don't get a mismatch LogRecord error when the STATS file is different even on listFiles case
                 listFiles(dataFolder, Directories.OnTxnErr.THROW, Directories.FileType.FINAL);
             }
-            Assert.fail("Expected RuntimeException on list of files w/invalid STATS timestamp");
-        }
-        catch (RuntimeException e)
-        {
-            if (e.getMessage().contains("Failed to list files in"))
-                sawFailure = true;
-            assertTrue(sawFailure);
         }
         finally
         {
