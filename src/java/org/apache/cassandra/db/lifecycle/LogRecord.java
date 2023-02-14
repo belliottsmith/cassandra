@@ -245,10 +245,6 @@ final class LogRecord
         // changed on disk since getExistingFiles() was called
         List<Long> positiveModifiedTimes = toVerify.stream().map(File::lastModified).filter(lm -> lm > 0).collect(Collectors.toList());
         long lastModified = positiveModifiedTimes.stream().reduce(0L, Long::max);
-        if (statsFile != null && statsFile.lastModified() != lastModified)
-            logger.warn("Found a {} file with a timestamp that doesn't match the LogRecord; this is likely due to a race " +
-                        " in compaction changing mtime on the file. Ignoring mismatch so startup can continue. File: '{}'",
-                        Component.STATS.name(), statsFile.name());
 
         // We need to preserve the file count for the number of existing files found on disk even though we ignored the
         // stats file during our timestamp calculation. If the stats file still exists, we add in the count of it as

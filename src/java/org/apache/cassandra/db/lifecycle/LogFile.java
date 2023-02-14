@@ -254,7 +254,10 @@ final class LogFile implements AutoCloseable
             // time on the stats file.
             LogRecord statsIncluded = LogRecord.make(record.type, existingFiles, existingFiles.size(), record.absolutePath(), true);
             if (truncateMillis(statsIncluded.updateTime) == truncateMillis(record.updateTime))
+            {
+                logger.warn("Found a legacy log record {} with updateTime based on the stats file, ignoring to allow startup to continue", record);
                 return;
+            }
 
             record.setError(String.format("Unexpected files detected for sstable [%s]: " +
                                           "last update time [%tc] (%d) should have been [%tc] (%d)",
