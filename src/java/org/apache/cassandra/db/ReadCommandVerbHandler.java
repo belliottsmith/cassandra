@@ -60,7 +60,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
             boolean outOfRangeTokenRejection = StorageService.instance.isOutOfTokenRangeRequestRejectionEnabled();
 
             DecoratedKey key = ((SinglePartitionReadCommand)command).partitionKey();
-            if ((outOfRangeTokenLogging || outOfRangeTokenRejection) && isOutOfRangeRead(command.metadata().keyspace, key))
+            if ((outOfRangeTokenLogging || outOfRangeTokenRejection) && !command.metadata().isVirtual() && isOutOfRangeRead(command.metadata().keyspace, key))
             {
                 StorageService.instance.incOutOfRangeOperationCount();
                 Keyspace.open(command.metadata().keyspace).metric.outOfRangeTokenReads.inc();
