@@ -34,7 +34,6 @@ import com.datastax.driver.core.Statement;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.config.DatabaseDescriptor;
 
-import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
 import org.apache.cassandra.locator.*;
 import org.apache.cassandra.service.EmbeddedCassandraService;
@@ -61,7 +60,6 @@ public class PagingTest
     public static void setup() throws Exception
     {
         System.setProperty("cassandra.config", "cassandra-murmur.yaml");
-        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
 
         cassandra = ServerTestUtils.startEmbeddedCassandraService();
 

@@ -197,8 +197,19 @@ public final class ServerTestUtils
         cleanupDirectory(DatabaseDescriptor.getSavedCachesLocation());
     }
 
-    public static EmbeddedCassandraService startEmbeddedCassandraService() throws IOException
+    public static EmbeddedCassandraService startEmbeddedCassandraService()throws IOException
     {
+        return startEmbeddedCassandraService(true);
+    }
+
+    public static EmbeddedCassandraService startEmbeddedCassandraService(boolean disableAciRestrictions) throws IOException
+    {
+        if (disableAciRestrictions)
+        {
+            CassandraRelevantProperties.MINIMUM_ALLOWED_REPLICATION_FACTOR.setInt(-1);
+            CassandraRelevantProperties.DEFAULT_REPLICATION_FACTOR.setInt(1);
+            CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
+        }
         DatabaseDescriptor.daemonInitialization();
         mkdirs();
         cleanup();
