@@ -35,6 +35,7 @@ import com.datastax.driver.core.Cluster;
 import com.datastax.driver.core.Session;
 import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
 import net.openhft.chronicle.queue.impl.table.SingleTableStore;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OverrideConfigurationLoader;
 import org.apache.cassandra.service.EmbeddedCassandraService;
@@ -69,6 +70,7 @@ public class AuditLoggerCleanupTest
         emptyCq4File = Files.createFile(auditLogDirRoot.toPath().resolve("20220928-12" + SingleChronicleQueue.SUFFIX)).toFile();
         emptyMetadataFile = Files.createFile(auditLogDirRoot.toPath().resolve("metadata" + SingleTableStore.SUFFIX)).toFile();
 
+        CassandraRelevantProperties.ALLOW_SIMPLE_STRATEGY.setBoolean(true);
         System.setProperty("cassandra.superuser_setup_delay_ms", "0");
         embedded = new EmbeddedCassandraService();
         embedded.start();
