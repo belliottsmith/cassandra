@@ -50,7 +50,7 @@ work:
   jvm-dtest:
     machine:
       <<: *base-machine
-      numberOfInstances: 20
+      numberOfInstances: 30
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
@@ -68,7 +68,7 @@ work:
   jvm-dtest-upgrade:
     machine:
       <<: *base-machine
-      numberOfInstances: 20
+      numberOfInstances: 30
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
