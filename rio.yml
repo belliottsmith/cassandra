@@ -439,6 +439,30 @@ builds:
         paths:
           - build/test/logs/**/*
 
+  - group: ghprb-checkstyle
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
+    secrets:
+      names:
+        - rio-env.sh
+        - k8s_auth_token
+        - k8s_auth_token.us-west-1a
+        - mcqueen.yml
+    build:
+      template: freestyle:v4:prb
+      steps:
+        - ant checkstyle checkstyle-test
+    timeout: 10
+    finally:
+      radar:
+        annotate: false
+      tag:
+        enabled: false
+
   #
   # Publish in-JVM dtest jar and trigger Harry build using it
   #
