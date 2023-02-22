@@ -196,6 +196,12 @@ public class CassandraRoleManager implements IRoleManager
             throw new IllegalStateException("Identity is already associated with another role, cannot associate it with role " + role);
         }
 
+        if(!ACICertificateValidator.validateIdentity(identity))
+        {
+            // checks if the Identity is a URN or not
+            throw new InvalidRequestException(String.format("Can not add invalid identity '%s' to the role '%s'", identity, role));
+        }
+
         final String query = String.format("INSERT INTO %s.%s (identity, role) VALUES (?, ?)",
                                            SchemaConstants.AUTH_KEYSPACE_NAME,
                                            AuthKeyspace.IDENTITY_TO_ROLES);;

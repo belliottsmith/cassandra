@@ -792,7 +792,7 @@
       <dependency>
         <groupId>com.apple.aci</groupId>
         <artifactId>cassandra-mtls</artifactId>
-        <version>0.5</version>
+        <version>0.7</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.jdt.core.compiler</groupId>
