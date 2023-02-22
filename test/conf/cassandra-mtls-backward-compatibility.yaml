@@ -68,3 +68,4 @@ server_encryption_options:
   truststore_password: cassandra
   require_client_auth: true
 internode_authenticator: org.apache.cassandra.auth.AllowAllInternodeAuthenticator
+authenticator: org.apache.cassandra.auth.AllowAllAuthenticator

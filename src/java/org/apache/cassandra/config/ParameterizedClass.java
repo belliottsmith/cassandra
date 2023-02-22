@@ -86,7 +86,7 @@ public class ParameterizedClass
                     //no-op
                 }
                 // fallback to no arg constructor if no params present
-                if (parameterizedClass.parameters.isEmpty())
+                if (parameterizedClass.parameters == null || parameterizedClass.parameters.isEmpty())
                 {
                     Constructor<?> constructor = providerClass.getConstructor();
                     K instance = (K) constructor.newInstance();

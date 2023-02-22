@@ -54,7 +54,7 @@ public class SchemaTransformationsTest
         km = km.withSwapped(updatedTables);
 
         Assert.assertEquals(updatedKs, km.name);
-        Assert.assertEquals(6, km.tables.size());
+        Assert.assertEquals(7, km.tables.size());
 
         // Transform with the in-memory Keyspace metadata
         SchemaTransformation transformation = SchemaTransformations.updateSystemKeyspace(AuthKeyspace.metadata(), AuthKeyspace.GENERATION);
@@ -62,7 +62,7 @@ public class SchemaTransformationsTest
 
         Assert.assertEquals(1, afterTransformation.size());
         KeyspaceMetadata afterKs = afterTransformation.get(updatedKs).get();
-        Assert.assertEquals(6, afterKs.tables.size());
+        Assert.assertEquals(7, afterKs.tables.size());
         TableMetadata afterTable = afterKs.tables.getNullable(newTableName);
 
         // Confirm that new table was created
@@ -83,7 +83,7 @@ public class SchemaTransformationsTest
         km = km.withSwapped(updatedTables);
 
         Assert.assertEquals(updatedKs, km.name);
-        Assert.assertEquals(5, km.tables.size());
+        Assert.assertEquals(6, km.tables.size());
         Assert.assertEquals(originalId, km.tables.get(updatedTable).get().id);
 
         // Transform with the in-memory Keyspace metadata
@@ -92,7 +92,7 @@ public class SchemaTransformationsTest
 
         Assert.assertEquals(1, afterTransformation.size());
         KeyspaceMetadata afterKs = afterTransformation.get(updatedKs).get();
-        Assert.assertEquals(5, afterKs.tables.size());
+        Assert.assertEquals(6, afterKs.tables.size());
         TableMetadata afterTable = afterKs.tables.getNullable(updatedTable);
 
         // Confirm that the original ID was not modified
@@ -119,7 +119,7 @@ public class SchemaTransformationsTest
         KeyspaceMetadata originalKeyspace = originalKeyspaceSupplier.get();
 
         Assert.assertEquals(updatedKs, originalKeyspace.name);
-        Assert.assertEquals(5, originalKeyspace.tables.size());
+        Assert.assertEquals(6, originalKeyspace.tables.size());
         Assert.assertEquals(originalId, originalKeyspace.tables.get(updatedTableName).get().id);
         // New column should not exist yet
         Assert.assertFalse(originalKeyspace.tables.get(updatedTableName).get().regularColumns().contains(ColumnMetadata.regularColumn(updatedTableName, updatedTableName, newColumnName, newColumnType)));
@@ -144,7 +144,7 @@ public class SchemaTransformationsTest
 
         Assert.assertEquals(1, afterTransformation.size());
         KeyspaceMetadata afterKs = afterTransformation.get(updatedKs).get();
-        Assert.assertEquals(5, afterKs.tables.size());
+        Assert.assertEquals(6, afterKs.tables.size());
         TableMetadata afterTable = afterKs.tables.getNullable(updatedTableName);
 
         // Confirm that the original ID was not modified and the new column is present

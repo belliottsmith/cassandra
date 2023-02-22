@@ -20,19 +20,19 @@ package org.apache.cassandra.auth;
 
 import java.net.InetAddress;
 import java.security.cert.Certificate;
-import java.security.cert.X509Certificate;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.apple.aci.cassandra.mtls.User;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.exceptions.AuthenticationException;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.SchemaConstants;
@@ -41,13 +41,46 @@ import org.jetbrains.annotations.NotNull;
 
 /*
  * Performs mTLS authentication for client connections by extracting identities from client certificate
- * and verifying them against the ones in the roles table.
+ * and verifying them against the authorized identities in IdentityCache. IdentityCache is a loading cache that
+ * refreshes values on timely basis.
+ *
+ * During a client connection, after SSL handshake, identity of certificate is extracted using the certificate validator
+ * and is verified whether the value exists in the cache or not. If it exists access is granted, otherwise, the connection
+ * is rejected.
+ *
+ * Authenticator & Certificate validator can be configured using cassandra.yaml, one can write their own mTLS certificate
+ * validator and configure it in cassandra.yaml.Below is an example on how to configure validator.
+ * note that this example uses SPIFFE based validator, It could be any other validator with any defined identifier format.
+ *
+ * Example:
+ * authenticator:
+ *   class_name : org.apache.cassandra.auth.MutualTlsAuthenticator
+ *   parameters :
+ *     validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
  */
 
-public class MutualTlsAuthenticator extends BaseMutualTlsAuthenticator implements IAuthenticator
+public class MutualTlsAuthenticator implements IAuthenticator
 {
     private static final Logger logger = LoggerFactory.getLogger(MutualTlsAuthenticator.class);
     private static final NoSpamLogger nospamLogger = NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES);
+    private static final String VALIDATOR_CLASS_NAME = "validator_class_name";
+    private static final String CACHE_NAME = "IdentitiesCache";
+    private final IdentityCache identityCache = new IdentityCache();
+    private final MutualTlsCertificateValidator certificateValidator;
+
+    public MutualTlsAuthenticator(Map<String, String> parameters)
+    {
+        final String certificateValidatorClassName = parameters.get(VALIDATOR_CLASS_NAME);
+        if (StringUtils.isEmpty(certificateValidatorClassName))
+        {
+            final String message ="authenticator.parameters.validator_class_name is not set";
+            logger.error(message);
+            throw new ConfigurationException(message);
+        }
+        certificateValidator = ParameterizedClass.newInstance(new ParameterizedClass(certificateValidatorClassName),
+                                                              Arrays.asList("", AuthConfig.class.getPackage().getName()));
+        AuthCacheService.instance.register(identityCache);
+    }
 
     @Override
     public boolean requireAuthentication()
@@ -70,7 +103,7 @@ public class MutualTlsAuthenticator extends BaseMutualTlsAuthenticator implement
     @Override
     public void setup()
     {
-        super.initializeAuthenticator();
+        identityCache.warm();
     }
 
     @Override
@@ -116,18 +149,48 @@ public class MutualTlsAuthenticator extends BaseMutualTlsAuthenticator implement
         @Override
         public AuthenticatedUser getAuthenticatedUser() throws AuthenticationException
         {
-            X509Certificate[] convertedChain = castCertsToX509(clientCertificateChain);
-            final List<User> authorizedUsers = authenticator.authorizedUsers(convertedChain);
-            if (authorizedUsers.isEmpty())
+            if (!certificateValidator.isValidCertificate(clientCertificateChain))
             {
-                final String allUsers = authenticator.allUsers(convertedChain)
-                                                     .stream()
-                                                     .map(User::displayName)
-                                                     .collect(Collectors.joining());
-                nospamLogger.error("None of the users {} are authorized", allUsers);
-                throw new AuthenticationException("None of the users " + allUsers + " are authorized");
+                final String message = "Invalid or not supported certificate";
+                nospamLogger.error(message);
+                throw new AuthenticationException(message);
             }
-            return new AuthenticatedUser(authorizedUsers.get(0).toURN());
+
+            final String identity = certificateValidator.identity(clientCertificateChain);
+            if (StringUtils.isEmpty(identity))
+            {
+                final String msg = "Unable to extract client identity from certificate for authentication";
+                nospamLogger.error(msg);
+                throw new AuthenticationException(msg);
+            }
+            final String role = identityCache.get(identity);
+            if (role == null)
+            {
+                final String msg = "None of the users " + identity + " are authorized";
+                nospamLogger.error(msg);
+                throw new AuthenticationException(msg);
+            }
+            return new AuthenticatedUser(role);
+        }
+    }
+
+    static class IdentityCache extends AuthCache<String, String>
+    {
+        IdentityCache()
+        {
+            super(CACHE_NAME,
+                  DatabaseDescriptor::setCredentialsValidity,
+                  DatabaseDescriptor::getCredentialsValidity,
+                  DatabaseDescriptor::setCredentialsUpdateInterval,
+                  DatabaseDescriptor::getCredentialsUpdateInterval,
+                  DatabaseDescriptor::setCredentialsCacheMaxEntries,
+                  DatabaseDescriptor::getCredentialsCacheMaxEntries,
+                  DatabaseDescriptor::setCredentialsCacheActiveUpdate,
+                  DatabaseDescriptor::getCredentialsCacheActiveUpdate,
+                  identity -> DatabaseDescriptor.getRoleManager().roleForIdentity(identity),
+                  () -> DatabaseDescriptor.getRoleManager().authorizedIdentities(),
+                  () -> true,
+                  (k, v) -> v == null);
         }
     }
 }

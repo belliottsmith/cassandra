@@ -49,14 +49,16 @@ public final class AuthKeyspace
      * gen 0: original definition in 3.0
      * CIE gen 1: unset read_repair_chance = 1.0 in 3.0.19
      * CIE gen 2 / OSS gen 1: compression chunk length reduced to 16KiB, memtable_flush_period_in_ms now unset on all tables in 4.0
+     * CIE gen 3 / OSS gen 1: new table is added to store authorized identities for mTLS authenticator
      */
-    public static final long GENERATION = 2;
+    public static final long GENERATION = 3;
 
     public static final String ROLES = "roles";
     public static final String ROLE_MEMBERS = "role_members";
     public static final String ROLE_PERMISSIONS = "role_permissions";
     public static final String RESOURCE_ROLE_INDEX = "resource_role_permissons_index";
     public static final String NETWORK_PERMISSIONS = "network_permissions";
+    public static final String IDENTITY_TO_ROLES = "identity_to_role";
 
     public static final long SUPERUSER_SETUP_DELAY = Long.getLong("cassandra.superuser_setup_delay_ms", 10000);
 
@@ -70,6 +72,15 @@ public final class AuthKeyspace
               + "salted_hash text,"
               + "member_of set<text>,"
               + "PRIMARY KEY(role))");
+
+    private static final TableMetadata IdentityToRoles =
+        parse(IDENTITY_TO_ROLES,
+              "mtls authorized identities lookup table",
+            "CREATE TABLE %s ("
+            + "identity text," // opaque identity string for use by role authenticators
+            + "role text,"
+            + "PRIMARY KEY(identity))"
+          );
 
     private static final TableMetadata RoleMembers =
         parse(ROLE_MEMBERS,
@@ -118,6 +129,6 @@ public final class AuthKeyspace
     {
         return KeyspaceMetadata.create(SchemaConstants.AUTH_KEYSPACE_NAME,
                                        KeyspaceParams.simple(DEFAULT_RF),
-                                       Tables.of(Roles, RoleMembers, RolePermissions, ResourceRoleIndex, NetworkPermissions));
+                                       Tables.of(Roles, RoleMembers, RolePermissions, ResourceRoleIndex, NetworkPermissions, IdentityToRoles));
     }
 }

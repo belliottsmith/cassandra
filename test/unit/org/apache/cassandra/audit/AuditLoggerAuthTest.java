@@ -72,7 +72,7 @@ public class AuditLoggerAuthTest
         CassandraRelevantProperties.ALLOW_HASHED_PASSWORDS.setBoolean(true);
 
         OverrideConfigurationLoader.override((config) -> {
-            config.authenticator = "PasswordAuthenticator";
+            config.authenticator = new ParameterizedClass("PasswordAuthenticator");
             config.role_manager = "CassandraRoleManager";
             config.authorizer = "CassandraAuthorizer";
             config.audit_logging_options.enabled = true;

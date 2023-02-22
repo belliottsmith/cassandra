@@ -91,7 +91,9 @@ public class ConfigCompatabilityTest
     private static final Set<String> EXPECTED_ERRORS_403 = ImmutableSet.<String>builder()
                                                                        // Switched to a parameterized class that can construct from a bare string
                                                                        .add("internode_authenticator types do not match; org.apache.cassandra.config.ParameterizedClass != java.lang.String")
+                                                                       .add("authenticator types do not match; org.apache.cassandra.config.ParameterizedClass != java.lang.String")
                                                                        .add("Property internode_authenticator used to be a value-type, but now is nested type class org.apache.cassandra.config.ParameterizedClass")
+                                                                       .add("Property authenticator used to be a value-type, but now is nested type class org.apache.cassandra.config.ParameterizedClass")
                                                                        .build();
 
     /**
