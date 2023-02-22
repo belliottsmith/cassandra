@@ -70,4 +70,8 @@ server_encryption_options:
 internode_authenticator:
   class_name : org.apache.cassandra.auth.MutualTlsInternodeAuthenticator
   parameters :
-    valid_ids: "urn:certmanager:idmsGroup/845340"
+    validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator
+authenticator:
+  class_name : org.apache.cassandra.auth.MutualTlsAuthenticator
+  parameters :
+    validator_class_name: org.apache.cassandra.auth.SpiffeCertificateValidator

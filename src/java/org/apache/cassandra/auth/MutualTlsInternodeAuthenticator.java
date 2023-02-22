@@ -18,53 +18,75 @@
 
 package org.apache.cassandra.auth;
 
+import java.io.InputStream;
 import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.KeyStore;
 import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.apple.aci.cassandra.mtls.CompositeMtlsAuthenticator;
-import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.config.Config;
+import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.ParameterizedClass;
+import org.apache.cassandra.exceptions.AuthenticationException;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /*
  * Performs mTLS authentication for internode connections by extracting identities from outbound certificates
- * and verifying them against the authorized identities from cassandra.yaml.
+ * configured for the cassandra instance.
  *
- * When this Authenticator is used, specify the valid users in the internode_authenticator.parameters.valid_ids
- *
- * Example:
- * internode_authenticator:
- *   class_name : org.apache.cassandra.auth.MutualTlsInternodeAuthenticator
- *   parameters :
- *     valid_ids: trusted_certificate_identity_1,trusted_certificate_identity_2
+ * If the certificate identitiy is same as the identity present in the outbound keystore, the user is authorized
+ * Otherwise, the connection will fail. A bounce is not required when a new node is added or removed.
  *
  */
-public class MutualTlsInternodeAuthenticator extends BaseMutualTlsAuthenticator implements IInternodeAuthenticator
+public class MutualTlsInternodeAuthenticator implements IInternodeAuthenticator
 {
-    private static final String VALID_IDS_KEY_FOR_MTLS = "valid_ids";
-    private static final Logger logger = LoggerFactory.getLogger(MutualTlsInternodeAuthenticator.class);
+    private static final String VALIDATOR_CLASS_NAME = "validator_class_name";
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 30L, TimeUnit.SECONDS);
+    private final MutualTlsCertificateValidator certificateValidator;
+    private final List<String> validIdentities;
 
     public MutualTlsInternodeAuthenticator(Map<String, String> parameters)
     {
-        final String validIdsString = parameters.get(VALID_IDS_KEY_FOR_MTLS);
-        if (validIdsString == null || validIdsString.isEmpty())
+        final String certificateValidatorClassName = parameters.get(VALIDATOR_CLASS_NAME);
+        if (StringUtils.isEmpty(certificateValidatorClassName))
         {
-            final String message = "No valid clientIds in internode_authenticator.parameters.valid_ids, no internode clients will be trusted";
+            final String message = "internode_authenticator.parameters.validator_class_name is not set";
             logger.error(message);
             throw new ConfigurationException(message);
         }
-        List<String> urns = Arrays.asList(validIdsString.split(","));
 
-        logger.info("Creating internode authenticator with urns {}", urns);
-        authenticator = new CompositeMtlsAuthenticator.Builder()
-        .withManagementDsidOfRoot(CassandraRelevantProperties.MANAGEMENT_DSID_OF_ROOT.getString())
-        .withAuthorizedURNS(urns)
-        .build();
+        certificateValidator = ParameterizedClass.newInstance(new ParameterizedClass(certificateValidatorClassName),
+                                                              Arrays.asList("", AuthConfig.class.getPackage().getName()));
+        final Config config = DatabaseDescriptor.getRawConfig();
+        validIdentities = getIdentitiesFromKeyStore(config.server_encryption_options.outbound_keystore,
+                                                                  config.server_encryption_options.outbound_keystore_password,
+                                                                  config.server_encryption_options.store_type);
+
+        if (!validIdentities.isEmpty())
+        {
+            logger.info("Initializing internode authenticator with identities {}", validIdentities);
+        }
+        else
+        {
+            final String message = String.format("No identity was extracted from the outbound keystore '%s'", config.server_encryption_options.outbound_keystore);
+            logger.info(message);
+            throw new ConfigurationException(message);
+        }
     }
 
     @Override
@@ -84,5 +106,64 @@ public class MutualTlsInternodeAuthenticator extends BaseMutualTlsAuthenticator 
     public void validateConfiguration() throws ConfigurationException
     {
 
+    }
+
+    protected boolean authenticateInternodeWithMtls(InetAddress remoteAddress, int remotePort, Certificate[] certificates,
+                                                    IInternodeAuthenticator.InternodeConnectionDirection connectionType)
+    {
+        if (connectionType == IInternodeAuthenticator.InternodeConnectionDirection.INBOUND)
+        {
+            String identity = certificateValidator.identity(certificates);
+            if (!certificateValidator.isValidCertificate(certificates))
+            {
+                noSpamLogger.error("Not a valid outbound certificate {}", identity);
+                return false;
+            }
+
+            if(!validIdentities.contains(identity))
+            {
+                noSpamLogger.error("Unable to authenticate user {}", identity);
+                return false;
+            }
+            return true;
+        }
+        // Outbound connections don't need to be authenticated again in certificate based connections. SSL handshake
+        // makes sure that we are talking to valid server by checking root certificates of the server in the
+        // truststore of the client.
+        return true;
+    }
+
+    @VisibleForTesting
+    List<String> getIdentitiesFromKeyStore(final String outboundKeyStorePath,
+                                           final String outboundKeyStorePassword,
+                                           final String storeType)
+    {
+        final List<String> allUsers = new ArrayList<>();
+        try (InputStream ksf = Files.newInputStream(Paths.get(outboundKeyStorePath)))
+        {
+            final KeyStore ks = KeyStore.getInstance(storeType);
+            ks.load(ksf, outboundKeyStorePassword.toCharArray());
+            Enumeration<String> enumeration = ks.aliases();
+            while (enumeration.hasMoreElements())
+            {
+                final String alias = enumeration.nextElement();
+                final Certificate certificate = ks.getCertificate(alias);
+                final X509Certificate castedCert = (X509Certificate) certificate;
+                try
+                {
+                    allUsers.add(certificateValidator.identity(new X509Certificate[]{ castedCert }));
+                }
+                catch (AuthenticationException e)
+                {
+                    // When identity cannot be extracted, this exception is thrown
+                    // Ignore it, since only few certificates might contain identity
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            logger.error("Failed to get identities from outbound_keystore {}", outboundKeyStorePath, e);
+        }
+        return allUsers;
     }
 }

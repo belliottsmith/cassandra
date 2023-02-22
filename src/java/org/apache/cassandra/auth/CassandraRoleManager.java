@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.auth;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -48,6 +49,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.reads.range.RangeCommands;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.mindrot.jbcrypt.BCrypt;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.ALLOW_HASHED_PASSWORDS;
@@ -82,6 +84,7 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 public class CassandraRoleManager implements IRoleManager
 {
     private static final Logger logger = LoggerFactory.getLogger(CassandraRoleManager.class);
+    private static final NoSpamLogger nospamLogger = NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES);
 
     public static final String DEFAULT_SUPERUSER_NAME = "cassandra";
     static final String DEFAULT_SUPERUSER_PASSWORD = "cassandra";
@@ -131,6 +134,7 @@ public class CassandraRoleManager implements IRoleManager
     }
 
     private SelectStatement loadRoleStatement;
+    private SelectStatement loadIdentityStatement;
 
     private final Set<Option> supportedOptions;
     private final Set<Option> alterableOptions;
@@ -151,10 +155,70 @@ public class CassandraRoleManager implements IRoleManager
     public void setup()
     {
         loadRoleStatement();
+        loadIdentityStatement();
         scheduleSetupTask(() -> {
             setupDefaultRole();
             return null;
         });
+    }
+
+    @Override
+    public String roleForIdentity(String identity)
+    {
+        QueryOptions options = QueryOptions.forInternalCalls(CassandraAuthorizer.authReadConsistencyLevel(),
+                                                             Collections.singletonList(byteBuf(identity)));
+        ResultMessage.Rows rows = select(loadIdentityStatement, options);
+        if (rows.result.isEmpty())
+        {
+            nospamLogger.warn("No such identity {} in the identity_to_roles table", identity);
+            return null;
+        }
+        return UntypedResultSet.create(rows.result).one().getString("role");
+    }
+
+    @Override
+    public Map<String, String> authorizedIdentities()
+    {
+        Map<String, String> validIdentities = new HashMap<>();
+        final String query = String.format("SELECT identity, role from %s.%s",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);;
+        UntypedResultSet rows = process(query, CassandraAuthorizer.authReadConsistencyLevel());
+        rows.forEach(row -> validIdentities.put(row.getString("identity"), row.getString("role")));
+        return validIdentities;
+    }
+
+    @Override
+    public void addIdentity(String identity, String role)
+    {
+        if (isExistingIdentity(identity))
+        {
+            throw new IllegalStateException("Identity is already associated with another role, cannot associate it with role " + role);
+        }
+
+        final String query = String.format("INSERT INTO %s.%s (identity, role) VALUES (?, ?)",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);;
+        process(query, CassandraAuthorizer.authWriteConsistencyLevel(), byteBuf(identity), byteBuf(role));
+    }
+
+    @Override
+    public boolean isExistingIdentity(String identity)
+    {
+        final String query = String.format("SELECT identity from %s.%s where identity=?",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);
+        UntypedResultSet rows = process(query, CassandraAuthorizer.authReadConsistencyLevel(), byteBuf(identity));
+        return !rows.isEmpty();
+    }
+
+    @Override
+    public void dropIdentity(String identity)
+    {
+        final String query = String.format("DELETE FROM %s.%s WHERE identity = ?",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);
+        process(query, CassandraAuthorizer.authWriteConsistencyLevel(), byteBuf(identity));
     }
 
     protected final void loadRoleStatement()
@@ -162,6 +226,14 @@ public class CassandraRoleManager implements IRoleManager
         loadRoleStatement = (SelectStatement) prepare("SELECT * from %s.%s WHERE role = ?",
                                                       SchemaConstants.AUTH_KEYSPACE_NAME,
                                                       AuthKeyspace.ROLES);
+    }
+
+
+    protected void loadIdentityStatement()
+    {
+        loadIdentityStatement = (SelectStatement) prepare("SELECT role from %s.%s where identity=?",
+                                                          SchemaConstants.AUTH_KEYSPACE_NAME,
+                                                          AuthKeyspace.IDENTITY_TO_ROLES);
     }
 
     public Set<Option> supportedOptions()
@@ -177,6 +249,11 @@ public class CassandraRoleManager implements IRoleManager
     public void createRole(AuthenticatedUser performer, RoleResource role, RoleOptions options)
     throws RequestValidationException, RequestExecutionException
     {
+        List<String> identitiesOfRole = identitiesForRole(role.getRoleName());
+        if (!identitiesOfRole.isEmpty())
+        {
+            throw new IllegalStateException(String.format("Cannot create a role '%s' when identities already exists for it", role.getRoleName()));
+        }
         String insertCql = options.getPassword().isPresent() || options.getHashedPassword().isPresent()
                          ? String.format("INSERT INTO %s.%s (role, is_superuser, can_login, salted_hash) VALUES ('%s', %s, %s, '%s')",
                                          SchemaConstants.AUTH_KEYSPACE_NAME,
@@ -202,6 +279,7 @@ public class CassandraRoleManager implements IRoleManager
                               escape(role.getRoleName())),
                 consistencyForRoleWrite(role.getRoleName()));
         removeAllMembers(role.getRoleName());
+        removeAllIdentitiesOfRole(role.getRoleName());
     }
 
     public void alterRole(AuthenticatedUser performer, RoleResource role, RoleOptions options)
@@ -479,6 +557,31 @@ public class CassandraRoleManager implements IRoleManager
                 consistencyForRoleWrite(grantee));
     }
 
+    private List<String> identitiesForRole(String role)
+    {
+        // Get all identities associated with a given role
+        final String query = String.format("SELECT identity FROM %s.%s WHERE role = ? ALLOW FILTERING",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);
+        UntypedResultSet rows = process(query, consistencyForRoleRead(role), byteBuf(role));
+        List<String> identities = new ArrayList<>();
+        rows.forEach(row -> identities.add(row.getString("identity")));
+        return identities;
+    }
+
+    private void removeAllIdentitiesOfRole(String role)
+    {
+        List<String> identities = identitiesForRole(role);
+        final String query = String.format("DELETE FROM %s.%s WHERE identity = ?",
+                                           SchemaConstants.AUTH_KEYSPACE_NAME,
+                                           AuthKeyspace.IDENTITY_TO_ROLES);
+        // Remove all the identities associated with the role from the table
+        for (String identity : identities)
+        {
+            process(query, consistencyForRoleWrite(role), byteBuf(identity));
+        }
+    }
+
     /*
      * Clear the membership list of the given role
      */
@@ -543,6 +646,11 @@ public class CassandraRoleManager implements IRoleManager
         return StringUtils.replace(name, "'", "''");
     }
 
+    private static ByteBuffer byteBuf(String str)
+    {
+        return UTF8Type.instance.decompose(str);
+    }
+
     /** Allows selective overriding of the consistency level for specific roles. */
     protected static ConsistencyLevel consistencyForRoleWrite(String role)
     {
@@ -568,6 +676,12 @@ public class CassandraRoleManager implements IRoleManager
     throws RequestValidationException, RequestExecutionException
     {
         return QueryProcessor.process(query, consistencyLevel);
+    }
+
+    UntypedResultSet process(String query, ConsistencyLevel consistencyLevel, ByteBuffer... values)
+    throws RequestValidationException, RequestExecutionException
+    {
+        return QueryProcessor.process(query, consistencyLevel, Arrays.asList(values));
     }
 
     @VisibleForTesting

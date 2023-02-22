@@ -19,11 +19,12 @@
 package org.apache.cassandra.auth;
 
 import java.io.InputStream;
-import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.util.Collections;
+import java.util.Map;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -33,6 +34,7 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.service.StorageService;
 
+import static org.apache.cassandra.auth.AuthTestUtils.getMockInetAddress;
 import static org.junit.Assert.assertNotNull;
 import static org.psjava.util.AssertStatus.assertTrue;
 
@@ -47,7 +49,8 @@ public class MutualTlsWithPasswordFallbackAuthenticatorTest
         SchemaLoader.loadSchema();
         DatabaseDescriptor.daemonInitialization();
         StorageService.instance.initServer(0);
-        fallbackAuthenticator = new MutualTlsWithPasswordFallbackAuthenticator();
+        final Map<String, String> parameters = Collections.singletonMap("validator_class_name", "org.apache.cassandra.auth.ACICertificateValidator");
+        fallbackAuthenticator = new MutualTlsWithPasswordFallbackAuthenticator(parameters);
         fallbackAuthenticator.setup();
     }
 
@@ -82,10 +85,5 @@ public class MutualTlsWithPasswordFallbackAuthenticatorTest
         // If client certificate chain present and valid use mTLS authentication
         final IAuthenticator.SaslNegotiator mutualtlsAuthenticator = fallbackAuthenticator.newSaslNegotiator(getMockInetAddress(), clientCertificatesCorp);
         assertTrue(mutualtlsAuthenticator instanceof MutualTlsAuthenticator.CertificateNegotiator);
-    }
-
-    private InetAddress getMockInetAddress() throws UnknownHostException
-    {
-        return InetAddress.getByName("127.0.0.1");
     }
 }

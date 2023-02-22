@@ -77,7 +77,7 @@ public class Config
     public static final String PROPERTY_PREFIX = "cassandra.";
 
     public String cluster_name = "Test Cluster";
-    public String authenticator;
+    public ParameterizedClass authenticator;
     public String authorizer;
     public String role_manager;
     public String network_authorizer;

@@ -20,18 +20,25 @@ package org.apache.cassandra.auth;
 
 import java.net.InetAddress;
 import java.security.cert.Certificate;
+import java.util.Map;
 
-
+/**
+ * This authenticator can be used in optional mTLS mode, If the client doesn't make an mTLS connection
+ * this fallbacks to password authentication.
+ */
 public class MutualTlsWithPasswordFallbackAuthenticator extends PasswordAuthenticator
 {
-    private MutualTlsAuthenticator mutualTlsAuthenticator;
+    private final MutualTlsAuthenticator mutualTlsAuthenticator;
+    public MutualTlsWithPasswordFallbackAuthenticator(Map<String, String> parameters)
+    {
+        mutualTlsAuthenticator = new MutualTlsAuthenticator(parameters);
+    }
 
     @Override
     public void setup()
     {
         super.setup();
-        mutualTlsAuthenticator = new MutualTlsAuthenticator();
-        mutualTlsAuthenticator.initializeAuthenticator();
+        mutualTlsAuthenticator.setup();
     }
 
     @Override

@@ -53,7 +53,10 @@ public final class AuthConfig
 
         /* Authentication, authorization and role management backend, implementing IAuthenticator, IAuthorizer & IRoleMapper*/
         if (conf.authenticator != null)
-            authenticator = FBUtilities.newAuthenticator(conf.authenticator);
+        {
+            authenticator = ParameterizedClass.newInstance(conf.authenticator,
+                                                           Arrays.asList("", AuthConfig.class.getPackage().getName()));
+        }
 
         // the configuration options regarding credentials caching are only guaranteed to
         // work with PasswordAuthenticator, so log a message if some other authenticator
@@ -78,7 +81,7 @@ public final class AuthConfig
             authorizer = FBUtilities.newAuthorizer(conf.authorizer);
 
         if (!authenticator.requireAuthentication() && authorizer.requireAuthorization())
-            throw new ConfigurationException(conf.authenticator + " can't be used with " + conf.authorizer, false);
+            throw new ConfigurationException(conf.authenticator.class_name + " can't be used with " + conf.authorizer, false);
 
         DatabaseDescriptor.setAuthorizer(authorizer);
 
@@ -109,7 +112,7 @@ public final class AuthConfig
         DatabaseDescriptor.setNetworkAuthorizer(networkAuthorizer);
         if (networkAuthorizer.requireAuthorization() && !authenticator.requireAuthentication())
         {
-            throw new ConfigurationException(conf.network_authorizer + " can't be used with " + conf.authenticator, false);
+            throw new ConfigurationException(conf.network_authorizer + " can't be used with " + conf.authenticator.class_name, false);
         }
 
         // Validate at last to have authenticator, authorizer, role-manager and internode-auth setup

@@ -369,7 +369,7 @@ public class YamlConfigurationLoaderTest
         final Config config = load("cassandra-mtls.yaml");
         assertEquals(config.internode_authenticator.class_name, "org.apache.cassandra.auth.MutualTlsInternodeAuthenticator");
         assertFalse(config.internode_authenticator.parameters.isEmpty());
-        assertEquals(config.internode_authenticator.parameters.get("valid_ids"), "urn:certmanager:idmsGroup/845340");
+        assertEquals(config.internode_authenticator.parameters.get("validator_class_name"), "org.apache.cassandra.auth.SpiffeCertificateValidator");
     }
 
     @Test
@@ -378,6 +378,23 @@ public class YamlConfigurationLoaderTest
         final Config config = load("cassandra-mtls-backward-compatibility.yaml");
         assertEquals(config.internode_authenticator.class_name, "org.apache.cassandra.auth.AllowAllInternodeAuthenticator");
         assertTrue(config.internode_authenticator.parameters.isEmpty());
+    }
+
+    @Test
+    public void testBackwardCompatibilityOfAuthenticatorPropertyAsMap()
+    {
+        final Config config = load("cassandra-mtls.yaml");
+        assertEquals(config.authenticator.class_name, "org.apache.cassandra.auth.MutualTlsAuthenticator");
+        assertFalse(config.authenticator.parameters.isEmpty());
+        assertEquals(config.authenticator.parameters.get("validator_class_name"), "org.apache.cassandra.auth.SpiffeCertificateValidator");
+    }
+
+    @Test
+    public void testBackwardCompatibilityOfAuthenticatorPropertyAsString() throws IOException, TimeoutException
+    {
+        final Config config = load("cassandra-mtls-backward-compatibility.yaml");
+        assertEquals(config.authenticator.class_name, "org.apache.cassandra.auth.AllowAllAuthenticator");
+        assertTrue(config.authenticator.parameters.isEmpty());
     }
 
     public static Config load(String path)
