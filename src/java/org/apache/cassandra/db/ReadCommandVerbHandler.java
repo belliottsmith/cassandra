@@ -43,6 +43,7 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
 
     private static final Logger logger = LoggerFactory.getLogger(ReadCommandVerbHandler.class);
     private static final String logMessageTemplate = "Received read request from {} for token {} outside valid range for keyspace {}";
+    private static final String exceptionMessageTemplate = "Exception thrown checking if token {} outside valid range for keyspace {} - permitting";
 
     public void doVerb(Message<ReadCommand> message)
     {
@@ -166,9 +167,17 @@ public class ReadCommandVerbHandler implements IVerbHandler<ReadCommand>
 
     private boolean isOutOfRangeRead(String keyspace, DecoratedKey key)
     {
-        return Keyspace.open(keyspace)
-                       .getReplicationStrategy()
-                       .getNaturalReplicas(key)
-                       .selfIfPresent() == null;
+        try
+        {
+            return Keyspace.open(keyspace)
+                           .getReplicationStrategy()
+                           .getNaturalReplicas(key)
+                           .selfIfPresent() == null;
+        }
+        catch (Throwable tr)
+        {
+            NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.SECONDS, exceptionMessageTemplate, keyspace, key.getKey(), tr);
+            return false;
+        }
     }
 }
