@@ -92,8 +92,13 @@ public abstract class MixedModeAvailabilityTestBase extends UpgradeTestBase
         .setup(cluster -> {
             cluster.schemaChange(withKeyspace("CREATE TABLE %s.t (k uuid, c int, v int, PRIMARY KEY (k, c)) WITH speculative_retry = '10ms'"));
             cluster.setUncaughtExceptionsFilter(throwable -> throwable instanceof RejectedExecutionException);
+
+            cluster.forEach(instance -> instance.logs().mark());
         })
         .runAfterNodeUpgrade((cluster, n) -> {
+
+            // wait for node to be fully restarted after upgrade
+            cluster.get(n).logs().watchFor(" NORMAL$");
 
             ICoordinator coordinator = cluster.coordinator(COORDINATOR);
 
