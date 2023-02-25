@@ -298,7 +298,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
                 unreleasableOnHeap = 0;
 
             //TODO: Fix unreleasableOnHeap calculation
-            //assertThat(recreatedAllocator.onHeap().owns()).isEqualTo(allocator.onHeap().owns() - unreleasableOnHeap);
+            assertThat(recreatedAllocator.onHeap().owns()).isEqualTo(allocator.onHeap().owns() - unreleasableOnHeap);
             assertThat(recreatedAllocator.onHeap().owns()).isGreaterThanOrEqualTo(0);
         }
         finally
