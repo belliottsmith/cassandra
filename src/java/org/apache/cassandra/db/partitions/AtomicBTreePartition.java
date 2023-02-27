@@ -218,24 +218,6 @@ public final class AtomicBTreePartition extends AbstractBTreePartition
     }
 
     @Override
-    public UnfilteredRowIterator unfilteredIterator(ColumnFilter selection, Slices slices, boolean reversed)
-    {
-        return allocator.ensureOnHeap().applyToPartition(super.unfilteredIterator(selection, slices, reversed));
-    }
-
-    @Override
-    public UnfilteredRowIterator unfilteredIterator(ColumnFilter selection, NavigableSet<Clustering<?>> clusteringsInQueryOrder, boolean reversed)
-    {
-        return allocator.ensureOnHeap().applyToPartition(super.unfilteredIterator(selection, clusteringsInQueryOrder, reversed));
-    }
-
-    @Override
-    public UnfilteredRowIterator unfilteredIterator()
-    {
-        return allocator.ensureOnHeap().applyToPartition(super.unfilteredIterator());
-    }
-
-    @Override
     public UnfilteredRowIterator unfilteredIterator(BTreePartitionData current, ColumnFilter selection, Slices slices, boolean reversed)
     {
         return allocator.ensureOnHeap().applyToPartition(super.unfilteredIterator(current, selection, slices, reversed));
