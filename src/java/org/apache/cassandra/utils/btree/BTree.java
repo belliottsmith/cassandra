@@ -513,7 +513,6 @@ public class BTree
                 // upos == usz
                 builder.leaf().copy(inode, ipos, isz - ipos, updateF);
             }
-
             return builder.build();
         }
     }
