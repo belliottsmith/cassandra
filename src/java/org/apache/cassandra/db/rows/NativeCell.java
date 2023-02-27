@@ -177,4 +177,10 @@ public class NativeCell extends AbstractCell<ByteBuffer>
     {
         return EMPTY_SIZE;
     }
+
+    public long offHeapSize()
+    {
+        int length = MemoryUtil.getInt(peer + LENGTH);
+        return simpleSize(length);
+    }
 }

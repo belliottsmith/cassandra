@@ -47,6 +47,7 @@ import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
+import org.apache.cassandra.db.rows.NativeCell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
 import org.apache.cassandra.index.transactions.UpdateTransaction;
@@ -255,7 +256,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
             AtomicBTreePartition partition = new AtomicBTreePartition(metadataRef, partitionKey, allocator);
 
             // For each update, apply it and verify the allocator is positive
-            long unreleasableOnHeap = updates.stream().mapToLong(update -> {
+            long unreleasable = updates.stream().mapToLong(update -> {
                 long updateUnreleasable = 0;
                 if (!BTree.isEmpty(partition.unsafeGetHolder().tree))
                 {
@@ -294,12 +295,13 @@ public class AtomicBTreePartitionMemtableAccountingTest
             }
 
             // offheap allocators don't release on heap memory, so expect the same
-            if (recreatedAllocator.offHeap().owns() > 0)
-                unreleasableOnHeap = 0;
+            long unreleasableOnHeap = 0, unreleasableOffHeap = 0;
+            if (recreatedAllocator.offHeap().owns() > 0) unreleasableOffHeap = unreleasable;
+            else unreleasableOnHeap = unreleasable;
 
             //TODO: Fix unreleasableOnHeap calculation
+            assertThat(recreatedAllocator.offHeap().owns()).isGreaterThanOrEqualTo(allocator.offHeap().owns() - unreleasableOffHeap);
             assertThat(recreatedAllocator.onHeap().owns()).isEqualTo(allocator.onHeap().owns() - unreleasableOnHeap);
-            assertThat(recreatedAllocator.onHeap().owns()).isGreaterThanOrEqualTo(0);
         }
         finally
         {
@@ -325,7 +327,12 @@ public class AtomicBTreePartitionMemtableAccountingTest
             ColumnData exsCd = exsRow.getColumnData(updCd.column());
             if (exsCd != null)
             {
-                if (exsCd instanceof Cell)
+                if (exsCd instanceof NativeCell)
+                {
+                    NativeCell cell = (NativeCell) exsCd;
+                    size += cell.offHeapSize();
+                }
+                else if (exsCd instanceof Cell)
                 {
                     Cell cell = (Cell) exsCd;
                     size += cell.valueSize();
@@ -338,7 +345,17 @@ public class AtomicBTreePartitionMemtableAccountingTest
                     {
                         Cell exsCell = exsCcd.getCell(updCell.path());
                         if (exsCell != null)
-                            size += exsCell.valueSize();
+                        {
+                            if (exsCell instanceof NativeCell)
+                            {
+                                NativeCell cell = (NativeCell) exsCell;
+                                size += cell.offHeapSize();
+                            }
+                            else
+                            {
+                                size += exsCell.valueSize();
+                            }
+                        }
                     }
                 }
             }
