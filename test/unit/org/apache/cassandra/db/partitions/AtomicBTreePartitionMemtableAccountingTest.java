@@ -268,7 +268,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
                 }
                 if (partition.staticRow() != null)
                 {
-                    updateUnreleasable += getUnreleasableSize(partition.staticRow(), update.staticRow());
+                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.staticRow());
                 }
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
@@ -300,7 +300,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
             else unreleasableOnHeap = unreleasable;
 
             //TODO: Fix unreleasableOnHeap calculation
-            assertThat(recreatedAllocator.offHeap().owns()).isGreaterThanOrEqualTo(allocator.offHeap().owns() - unreleasableOffHeap);
+            assertThat(recreatedAllocator.offHeap().owns()).isEqualTo(allocator.offHeap().owns() - unreleasableOffHeap);
             assertThat(recreatedAllocator.onHeap().owns()).isEqualTo(allocator.onHeap().owns() - unreleasableOnHeap);
         }
         finally
@@ -354,6 +354,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
                             else
                             {
                                 size += exsCell.valueSize();
+                                size += exsCell.path().dataSize();
                             }
                         }
                     }

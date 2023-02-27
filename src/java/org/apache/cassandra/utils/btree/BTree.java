@@ -365,7 +365,9 @@ public class BTree
                 toUpdate = insert;
                 insert = tmp;
             }
-            return updateLeaves(toUpdate, insert, comparator, updateF);
+            Object[] merged = updateLeaves(toUpdate, insert, comparator, updateF);
+            updateF.onAllocatedOnHeap(sizeOnHeapOf(merged) - sizeOnHeapOf(toUpdate));
+            return merged;
         }
 
         if (!isLeaf(insert) && isSimple(updateF))
@@ -511,6 +513,7 @@ public class BTree
                 // upos == usz
                 builder.leaf().copy(inode, ipos, isz - ipos, updateF);
             }
+
             return builder.build();
         }
     }

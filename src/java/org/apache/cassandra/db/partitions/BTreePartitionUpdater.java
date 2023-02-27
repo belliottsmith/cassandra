@@ -129,7 +129,7 @@ public class BTreePartitionUpdater implements UpdateFunction<Row, Row>, ColumnDa
         indexer.onInserted(insert);
 
         dataSize += data.dataSize();
-        onAllocatedOnHeap(data.unsharedHeapSizeExcludingData());
+        heapSize += data.unsharedHeapSizeExcludingData();
         return data;
     }
 
