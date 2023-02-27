@@ -174,7 +174,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
     @Test
     public void failingTest()
     {
-        testCase(INITIAL_TS, 0, 2147483647, new DeletionTime(2000, 1677505246), 3, 2000, 0, 1677504246, DeletionTime.LIVE, 3);
+        testCase(INITIAL_TS, 0, 2147483647, DeletionTime.LIVE, 3, 2000, 0, 1677505428, DeletionTime.LIVE, 3);
     }
 
     static Cell<?> makeCell(ColumnMetadata column, long timestamp, int ttl, int localDeletionTime, ByteBuffer value, CellPath path)
