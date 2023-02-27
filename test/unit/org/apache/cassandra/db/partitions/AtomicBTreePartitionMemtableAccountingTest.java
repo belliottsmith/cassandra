@@ -45,6 +45,7 @@ import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.BufferCell;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.CellPath;
+import org.apache.cassandra.db.rows.Cells;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.NativeCell;
@@ -56,6 +57,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.schema.TableMetadataRef;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.btree.BTree;
 import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 import org.apache.cassandra.utils.concurrent.OpOrder;
@@ -169,6 +171,11 @@ public class AtomicBTreePartitionMemtableAccountingTest
         });
     }
 
+    @Test
+    public void failingTest()
+    {
+        testCase(INITIAL_TS, 0, 2147483647, new DeletionTime(2000, 1677505246), 3, 2000, 0, 1677504246, DeletionTime.LIVE, 3);
+    }
 
     static Cell<?> makeCell(ColumnMetadata column, long timestamp, int ttl, int localDeletionTime, ByteBuffer value, CellPath path)
     {
@@ -190,54 +197,67 @@ public class AtomicBTreePartitionMemtableAccountingTest
                      .addPartitionKeyColumn("pk", Int32Type.instance)
                      .addRegularColumn("r1", Int32Type.instance)
                      .addRegularColumn("c2", SetType.getInstance(Int32Type.instance, true))
+                     .addStaticColumn("s3", Int32Type.instance)
+                     .addStaticColumn("c4", SetType.getInstance(Int32Type.instance, true))
                      .build();
         DecoratedKey partitionKey = DatabaseDescriptor.getPartitioner().decorateKey(ByteBufferUtil.bytes(pk));
 
         ColumnMetadata r1md = metadata.getColumn(new ColumnIdentifier("r1", false));
         ColumnMetadata c2md = metadata.getColumn(new ColumnIdentifier("c2", false));
+        ColumnMetadata s3md = metadata.getColumn(new ColumnIdentifier("s3", false));
+        ColumnMetadata c4md = metadata.getColumn(new ColumnIdentifier("c4", false));
 
+        // Test regular row updates
+        Pair<Row, Row> regularRows = makeInitialAndUpdate(r1md, c2md, initialTS, initialTTL, initialLDT, initialComplexDeletionTime, numC2InitialCells,
+                                                          updateTS, updateTTL, updateLDT, updateComplexDeletionTime, numC2UpdateCells);
+        PartitionUpdate initial = PartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.left, null);
+        PartitionUpdate update = PartitionUpdate.singleRowUpdate(metadata, partitionKey, regularRows.right, null);
+        validateUpdates(metadata, partitionKey, Arrays.asList(initial, update));
+
+        Pair<Row, Row> staticRows = makeInitialAndUpdate(s3md, c4md, initialTS, initialTTL, initialLDT, initialComplexDeletionTime, numC2InitialCells,
+                                                          updateTS, updateTTL, updateLDT, updateComplexDeletionTime, numC2UpdateCells);
+        // Test static row updates
+        PartitionUpdate staticInitial = PartitionUpdate.singleRowUpdate(metadata, partitionKey, null, staticRows.left);
+        PartitionUpdate staticUpdate = PartitionUpdate.singleRowUpdate(metadata, partitionKey, null, staticRows.right);
+        validateUpdates(metadata, partitionKey, Arrays.asList(staticInitial, staticUpdate));
+    }
+
+    private static Pair<Row, Row> makeInitialAndUpdate(ColumnMetadata regular, ColumnMetadata complex, int initialTS, int initialTTL, int initialLDT, DeletionTime initialComplexDeletionTime, int numC2InitialCells,
+                                                       int updateTS, int updateTTL, int updateLDT, DeletionTime updateComplexDeletionTime, Integer numC2UpdateCells)
+    {
         final ByteBuffer initialValueBB = ByteBufferUtil.bytes(111);
         final ByteBuffer updateValueBB = ByteBufferUtil.bytes(222);
 
         // Create the initial row to populate the partition with
         Row.Builder initialRowBuilder = BTreeRow.unsortedBuilder();
-        initialRowBuilder.newRow(Clustering.EMPTY);
+        initialRowBuilder.newRow(regular.isStatic() ? Clustering.STATIC_CLUSTERING : Clustering.EMPTY);
 
-        initialRowBuilder.addCell(makeCell(r1md, initialTS, initialTTL, initialLDT, initialValueBB, null));
+        initialRowBuilder.addCell(makeCell(regular, initialTS, initialTTL, initialLDT, initialValueBB, null));
         if (initialComplexDeletionTime != DeletionTime.LIVE)
-            initialRowBuilder.addComplexDeletion(c2md, initialComplexDeletionTime);
+            initialRowBuilder.addComplexDeletion(complex, initialComplexDeletionTime);
         int cellPath = 1000;
         for (int i = 0; i < numC2InitialCells; i++)
-            initialRowBuilder.addCell(makeCell(c2md, initialTS, initialTTL, initialLDT,
+            initialRowBuilder.addCell(makeCell(complex, initialTS, initialTTL, initialLDT,
                                                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                                                CellPath.create(ByteBufferUtil.bytes(cellPath--))));
         Row initialRow = initialRowBuilder.build();
 
         // Create the update row to modify the partition with
         Row.Builder updateRowBuilder = BTreeRow.unsortedBuilder();
-        updateRowBuilder.newRow(Clustering.EMPTY);
+        updateRowBuilder.newRow(regular.isStatic() ? Clustering.STATIC_CLUSTERING : Clustering.EMPTY);
 
-        updateRowBuilder.addCell(makeCell(r1md, updateTS, updateTTL, updateLDT, updateValueBB, null));
+        updateRowBuilder.addCell(makeCell(regular, updateTS, updateTTL, updateLDT, updateValueBB, null));
         if (updateComplexDeletionTime != DeletionTime.LIVE)
-            initialRowBuilder.addComplexDeletion(c2md, updateComplexDeletionTime);
+            initialRowBuilder.addComplexDeletion(complex, updateComplexDeletionTime);
 
         // Make multiple update cells to make any issues more pronounced
         cellPath = 1000;
         for (int i = 0; i < numC2UpdateCells; i++)
-            updateRowBuilder.addCell(makeCell(c2md, updateTS, updateTTL, updateLDT,
+            updateRowBuilder.addCell(makeCell(complex, updateTS, updateTTL, updateLDT,
                                               ByteBufferUtil.EMPTY_BYTE_BUFFER,
                                               CellPath.create(ByteBufferUtil.bytes(cellPath++))));
         Row updateRow = updateRowBuilder.build();
-
-        // Test regular row updates
-        PartitionUpdate initial = PartitionUpdate.singleRowUpdate(metadata, partitionKey, initialRow, null);
-        PartitionUpdate update = PartitionUpdate.singleRowUpdate(metadata, partitionKey, updateRow, null);
-        validateUpdates(metadata, partitionKey, Arrays.asList(initial, update));
-
-        // Test static row updates
-        PartitionUpdate staticInitial = PartitionUpdate.singleRowUpdate(metadata, partitionKey, null, initialRow);
-        PartitionUpdate staticUpdate = PartitionUpdate.singleRowUpdate(metadata, partitionKey, null, updateRow);
-        validateUpdates(metadata, partitionKey, Arrays.asList(staticInitial, staticUpdate));
+        return Pair.create(initialRow, updateRow);
     }
 
     void validateUpdates(TableMetadata metadata, DecoratedKey partitionKey, List<PartitionUpdate> updates)
@@ -257,18 +277,19 @@ public class AtomicBTreePartitionMemtableAccountingTest
 
             // For each update, apply it and verify the allocator is positive
             long unreleasable = updates.stream().mapToLong(update -> {
+                DeletionTime partitionDeletion = partition.deletionInfo().getPartitionDeletion();
                 long updateUnreleasable = 0;
                 if (!BTree.isEmpty(partition.unsafeGetHolder().tree))
                 {
                     for (Row updRow : BTree.<Row>iterable(update.holder().tree))
                     {
                         Row exsRow = BTree.find(partition.unsafeGetHolder().tree, partition.metadata().comparator, updRow);
-                        updateUnreleasable += getUnreleasableSize(updRow, exsRow);
+                        updateUnreleasable += getUnreleasableSize(updRow, exsRow, partitionDeletion);
                     }
                 }
                 if (partition.staticRow() != null)
                 {
-                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.staticRow());
+                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.unsafeGetHolder().staticRow, partitionDeletion);
                 }
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
@@ -319,37 +340,43 @@ public class AtomicBTreePartitionMemtableAccountingTest
         }
     }
 
-    private long getUnreleasableSize(Row updRow, Row exsRow)
+    private long getUnreleasableSize(Row updRow, Row exsRow, DeletionTime exsDeletion)
     {
+        if (exsRow.deletion().supersedes(exsDeletion))
+            exsDeletion = exsRow.deletion().time();
+
         long size = 0;
         for (ColumnData updCd : updRow.columnData())
         {
             ColumnData exsCd = exsRow.getColumnData(updCd.column());
             if (exsCd != null)
             {
-                if (exsCd instanceof NativeCell)
+                if (exsCd instanceof Cell)
                 {
-                    NativeCell cell = (NativeCell) exsCd;
-                    size += cell.offHeapSize();
-                }
-                else if (exsCd instanceof Cell)
-                {
-                    Cell cell = (Cell) exsCd;
-                    size += cell.valueSize();
+                    Cell exsCell = (Cell) exsCd, updCell = (Cell) updCd;
+                    if (Cells.reconcile(exsCell, updCell) != exsCell && !exsDeletion.deletes(updCell))
+                    {
+                        if (exsCell instanceof NativeCell)
+                            size += ((NativeCell) exsCell).offHeapSize();
+                        else
+                            size += exsCell.valueSize();
+                    }
                 }
                 else
                 {
                     ComplexColumnData updCcd = (ComplexColumnData) updCd;
                     ComplexColumnData exsCcd = (ComplexColumnData) exsCd;
+                    if (exsCcd.complexDeletion().supersedes(exsDeletion))
+                        exsDeletion = exsCcd.complexDeletion();
+
                     for (Cell updCell : updCcd)
                     {
                         Cell exsCell = exsCcd.getCell(updCell.path());
-                        if (exsCell != null)
+                        if (exsCell != null && Cells.reconcile(exsCell, updCell) != exsCell && !exsDeletion.deletes(updCell))
                         {
                             if (exsCell instanceof NativeCell)
                             {
-                                NativeCell cell = (NativeCell) exsCell;
-                                size += cell.offHeapSize();
+                                size += ((NativeCell) exsCell).offHeapSize();
                             }
                             else
                             {
