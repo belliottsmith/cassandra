@@ -2200,6 +2200,9 @@ public class BTree
 
     public static long sizeOnHeapOf(Object[] tree)
     {
+        if (tree == EMPTY_LEAF)
+            return 0;
+
         long size = ObjectSizes.sizeOfArray(tree);
         if (isLeaf(tree))
             return size;
@@ -2207,6 +2210,14 @@ public class BTree
             size += sizeOnHeapOf((Object[]) tree[i]);
         size += ObjectSizes.sizeOfArray(sizeMap(tree)); // may overcount, since we share size maps
         return size;
+    }
+
+    private static long sizeOnHeapOfLeaf(Object[] tree)
+    {
+        if (tree == EMPTY_LEAF)
+            return 0;
+
+        return ObjectSizes.sizeOfArray(tree);
     }
 
     // Arbitrary boundaries
@@ -2756,7 +2767,7 @@ public class BTree
                 sizeOfLeaf = count;
                 leaf = drain();
                 if (allocated >= 0 && sizeOfLeaf > 0)
-                    allocated += ObjectSizes.sizeOfReferenceArray(sizeOfLeaf | 1) - (unode == null ? 0 : ObjectSizes.sizeOfArray(unode));
+                    allocated += ObjectSizes.sizeOfReferenceArray(sizeOfLeaf | 1) - (unode == null ? 0 : sizeOnHeapOfLeaf(unode));
             }
 
             count = 0;

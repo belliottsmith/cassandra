@@ -178,6 +178,13 @@ public class AtomicBTreePartitionMemtableAccountingTest
         });
     }
 
+    @Test
+    public void failing()
+    {
+//        testCase(INITIAL_TS, 0, 2147483647, new DeletionTime(1000, 1677586892), 1, 3000, 0, 2147483647, new DeletionTime(3000, 1677588892), 1);
+        testCase(INITIAL_TS, 0, 2147483647, DeletionTime.LIVE, 3, 1000, 0, 2147483647, new DeletionTime(2000, 1677589578), 3);
+    }
+
     static Cell<?> makeCell(ColumnMetadata column, long timestamp, int ttl, int localDeletionTime, ByteBuffer value, CellPath path)
     {
         if (localDeletionTime != Cell.NO_DELETION_TIME) // never a ttl for a tombstone
@@ -282,19 +289,20 @@ public class AtomicBTreePartitionMemtableAccountingTest
 
             // For each update, apply it and verify the allocator is positive
             long unreleasable = updates.stream().mapToLong(update -> {
-                DeletionTime partitionDeletion = partition.deletionInfo().getPartitionDeletion();
+                DeletionTime exsDeletion = partition.deletionInfo().getPartitionDeletion();
+                DeletionTime updDeletion = update.deletionInfo().getPartitionDeletion();
                 long updateUnreleasable = 0;
                 if (!BTree.isEmpty(partition.unsafeGetHolder().tree))
                 {
                     for (Row updRow : BTree.<Row>iterable(update.holder().tree))
                     {
                         Row exsRow = BTree.find(partition.unsafeGetHolder().tree, partition.metadata().comparator, updRow);
-                        updateUnreleasable += getUnreleasableSize(updRow, exsRow, partitionDeletion);
+                        updateUnreleasable += getUnreleasableSize(updRow, exsRow, exsDeletion, updDeletion);
                     }
                 }
                 if (partition.staticRow() != null)
                 {
-                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.unsafeGetHolder().staticRow, partitionDeletion);
+                    updateUnreleasable += getUnreleasableSize(update.staticRow(), partition.unsafeGetHolder().staticRow, exsDeletion, updDeletion);
                 }
 
                 OpOrder.Group writeOp = opOrder.getCurrent();
@@ -322,7 +330,7 @@ public class AtomicBTreePartitionMemtableAccountingTest
 
             // offheap allocators don't release on heap memory, so expect the same
             long unreleasableOnHeap = 0, unreleasableOffHeap = 0;
-            if (recreatedAllocator.offHeap().owns() > 0) unreleasableOffHeap = unreleasable;
+            if (allocator.offHeap().owns() > 0) unreleasableOffHeap = unreleasable;
             else unreleasableOnHeap = unreleasable;
 
             assertThat(recreatedAllocator.offHeap().owns()).isEqualTo(allocator.offHeap().owns() - unreleasableOffHeap);
@@ -344,54 +352,55 @@ public class AtomicBTreePartitionMemtableAccountingTest
         }
     }
 
-    private long getUnreleasableSize(Row updRow, Row exsRow, DeletionTime exsDeletion)
+    private long getUnreleasableSize(Row updRow, Row exsRow, DeletionTime exsDeletion, DeletionTime updDeletion)
     {
         if (exsRow.deletion().supersedes(exsDeletion))
             exsDeletion = exsRow.deletion().time();
+        if (updRow.deletion().supersedes(updDeletion))
+            updDeletion = updRow.deletion().time();
 
         long size = 0;
-        for (ColumnData updCd : updRow.columnData())
+        for (ColumnData exsCd : exsRow.columnData())
         {
-            ColumnData exsCd = exsRow.getColumnData(updCd.column());
-            if (exsCd != null)
+            ColumnData updCd = updRow.getColumnData(exsCd.column());
+            if (exsCd instanceof Cell)
             {
-                if (exsCd instanceof Cell)
-                {
-                    Cell exsCell = (Cell) exsCd, updCell = (Cell) updCd;
-                    if (Cells.reconcile(exsCell, updCell) != exsCell && !exsDeletion.deletes(updCell))
-                    {
-                        if (exsCell instanceof NativeCell)
-                            size += ((NativeCell) exsCell).offHeapSize();
-                        else
-                            size += exsCell.valueSize();
-                    }
-                }
-                else
-                {
-                    ComplexColumnData updCcd = (ComplexColumnData) updCd;
-                    ComplexColumnData exsCcd = (ComplexColumnData) exsCd;
-                    if (exsCcd.complexDeletion().supersedes(exsDeletion))
-                        exsDeletion = exsCcd.complexDeletion();
+                Cell exsCell = (Cell) exsCd, updCell = (Cell) updCd;
+                if (updDeletion.deletes(exsCell))
+                    size += sizeOf(exsCell);
+                else if (updCell != null && Cells.reconcile(exsCell, updCell) != exsCell && !exsDeletion.deletes(updCell))
+                    size += sizeOf(exsCell);
+            }
+            else
+            {
+                ComplexColumnData exsCcd = (ComplexColumnData) exsCd;
+                ComplexColumnData updCcd = (ComplexColumnData) updCd;
 
-                    for (Cell updCell : updCcd)
-                    {
-                        Cell exsCell = exsCcd.getCell(updCell.path());
-                        if (exsCell != null && Cells.reconcile(exsCell, updCell) != exsCell && !exsDeletion.deletes(updCell))
-                        {
-                            if (exsCell instanceof NativeCell)
-                            {
-                                size += ((NativeCell) exsCell).offHeapSize();
-                            }
-                            else
-                            {
-                                size += exsCell.valueSize();
-                                size += exsCell.path().dataSize();
-                            }
-                        }
-                    }
+                DeletionTime activeExsDeletion = exsDeletion;
+                DeletionTime activeUpdDeletion = updDeletion;
+                if (exsCcd.complexDeletion().supersedes(exsDeletion))
+                    activeExsDeletion = exsCcd.complexDeletion();
+                if (updCcd != null && updCcd.complexDeletion().supersedes(updDeletion))
+                    activeUpdDeletion = updCcd.complexDeletion();
+
+                for (Cell exsCell : exsCcd)
+                {
+                    Cell updCell = updCcd == null ? null : updCcd.getCell(exsCell.path());
+
+                    if (activeUpdDeletion.deletes(exsCell))
+                        size += sizeOf(exsCell);
+                    else if (updCell != null && (Cells.reconcile(exsCell, updCell) != exsCell && !activeExsDeletion.deletes(updCell)))
+                        size += sizeOf(exsCell);
                 }
             }
         }
         return size;
+    }
+
+    private static long sizeOf(Cell cell)
+    {
+        if (cell instanceof NativeCell)
+            return ((NativeCell) cell).offHeapSize();
+        return cell.valueSize() + (cell.path() == null ? 0 : cell.path().dataSize());
     }
 }

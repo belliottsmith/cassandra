@@ -142,7 +142,12 @@ public abstract class ColumnData implements IMeasurableMemory
                         }
                         else
                         {
-                            existingTree = BTree.transformAndFilter(existingTree, reconciler::retain);
+                            Object[] retained = BTree.transformAndFilter(existingTree, reconciler::retain);
+                            if (existingTree != retained)
+                            {
+                                onAllocatedOnHeap(BTree.sizeOnHeapOf(retained) - BTree.sizeOnHeapOf(existingTree));
+                                existingTree = retained;
+                            }
                         }
                     }
                     cells = BTree.update(existingTree, updateTree, existingComplex.column.cellComparator(), (UpdateFunction) reconciler);
