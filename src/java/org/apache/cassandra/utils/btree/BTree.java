@@ -2200,7 +2200,7 @@ public class BTree
 
     public static long sizeOnHeapOf(Object[] tree)
     {
-        if (tree == EMPTY_LEAF)
+        if (isEmpty(tree))
             return 0;
 
         long size = ObjectSizes.sizeOfArray(tree);
@@ -2214,7 +2214,7 @@ public class BTree
 
     private static long sizeOnHeapOfLeaf(Object[] tree)
     {
-        if (tree == EMPTY_LEAF)
+        if (isEmpty(tree))
             return 0;
 
         return ObjectSizes.sizeOfArray(tree);
