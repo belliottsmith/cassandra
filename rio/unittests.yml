@@ -13,6 +13,8 @@ shared:
         cpuRequest: 2
         memory: 16Gi
         priorityClassName: p3
+        # started to get evicted with 'Container task exceeded its local ephemeral storage limit "1Gi".'
+        storage: 5Gi
       copyFromLocal:
         - src: ~/.m2/settings.xml
           dst: ~/.m2/settings.xml
@@ -50,7 +52,7 @@ work:
   jvm-dtest:
     machine:
       <<: *base-machine
-      numberOfInstances: 30
+      numberOfInstances: 20
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
@@ -68,7 +70,7 @@ work:
   jvm-dtest-upgrade:
     machine:
       <<: *base-machine
-      numberOfInstances: 30
+      numberOfInstances: 20
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
