@@ -79,7 +79,8 @@ public class AuthTest extends TestBaseImpl
                                         .withNodes(1)
                                         .withTokenSupplier(TokenSupplier.evenlyDistributedTokens(2, 1))
                                         .withConfig(config -> config.with(NETWORK, GOSSIP, NATIVE_PROTOCOL)
-                                                                    .set("authenticator", "PasswordAuthenticator"))
+                                                                    .set("authenticator", "PasswordAuthenticator")
+                                                                    .set("credentials_validity", "2s")) // revert to OSS default
                                         .start())
         {
             waitForExistingRoles(cluster.get(1));
