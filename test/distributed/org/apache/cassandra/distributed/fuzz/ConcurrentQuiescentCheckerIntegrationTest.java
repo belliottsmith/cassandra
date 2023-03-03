@@ -89,7 +89,7 @@ public class ConcurrentQuiescentCheckerIntegrationTest extends TestBaseImpl
                 Configuration config = HarryHelper
                                        .defaultConfiguration()
                                        .setSeed(1L)
-                                       .setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toSeconds(20), 1, TimeUnit.SECONDS))
+                                       .setClock(new Configuration.ApproximateMonotonicClockConfiguration((int) TimeUnit.MINUTES.toSeconds(10), 1, TimeUnit.SECONDS))
                                        .setSUT(() -> new InJvmSut(cluster))
                                        .setKeyspaceDdl("CREATE KEYSPACE IF NOT EXISTS " + schema.keyspace + " WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 3};")
                                        .setSchemaProvider((seed, sut) -> schema)
