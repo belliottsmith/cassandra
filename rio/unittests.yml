@@ -14,7 +14,7 @@ shared:
         memory: 16Gi
         priorityClassName: p3
         # started to get evicted with 'Container task exceeded its local ephemeral storage limit "1Gi".'
-        storage: 5Gi
+        storage: 15Gi
       copyFromLocal:
         - src: ~/.m2/settings.xml
           dst: ~/.m2/settings.xml
