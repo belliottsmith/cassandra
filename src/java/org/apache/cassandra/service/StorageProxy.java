@@ -808,7 +808,7 @@ public class StorageProxy implements StorageProxyMBean
                     if (replica.isSelf())
                         commitPaxosLocal(replica, message, responseHandler);
                     else
-                        MessagingService.instance().sendWriteWithCallback(message, replica, responseHandler, allowHints && shouldHint(replica));
+                        MessagingService.instance().sendWriteWithCallback(message, replica, responseHandler);
                 }
                 else
                 {
@@ -1564,7 +1564,7 @@ public class StorageProxy implements StorageProxyMBean
         if (localDc != null)
         {
             for (Replica destination : localDc)
-                MessagingService.instance().sendWriteWithCallback(message, destination, responseHandler, true);
+                MessagingService.instance().sendWriteWithCallback(message, destination, responseHandler);
         }
         if (dcGroups != null)
         {
@@ -1606,7 +1606,7 @@ public class StorageProxy implements StorageProxyMBean
 
             for (Replica replica : forwardToReplicas)
             {
-                MessagingService.instance().callbacks.addWithExpiration(handler, message, replica, handler.replicaPlan.consistencyLevel(), true);
+                MessagingService.instance().callbacks.addWithExpiration(handler, message, replica);
                 logger.trace("Adding FWD message to {}@{}", message.id(), replica);
             }
 
@@ -1622,7 +1622,7 @@ public class StorageProxy implements StorageProxyMBean
         }
 
         Tracing.trace("Sending mutation to remote replica {}", target);
-        MessagingService.instance().sendWriteWithCallback(message, target, handler, true);
+        MessagingService.instance().sendWriteWithCallback(message, target, handler);
         logger.trace("Sending message to {}@{}", message.id(), target);
     }
 
@@ -1741,7 +1741,7 @@ public class StorageProxy implements StorageProxyMBean
 
             Tracing.trace("Enqueuing counter update to {}", replica);
             Message message = Message.outWithFlag(Verb.COUNTER_MUTATION_REQ, cm, MessageFlag.CALL_BACK_ON_FAILURE);
-            MessagingService.instance().sendWriteWithCallback(message, replica, responseHandler, false);
+            MessagingService.instance().sendWriteWithCallback(message, replica, responseHandler);
             return responseHandler;
         }
     }
