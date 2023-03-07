@@ -7,12 +7,14 @@ include:
 # parallelci ignores variables it doesn't know, so safe to define these for reuse
 shared:
   machine: &base-machine
-      numberOfInstances: 1
+      # workPerSplit is used for targetting number of splits, so numberOfInstances acts as the max
+      # splits we can generate and not how many we want
+      numberOfInstances: 100
       resources:
         cpu: 8
-        cpuRequest: 2
+        cpuRequest: 8
         memory: 16Gi
-        priorityClassName: p3
+        priorityClassName: p1
         # started to get evicted with 'Container task exceeded its local ephemeral storage limit "1Gi".'
         storage: 15Gi
       copyFromLocal:
@@ -36,7 +38,7 @@ work:
   unit:
     machine:
       <<: *base-machine
-      numberOfInstances: 100
+      workPerSplit: 20
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
@@ -52,7 +54,7 @@ work:
   jvm-dtest:
     machine:
       <<: *base-machine
-      numberOfInstances: 20
+      workPerSplit: 3
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
@@ -70,7 +72,7 @@ work:
   jvm-dtest-upgrade:
     machine:
       <<: *base-machine
-      numberOfInstances: 20
+      workPerSplit: 2
     split:
       - include_command: 'Log Environment Information'
       - include_command: 'Determine Tests to Run'
