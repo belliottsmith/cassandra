@@ -162,8 +162,8 @@ public class AsyncWriter
                         writeResult.addCallback(callback, commandStore.executor());
                         break;
                     }
-                    context.commands.keySet().forEach(commandStore.commandCache()::cleanupSaveResult);
-                    context.commandsForKeys.keySet().forEach(commandStore.commandsForKeyCache()::cleanupSaveResult);
+                    context.commands.keySet().forEach(commandStore.commandCache()::cleanupAfterSave);
+                    context.commandsForKeys.keySet().forEach(commandStore.commandsForKeyCache()::cleanupAfterSave);
                     setState(State.FINISHED);
                 case FINISHED:
                     break;

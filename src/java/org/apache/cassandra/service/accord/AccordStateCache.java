@@ -55,7 +55,7 @@ public class AccordStateCache
     {
         static final long EMPTY_SIZE = ObjectSizes.measure(new AccordStateCache.Node(null));
 
-        private Node<?, ?> prev;
+        private Node<?, ?> prev, prevEvictable;
         private Node<?, ?> next;
         private int references = 0;
         private long lastQueriedEstimatedSizeOnHeap = 0;
@@ -115,9 +115,9 @@ public class AccordStateCache
             return isLoaded() && lastQueriedEstimatedSizeOnHeap == EMPTY_SIZE;
         }
 
-        void maybeCleanupLoad()
+        LoadingState maybeCleanupLoad()
         {
-            state();
+            return state();
         }
 
         @Override
@@ -212,8 +212,11 @@ public class AccordStateCache
         else
         {
             next.prev = prev;
+            if (next.prevEvictable == node)
+                next.prevEvictable = node.prevEvictable;
         }
 
+        node.prevEvictable = null;
         node.prev = null;
         node.next = null;
         unreferenced--;
@@ -223,6 +226,7 @@ public class AccordStateCache
     {
         if (head != null)
         {
+            node.prevEvictable = null;
             node.prev = null;
             node.next = head;
             head.prev = node;
@@ -258,11 +262,7 @@ public class AccordStateCache
         while (current != null && bytesCached > maxSizeInBytes)
         {
             Node<?, ?> evict = current;
-            current = current.prev;
-
-            if (!canEvict(evict))
-                continue;
-
+            current = current.prevEvictable;
             evict(evict, true);
         }
     }
@@ -277,7 +277,7 @@ public class AccordStateCache
         bytesCached -= evict.lastQueriedEstimatedSizeOnHeap;
     }
 
-    private static <K, V, F extends AsyncResult<V>> F getAsyncResult(NamedMap<Object, F> resultMap, K key)
+    private static <K, V, F extends AsyncResult<V>> F getPendingAsyncResult(NamedMap<Object, F> resultMap, K key)
     {
         F r = resultMap.get(key);
         if (r == null)
@@ -302,7 +302,7 @@ public class AccordStateCache
     private static <K, V> boolean hasActiveAsyncResult(NamedMap<Object, AsyncResult<V>> resultMap, K key)
     {
         // getResult only returns a result if it is not complete, so don't need to check if its been completed
-        return getAsyncResult(resultMap, key) != null;
+        return getPendingAsyncResult(resultMap, key) != null;
     }
 
     private static <K> void mergeAsyncResult(Map<Object, AsyncResult<Void>> resultMap, K key, AsyncResult<Void> result)
@@ -325,11 +325,23 @@ public class AccordStateCache
             node.maybeCleanupLoad();
     }
 
-    private <K> void maybeClearAsyncResult(K key)
+    private <K> void cleanup(K key, boolean hasSaved)
     {
-        maybeCleanupLoad(key);
-        // will clear if it's done
-        getAsyncResult(saveResults, key);
+        Node<?, ?> node = cache.get(key);
+        if (node == null || !node.isLoaded())
+            return; // cannot have anything to do if not loaded or present
+
+        if (!hasSaved && node.referenceCount() > 0)
+            return; // don't waste time trying to cleanup saveResults if we haven't completed a save and cannot become evictable
+
+        // if save results have completed, clear them;
+        // if also unreferenced, add ourselves to the evictable queue
+        if (null == getPendingAsyncResult(saveResults, key) && node.referenceCount() == 0)
+        {
+            Invariants.checkState(node.prevEvictable == null);
+            node.prevEvictable = node.next.prevEvictable;
+            node.next.prevEvictable = node;
+        }
     }
 
     public enum EvictConditions { REF, NOT_LOADED, PENDING_SAVE }
@@ -464,7 +476,7 @@ public class AccordStateCache
         {
             K key = safeRef.global().key();
             logger.trace("Releasing resources for {}: {}", key, safeRef);
-            maybeClearAsyncResult(key);
+            cleanup(key, false);
             Node<K, V> node = (Node<K, V>) cache.get(key);
             Invariants.checkState(node != null, "node is null for %s", key);
             Invariants.checkState(node.references > 0, "references (%d) are zero for %s (%s)", node.references, key, node);
@@ -514,7 +526,7 @@ public class AccordStateCache
 
         public AsyncResult<?> getSaveResult(K key)
         {
-            return getAsyncResult(saveResults, key);
+            return getPendingAsyncResult(saveResults, key);
         }
 
         public void addSaveResult(K key, AsyncResult<Void> result)
@@ -523,9 +535,9 @@ public class AccordStateCache
             mergeAsyncResult(saveResults, key, result);
         }
 
-        public void cleanupSaveResult(K key)
+        public void cleanupAfterSave(K key)
         {
-            getSaveResult(key);
+            cleanup(key, true);
         }
 
         @VisibleForTesting
