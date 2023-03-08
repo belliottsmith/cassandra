@@ -1,5 +1,17 @@
+4.0.3.14
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.13 cie-cassandra-4.0.3
+
 4.0.3.13
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.12 cie-cassandra-4.0.3
+* squash! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio
+* rdar://106358892 (4.0.3: Expire native requests based on their admission time) (#3313)
+* rdar://106159158 (4.0.3: Backport CASSANDRA-18125 AtomicBTreePartition update accounting) (#3306)
+* rdar://106306067 Migrate unit tests off p3 and to p1 (#3311)
+* rdar://105451675 (Improve logging when handling log records with update time based on stats file) (#3281)
+* rdar://105232259 (Ignore stats file timestamps when constructing LogRecords) (#3278)
+* Gossip stateMapOrdering does not have correct ordering when both EndpointState are in the bootstrapping set (#3303)
+* rdar://102161217 Adding AciCertificateValidator for mTLS authenticators & ACI specific tests
+* rdar://102161217 Adding new table in C* to store valid client Identities for mTLS authenticator
+* rdar://105473401 (Rio: Split checkstyle into separate ghprb pipeline)
 
 4.0.3.12
 * rdar://104750132 (4.0.3: NPE in PaxosPrepare.checkForLinearizabilityViolation)
