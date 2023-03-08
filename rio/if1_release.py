@@ -143,7 +143,7 @@ def submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_na
     return parse_id_from_local_install_response(resp_json)
 
 
-def await_local_install_complete(local_install_request_id):
+def await_local_install_complete(auth_acack_cookie, local_install_request_id):
     max_attempts = 30
     sleep_secs = 10
     terminal_good_statuses = ['COMPLETED', 'ACTIONS_COMPLETED']
@@ -151,10 +151,11 @@ def await_local_install_complete(local_install_request_id):
 
     url = f'https://if1.carnival.apple.com/Carnival/services/1.0/workflow/request/status?ids={local_install_request_id}'
     headers = {'Content-Type': 'application/json'}
+    cookies = {'acack': auth_acack_cookie}
 
     for num_attempt in range(max_attempts):
         LOGGER.info(f'Making attempt {num_attempt} out of {max_attempts} to fetch local install status...')
-        resp = requests.get(url=url, headers=headers)
+        resp = requests.get(url=url, headers=headers, cookies=cookies)
         LOGGER.info(f'Got response for attempt {num_attempt}: {resp.status_code} {resp.text}')
 
         if resp.status_code == requests.codes.ok:
@@ -263,6 +264,7 @@ def main():
     ac_username = get_required_env('AC_USERNAME')
     ac_password = get_required_env('AC_PASSWORD')
 
+    auth_acack_cookie = None
     if not os.environ.get('BUILD_PARAM_SKIP_TO_CONNECT_ROLLOUT'):
         # Pipeline runs may use CONTINUE_LOCAL_INSTALL_REQUEST_ID=<prior_request_id> to continue a prior run in case of an error
         local_install_request_id = None
@@ -276,7 +278,9 @@ def main():
             auth_acack_cookie = get_carnival_auth_cookie(ac_username, ac_password)
             local_install_request_id = submit_local_install(git_committer_email, auth_acack_cookie, carnival_app_name, carnival_build_version)
 
-        await_local_install_complete(local_install_request_id)
+        if auth_acack_cookie is None:
+            auth_acack_cookie = get_carnival_auth_cookie(ac_username, ac_password)
+        await_local_install_complete(auth_acack_cookie, local_install_request_id)
     else:
         LOGGER.info('Skipping directly to Connect rollout...')
 
