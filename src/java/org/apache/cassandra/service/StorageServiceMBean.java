@@ -582,7 +582,8 @@ public interface StorageServiceMBean extends NotificationEmitter
     // to determine if initialization has completed
     public boolean isInitialized();
 
-    public void stopNativeTransport();
+    @Deprecated public default void stopNativeTransport() { stopNativeTransport(false); }
+    public void stopNativeTransport(boolean force);
     public void startNativeTransport();
     public boolean isNativeTransportRunning();
     public void enableNativeTransportOldProtocolVersions();

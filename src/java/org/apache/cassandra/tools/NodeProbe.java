@@ -1246,9 +1246,9 @@ public class NodeProbe implements AutoCloseable
         }
     }
 
-    public void stopNativeTransport()
+    public void stopNativeTransport(boolean force)
     {
-        ssProxy.stopNativeTransport();
+        ssProxy.stopNativeTransport(force);
     }
 
     public void startNativeTransport()

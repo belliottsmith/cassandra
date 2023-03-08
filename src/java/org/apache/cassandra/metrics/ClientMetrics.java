@@ -48,6 +48,7 @@ public final class ClientMetrics
     private Meter requestDiscarded;
     private Meter requestDispatched;
 
+    private Meter timedOutBeforeProcessing;
     private Meter protocolException;
     private Meter unknownException;
 
@@ -70,6 +71,7 @@ public final class ClientMetrics
 
     public void markRequestDiscarded() { requestDiscarded.mark(); }
     public void markRequestDispatched() { requestDispatched.mark(); }
+    public void markTimedOutBeforeProcessing() { timedOutBeforeProcessing.mark(); }
 
     public List<ConnectedClient> allConnectedClients()
     {
@@ -123,6 +125,7 @@ public final class ClientMetrics
         requestDiscarded = registerMeter("RequestDiscarded");
         requestDispatched = registerMeter("RequestDispatched");
 
+        timedOutBeforeProcessing = registerMeter("TimedOutBeforeProcessing");
         protocolException = registerMeter("ProtocolException");
         unknownException = registerMeter("UnknownException");
 
