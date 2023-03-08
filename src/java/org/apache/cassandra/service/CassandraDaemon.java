@@ -711,6 +711,12 @@ public class CassandraDaemon
             logger.info("Not starting native transport as requested. Use JMX (StorageService->startNativeTransport()) or nodetool (enablebinary) to start it");
     }
 
+    @VisibleForTesting
+    public NativeTransportService nativeTransportService()
+    {
+        return nativeTransportService;
+    }
+
     /**
      * Stop the daemon, ideally in an idempotent manner.
      *
@@ -856,11 +862,18 @@ public class CassandraDaemon
         nativeTransportService.start();
     }
 
+    @Deprecated
     public void stopNativeTransport()
     {
-        if (nativeTransportService != null)
-            nativeTransportService.stop();
+        stopNativeTransport(false);
     }
+
+    public void stopNativeTransport(boolean force)
+    {
+        if (nativeTransportService != null)
+            nativeTransportService.stop(force);
+    }
+
 
     public boolean isNativeTransportRunning()
     {
