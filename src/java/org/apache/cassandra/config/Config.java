@@ -908,7 +908,7 @@ public class Config
 
     public volatile boolean compact_biggest_stcs_bucket_l0 = true;
     public volatile int biggest_bucket_max_sstable_count = 1024;
-    public volatile long biggest_bucket_max_size_bytes = 1 << 30;
+    public volatile long biggest_bucket_max_size_bytes = 16 * 1024 * 1024 * 1024L;
 
     /**
      * Client mode means that the process is a pure client, that uses C* code base but does
