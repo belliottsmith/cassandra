@@ -1,4 +1,5 @@
 4.1.1
+ * Deprecate org.apache.cassandra.hadoop code (CASSANDRA-16984)
  * Fix too early schema version change in sysem local table (CASSANDRA-18291)
  * Fix possible NoSuchFileException when removing a snapshot (CASSANDRA-18211)
  * PaxosPrepare may add instances to the Electorate that are not in gossip (CASSANDRA-18194)
