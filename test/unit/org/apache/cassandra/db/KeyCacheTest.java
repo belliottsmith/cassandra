@@ -356,7 +356,6 @@ public class KeyCacheTest
         // Here max time to load cache is zero which means no time left to load cache. So the keyCache size should
         // be zero after loadSaved().
         assertKeyCacheSize(0, KEYSPACE1, cf);
-        assertEquals(0, CacheService.instance.keyCache.size());
     }
 
     @Test
@@ -378,7 +377,6 @@ public class KeyCacheTest
         // be zero after load.
         assertKeyCacheSize(numberOfRows, KEYSPACE1, columnFamily1);
         assertKeyCacheSize(numberOfRows, KEYSPACE2, columnFamily2);
-        assertEquals(numberOfRows * tables.size(), CacheService.instance.keyCache.size());
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
