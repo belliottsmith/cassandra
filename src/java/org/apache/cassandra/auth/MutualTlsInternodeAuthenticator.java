@@ -21,7 +21,6 @@ package org.apache.cassandra.auth;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
@@ -41,6 +40,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.exceptions.AuthenticationException;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 /*
@@ -138,7 +138,7 @@ public class MutualTlsInternodeAuthenticator implements IInternodeAuthenticator
                                            final String storeType)
     {
         final List<String> allUsers = new ArrayList<>();
-        try (InputStream ksf = Files.newInputStream(Paths.get(outboundKeyStorePath)))
+        try (InputStream ksf = Files.newInputStream(File.getPath(outboundKeyStorePath)))
         {
             final KeyStore ks = KeyStore.getInstance(storeType);
             ks.load(ksf, outboundKeyStorePassword.toCharArray());
