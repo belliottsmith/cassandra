@@ -883,6 +883,12 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> SharedExecutorPool.SHARED.shutdownAndWait(1L, MINUTES)
             );
 
+            // ScheduledExecutors shuts down after MessagingService, as MessagingService may issue tasks to it and
+            // before CommitLog, as any thread calling executeInternal could wait indefinitely
+            // on commitlog allocator (e.g. SSTableReader tidier on non-periodic calling
+            // SystemKeyspace.clearSSTableReadMeter)
+            error = parallelRun(error, executor, () -> ScheduledExecutors.shutdownNowAndWait(1L, MINUTES));
+
             // CommitLog must shut down after Stage, or threads from the latter may attempt to use the former.
             // (ex. A Mutation stage thread may attempt to add a mutation to the CommitLog.)
             error = parallelRun(error, executor, CommitLog.instance::shutdownBlocking);
@@ -890,9 +896,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                 () -> PendingRangeCalculatorService.instance.shutdownAndWait(1L, MINUTES),
                                 () -> shutdownAndWait(Collections.singletonList(JMXBroadcastExecutor.executor))
             );
-
-            // ScheduledExecutors shuts down after MessagingService, as MessagingService may issue tasks to it.
-            error = parallelRun(error, executor, () -> ScheduledExecutors.shutdownNowAndWait(1L, MINUTES));
 
             // Make sure any shutdown hooks registered for DeleteOnExit are released to prevent
             // references to the instance class loaders from being held
