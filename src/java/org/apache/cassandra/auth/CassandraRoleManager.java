@@ -29,6 +29,7 @@ import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -143,7 +144,7 @@ public class CassandraRoleManager implements IRoleManager
     {
         supportedOptions = DatabaseDescriptor.getAuthenticator() instanceof PasswordAuthenticator
                          ? ALLOW_HASHED_PASSWORDS.getBoolean() ? ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD, Option.HASHED_PASSWORD)
-                                                               : ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD) 
+                                                               : ImmutableSet.of(Option.LOGIN, Option.SUPERUSER, Option.PASSWORD)
                          : ImmutableSet.of(Option.LOGIN, Option.SUPERUSER);
         alterableOptions = DatabaseDescriptor.getAuthenticator() instanceof PasswordAuthenticator
                          ? ALLOW_HASHED_PASSWORDS.getBoolean() ? ImmutableSet.of(Option.PASSWORD, Option.HASHED_PASSWORD)
@@ -447,6 +448,13 @@ public class CassandraRoleManager implements IRoleManager
         {
             logger.warn("CassandraRoleManager skipped default role setup: some nodes were not ready");
             throw e;
+        }
+        catch (Throwable e)
+        {
+            if (Throwables.getRootCause(e) instanceof InterruptedException)
+                logger.warn("CassandraRoleManager skipped default role setup: execution interupted, probably shutting down");
+            else
+                throw e;
         }
     }
 
