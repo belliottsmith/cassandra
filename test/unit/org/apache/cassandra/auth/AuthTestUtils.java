@@ -223,8 +223,9 @@ public class AuthTestUtils
     public static List<Object[]> setupParameterizedTestWithVariousCertificateTypes()
     {
         final List<Object[]> paths = new ArrayList<>();
-        paths.add(new Object[]{ "auth/SampleCorpCertificate.pem", "urn:certmanager:idmsGroup/845340" });
-        paths.add(new Object[]{ "auth/SampleBedRockCertificate.pem", "urn:bedrock:ns/1273976/uid/1273978" });
+        paths.add(new Object[]{ "auth/SampleCorpCertificate.pem", "urn:certmanager:idmsGroup/8073850" , "1405206"});
+        paths.add(new Object[]{ "auth/SampleBedRockCertificate.pem", "urn:bedrock:ns/1234/uid/5678", "1405206" });
+        paths.add(new Object[]{ "auth/SampleKubeCertificate.pem", "urn:appcertname:identityName/testApp.kube", "1399644" });
         return paths;
     }
 }

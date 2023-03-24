@@ -24,7 +24,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -147,11 +146,15 @@ public class MutualTlsInternodeAuthenticator implements IInternodeAuthenticator
             while (enumeration.hasMoreElements())
             {
                 final String alias = enumeration.nextElement();
-                final Certificate certificate = ks.getCertificate(alias);
-                final X509Certificate castedCert = (X509Certificate) certificate;
+                final Certificate[] chain = ks.getCertificateChain(alias);
+                if (chain == null)
+                {
+                    logger.warn("Full chain/private key is not present in the keystore for certificate {}", alias);
+                    continue;
+                }
                 try
                 {
-                    allUsers.add(certificateValidator.identity(new X509Certificate[]{ castedCert }));
+                    allUsers.add(certificateValidator.identity(chain));
                 }
                 catch (AuthenticationException e)
                 {
