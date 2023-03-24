@@ -73,7 +73,7 @@ public final class PathUtils
         if (StorageService.instance.isDaemonSetupCompleted())
             setDeletionListener(ignore -> {});
         else
-            logger.trace("Deleting file during startup: {}", path);
+            logger.info("Deleting file during startup: {}", path);
     };
 
     public static FileChannel newReadChannel(Path path) throws NoSuchFileException
