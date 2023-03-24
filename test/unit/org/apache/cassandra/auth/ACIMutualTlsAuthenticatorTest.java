@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runners.Parameterized;
@@ -38,6 +39,9 @@ import static org.junit.Assert.assertEquals;
 
 public class ACIMutualTlsAuthenticatorTest extends MutualTlsAuthenticatorTest
 {
+    @Parameterized.Parameter(2)
+    public String dsid;
+
     @Parameterized.Parameters()
     public static Collection<Object[]> versions()
     {
@@ -47,15 +51,19 @@ public class ACIMutualTlsAuthenticatorTest extends MutualTlsAuthenticatorTest
     @BeforeClass
     public static void setup()
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
         MutualTlsAuthenticatorTest.setup();
+    }
+
+    @Before
+    public void before()
+    {
+        System.setProperty("cassandra.issueingcertificate.dsid", dsid);
     }
 
     @After
     public void after() throws IOException, TimeoutException
     {
         super.after();
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
     }
 
     String getValidatorClass()
@@ -64,26 +72,26 @@ public class ACIMutualTlsAuthenticatorTest extends MutualTlsAuthenticatorTest
     }
 
     @Test
-    public void testGDBCCertONGDBCCluster() throws IOException, TimeoutException, CertificateException
+    public void testGCBDCertONGCBDCluster() throws IOException, TimeoutException, CertificateException
     {
-        // set cassandra.issueingcertificate.dsid property to GDBC dsid
+        // set cassandra.issueingcertificate.dsid property to GCBD dsid
         System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
         initializeIdentityRolesTable("urn:appcertname:identityName/sredbv42-sredb-cassandra.cassandra-prod.kube");
 
-        final Certificate[] chain = loadCertificateChain("auth/SampleGDBCCertificate.pem");
+        final Certificate[] chain = loadCertificateChain("auth/SampleGCBDCertificate.pem");
         final MutualTlsAuthenticator authenticator = createAndInitializeMtlsAuthenticator();
         final IAuthenticator.SaslNegotiator saslNegotiator = authenticator.newSaslNegotiator(getMockInetAddress(), chain);
         assertEquals("readonly_user", saslNegotiator.getAuthenticatedUser().getName());
     }
 
     @Test
-    public void testGDBCCertONNonGDBCCluster() throws IOException, TimeoutException, CertificateException
+    public void testGCBDCertONNonGCBDCCluster() throws IOException, TimeoutException, CertificateException
     {
-        // set cassandra.issueingcertificate.dsid property to Non-GDBC dsid
+        // set cassandra.issueingcertificate.dsid property to Non-GCBD dsid
         System.setProperty("cassandra.issueingcertificate.dsid", "1399644");
         initializeIdentityRolesTable("urn:appcertname:identityName/sredbv42-sredb-cassandra.cassandra-prod.kube");
 
-        final Certificate[] chain = loadCertificateChain("auth/SampleGDBCCertificate.pem");
+        final Certificate[] chain = loadCertificateChain("auth/SampleGCBDCertificate.pem");
         final MutualTlsAuthenticator authenticator = createAndInitializeMtlsAuthenticator();
         final IAuthenticator.SaslNegotiator saslNegotiator = authenticator.newSaslNegotiator(getMockInetAddress(), chain);
         expectedException.expect(AuthenticationException.class);

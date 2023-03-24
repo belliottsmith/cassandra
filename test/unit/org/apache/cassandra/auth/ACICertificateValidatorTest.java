@@ -22,7 +22,7 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.util.Collection;
 
-import org.junit.BeforeClass;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -39,6 +39,8 @@ public class ACICertificateValidatorTest
     public String certificatePath;
     @Parameterized.Parameter(1)
     public String identity;
+    @Parameterized.Parameter(2)
+    public String ouid;
 
     @Parameterized.Parameters()
     public static Collection<Object[]> versions()
@@ -46,10 +48,10 @@ public class ACICertificateValidatorTest
         return AuthTestUtils.setupParameterizedTestWithVariousCertificateTypes();
     }
 
-    @BeforeClass
-    public static void setup()
+    @Before
+    public void setup()
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
+        System.setProperty("cassandra.issueingcertificate.dsid", ouid);
     }
 
     @Test
@@ -80,7 +82,7 @@ public class ACICertificateValidatorTest
     public void validateIdentityTest()
     {
         // URN should be a valid identity
-        assertTrue(ACICertificateValidator.validateIdentity("urn:certmanager:idmsGroup/845340"));
+        assertTrue(ACICertificateValidator.validateIdentity("urn:certmanager:idmsGroup/8073850"));
         // a non urn should return false
         assertFalse(ACICertificateValidator.validateIdentity("non-urn"));
     }

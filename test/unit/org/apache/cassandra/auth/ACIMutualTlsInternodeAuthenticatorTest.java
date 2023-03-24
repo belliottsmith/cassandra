@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runners.Parameterized;
@@ -38,6 +39,9 @@ import static org.junit.Assert.assertFalse;
 
 public class ACIMutualTlsInternodeAuthenticatorTest extends MutualTlsInternodeAuthenticatorTest
 {
+    @Parameterized.Parameter(2)
+    public String dsid;
+
     @Parameterized.Parameters()
     public static Collection<Object[]> versions()
     {
@@ -47,8 +51,14 @@ public class ACIMutualTlsInternodeAuthenticatorTest extends MutualTlsInternodeAu
     @BeforeClass
     public static void initialize()
     {
-        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
         MutualTlsInternodeAuthenticatorTest.initialize();
+    }
+
+    @Before
+    public void before()
+    {
+        System.setProperty("cassandra.issueingcertificate.dsid", dsid);
+        super.before();
     }
 
     String getValidatorClass()
@@ -59,11 +69,12 @@ public class ACIMutualTlsInternodeAuthenticatorTest extends MutualTlsInternodeAu
     @Test
     public void testUnauthorizedUser() throws IOException, CertificateException, TimeoutException
     {
+        System.setProperty("cassandra.issueingcertificate.dsid", "1405206");
         final InetAddressAndPort address = InetAddressAndPort.getByName("127.0.0.1");
         final Map<String, String> parameters = getParams();
         final IInternodeAuthenticator authenticator = new MutualTlsInternodeAuthenticator(parameters);
-        // GDBC certificate is not present in the outbound keystore, so its identity is not trusted
-        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleGDBCCertificate.pem");
+        // GCBD certificate is not present in the outbound keystore, so its identity is not trusted
+        final Certificate[] clientCertificates = loadCertificateChain("auth/SampleGCBDCertificate.pem");
         assertFalse(authenticator.authenticate(address.getAddress(), address.getPort(), clientCertificates, INBOUND));
     }
 }
