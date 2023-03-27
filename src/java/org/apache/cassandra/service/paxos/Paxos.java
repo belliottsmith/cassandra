@@ -796,6 +796,7 @@ public class Paxos
             if (failedAttemptsDueToContention > 0)
             {
                 casWriteMetrics.contention.update(failedAttemptsDueToContention);
+                casWriteMetrics.contentionEstimatedHistogram.add(failedAttemptsDueToContention);
                 openAndGetStore(metadata).metric.topCasPartitionContention.addSample(partitionKey.getKey(), failedAttemptsDueToContention);
             }
 
@@ -900,7 +901,10 @@ public class Paxos
             TableMetadata table = read.metadata();
             Keyspace.open(table.keyspace).getColumnFamilyStore(table.name).metric.coordinatorReadLatency.update(latency, TimeUnit.NANOSECONDS);
             if (failedAttemptsDueToContention > 0)
+            {
                 casReadMetrics.contention.update(failedAttemptsDueToContention);
+                casReadMetrics.contentionEstimatedHistogram.add(failedAttemptsDueToContention);
+            }
         }
     }
 
