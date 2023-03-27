@@ -1431,4 +1431,7 @@ public class Config
      */
     @Deprecated
     public volatile Boolean paxos_state_purging_enabled = null;
+
+    public enum CasStringAppend { OSS, EMPTY }
+    public CasStringAppend cie_cas_string_append = CasStringAppend.OSS;
 }
