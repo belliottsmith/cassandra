@@ -21,12 +21,14 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.metrics.ClientRequestsMetricsHolder;
 import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.*;
@@ -35,6 +37,7 @@ import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FastByteOperations;
+import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * Static helper methods and classes for constants.
@@ -496,10 +499,24 @@ public abstract class Constants
                 ByteBuffer current = getCurrentCellBuffer(partitionKey, params);
                 ByteBuffer newValue;
                 if (current == null)
-                    return;
-                newValue = ByteBuffer.allocate(current.remaining() + append.remaining());
-                FastByteOperations.copy(current, current.position(), newValue, newValue.position(), current.remaining());
-                FastByteOperations.copy(append, append.position(), newValue, newValue.position() + current.remaining(), append.remaining());
+                {
+                    // CIE 3.0.20.x added string += support but the implementation was not consistent with other add
+                    // logic: normally we do null + "str" = null, but we did null + "str" = "str" in this specific case.
+                    // To make sure it is safe to migrate to the OSS logic, we first need to know if this behavior is used
+                    // by existing 3.0.20.x users
+                    // see rdar://107025804 (4.0.3 rebase breaking change needs migrate for string concat with CAS)
+                    ClientRequestsMetricsHolder.casWriteMetrics.casStringAppendEmpty.inc();
+                    NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 1, TimeUnit.MINUTES,
+                                     "CAS saw a string append with empty cell against table {} against column {}",
+                                     () -> new Object[]{ params.metadata, column.debugString() });
+                    newValue = append;
+                }
+                else
+                {
+                    newValue = ByteBuffer.allocate(current.remaining() + append.remaining());
+                    FastByteOperations.copy(current, current.position(), newValue, newValue.position(), current.remaining());
+                    FastByteOperations.copy(append, append.position(), newValue, newValue.position() + current.remaining(), append.remaining());
+                }
                 params.addCell(column, newValue);
             }
         }
