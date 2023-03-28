@@ -5158,9 +5158,4 @@ public class DatabaseDescriptor
     {
         return conf.host_replacement_filter_same_rack_enabled;
     }
-
-    public static Config.CasStringAppend getCasStringAppend()
-    {
-        return conf.cie_cas_string_append;
-    }
 }
