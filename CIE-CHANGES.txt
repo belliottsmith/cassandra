@@ -1,5 +1,12 @@
+4.0.3.15
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.14 cie-cassandra-4.0.3
+
 4.0.3.14
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.13 cie-cassandra-4.0.3
+* squash! rdar://60088169 p30198445 OPS/MTR Add CAS/ConditionNot metrics, track recent latency (#3351)
+* rdar://107200687 (4.0.3.14 backport cas append string config and metrics) (#3350)
+* rdar://82689472 (Increase in compaction activity in iadresponse since 3.0.24 upgrade (caused by compact_biggest_stcs_bucket_l0 default changing to true)) (#2564) (#3310)
+* squash! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio
+* fixup! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio
 
 4.0.3.13
 * squash! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio
