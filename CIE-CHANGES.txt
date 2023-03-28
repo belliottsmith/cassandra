@@ -1,5 +1,9 @@
+4.0.3.16
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.15 cie-cassandra-4.0.3
+
 4.0.3.15
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.14 cie-cassandra-4.0.3
+* Revert "rdar://107200687 (4.0.3.14 backport cas append string config and metrics) (#3350)"
+* rdar://107140987 (Fix issue with loading certificate from the keystore in Internode authenticator)
 
 4.0.3.14
 * squash! rdar://60088169 p30198445 OPS/MTR Add CAS/ConditionNot metrics, track recent latency (#3351)
