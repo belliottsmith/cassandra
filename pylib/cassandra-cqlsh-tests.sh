@@ -74,7 +74,7 @@ set -e # enable immediate exit if venv setup fails
 virtualenv --python=$PYTHON_VERSION venv
 source venv/bin/activate
 # 3.11 needs the newest pip
-curl -sS https://bootstrap.pypa.io/get-pip.py | $PYTHON_VERSION
+python -m ensurepip --upgrade
 
 pip install -r ${CASSANDRA_DIR}/pylib/requirements.txt
 pip freeze
