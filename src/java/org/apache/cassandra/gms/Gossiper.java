@@ -2494,11 +2494,15 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             if (isEnabled()) // shutdown can be called multiple times, so make sure to only stop if enabled
             {
                 // Make sure to stop on the gossip stage, this is to make sure any in-flight tasks
-                // see that gossip was halted so they can no-op
-                runInGossipStageBlocking(this::stop);
+                // see that gossip was halted so they can no-op. It will cancel the GossipTask.
+                stop();
+                // Don't return until tasks from stop() have been executed
+                // Gossip messages run in the stage, so by blocking on the stage we know that everything from now on will know
+                // that gossip is stopped
+                runInGossipStageBlocking(() -> {});
             }
+            ExecutorUtils.shutdownAndWait(timeout, unit, Gossiper.executor);
         }
-        ExecutorUtils.shutdownAndWait(timeout, unit, Gossiper.executor);
     }
 
     /**
