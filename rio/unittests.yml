@@ -58,7 +58,7 @@ work:
       - include_command: 'Determine Tests to Run'
         environment:
           CASSANDRA_TEST_KIND: distributed
-          SPLIT_FILTER: "| grep -v upgrade"
+          SPLIT_FILTER: "| grep -v -e distributed/upgrade/ -e distributed/fuzz/"
       - include_command: 'Log Environment Information'
     map:
       - include_command: 'Log Environment Information'
@@ -76,7 +76,7 @@ work:
       - include_command: 'Determine Tests to Run'
         environment:
           CASSANDRA_TEST_KIND: distributed
-          SPLIT_FILTER: "| grep upgrade"
+          SPLIT_FILTER: "| grep distributed/upgrade/"
     map:
       - include_command: 'Log Environment Information'
       - include_command: 'Display Splits'
@@ -89,4 +89,22 @@ work:
             echo 'skipping upgrade tests'
             exit 0
             fi
+      - include_command: 'Log Environment Information'
+  jvm-dtest-fuzz:
+    machine:
+      <<: *base-machine
+      workPerSplit: 1
+    split:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Determine Tests to Run'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
+          SPLIT_FILTER: "| grep distributed/fuzz/"
+    map:
+      - include_command: 'Log Environment Information'
+      - include_command: 'Display Splits'
+      - include_command: 'Build dtest jar'
+      - include_command: 'Run Tests (testclasslist)'
+        environment:
+          CASSANDRA_TEST_KIND: distributed
       - include_command: 'Log Environment Information'
