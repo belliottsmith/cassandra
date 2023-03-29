@@ -87,8 +87,8 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/**/*
-          - parallel-output/**/*
+          - unified-output/**/build/test/logs/
+          - parallel-output/
 
   - <<: *prb_unit
     group: ghprb-jvm-dtest
@@ -137,7 +137,7 @@ builds:
         trim: false
       logs:
         paths:
-          - parallel-output/**/*
+          - parallel-output/
     finally:
       radar:
         annotate: false
@@ -188,8 +188,8 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/**/*
-          - parallel-output/**/*
+          - unified-output/**/build/test/logs/
+          - parallel-output/
     package:
       release: false
       carnival:
@@ -257,7 +257,7 @@ builds:
         trim: false
       logs:
         paths:
-          - parallel-output/**/*
+          - parallel-output/
     finally:
       tag:
         enabled: false
@@ -309,8 +309,8 @@ builds:
           - parallel-output/**/build/test/output/*
       logs:
         paths:
-          - unified-output/**/build/test/logs/**/*
-          - parallel-output/**/*
+          - unified-output/**/build/test/logs/
+          - parallel-output/
     package:
       release: true
       carnival:
@@ -445,7 +445,7 @@ builds:
           - build/test/output/*
       logs:
         paths:
-          - build/test/logs/**/*
+          - build/test/logs/
 
   - group: ghprb-checkstyle
     jenkins:
