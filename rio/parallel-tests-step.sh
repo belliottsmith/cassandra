@@ -29,11 +29,13 @@ else
     "$PARALLELOUTPUT"
   )
   if [[ "$target" == "unit" ]]; then
-    args+=( --exclude-work jvm-dtest --exclude-work jvm-dtest-upgrade)
+    args+=( --exclude-work jvm-dtest --exclude-work jvm-dtest-upgrade --exclude-work jvm-dtest-fuzz)
   elif [[ "$target" == "jvm-dtest" ]]; then
-    args+=( --exclude-work unit --exclude-work jvm-dtest-upgrade)
+    args+=( --exclude-work unit --exclude-work jvm-dtest-upgrade --exclude-work jvm-dtest-fuzz)
   elif [[ "$target" == "jvm-dtest-upgrade" ]]; then
-    args+=( --exclude-work unit --exclude-work jvm-dtest)
+    args+=( --exclude-work unit --exclude-work jvm-dtest --exclude-work jvm-dtest-fuzz)
+  elif [[ "$target" == "jvm-dtest-fuzz" ]]; then
+    args+=( --exclude-work unit --exclude-work jvm-dtest --exclude-work jvm-dtest-upgrade)
   fi
   timeout 160m "$RIO_DIR/parallel-tests.sh" "${args[@]}"
 fi
