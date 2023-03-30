@@ -8,7 +8,9 @@ Merged from 4.0:
  * Update zstd-jni library to version 1.5.5 (CASSANDRA-18429)
  * Backport CASSANDRA-17205 to 4.0 branch - Remove self-reference in SSTableTidier (CASSANDRA-18332)
 Merged from 3.11:
+3.11.15
  * Suppress CVE-2022-45688 (CASSANDRA-18389)
+ * Fix Splitter sometimes creating more splits than requested (CASSANDRA-18013)
 Merged from 3.0:
  * Save host id to system.local and flush immediately after startup (CASSANDRA-18153)
 
