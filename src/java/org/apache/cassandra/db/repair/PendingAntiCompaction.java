@@ -216,7 +216,16 @@ public class PendingAntiCompaction
 
         protected AcquireResult acquireSSTables()
         {
-            return cfs.runWithCompactionsDisabled(this::acquireTuple, predicate, OperationType.ANTICOMPACTION,false, false, false);
+            // May return null if unable to interrupt in-progress compactions, including
+            // anticompactions from other repairs, in which case throw the acquire
+            // exception so that the caller will retry until timeout.
+            AcquireResult result = cfs.runWithCompactionsDisabled(this::acquireTuple, predicate, OperationType.ANTICOMPACTION,
+                                                                  false, false, false);
+            if (result == null)
+            {
+                throw new SSTableAcquisitionException("Unable to interrupt active compactions");
+            }
+            return result;
         }
 
         public AcquireResult call()
@@ -249,7 +258,6 @@ public class PendingAntiCompaction
 
                     if (currentTimeMillis() - start > delay)
                         logger.warn("{} Timed out waiting to acquire sstables", sessionID, e);
-
                 }
                 catch (Throwable t)
                 {
@@ -279,7 +287,7 @@ public class PendingAntiCompaction
             return CompactionManager.instance.submitPendingAntiCompaction(result.cfs, tokenRanges, result.refs, result.txn, parentRepairSession, isCancelled);
         }
 
-        private static boolean shouldAbort(AcquireResult result)
+        private boolean shouldAbort(AcquireResult result)
         {
             if (result == null)
                 return true;
@@ -289,13 +297,22 @@ public class PendingAntiCompaction
             // possibly even a repair session, and we need to abort to prevent sstables from moving between sessions.
             return result.refs != null && Iterables.any(result.refs, sstable -> {
                 StatsMetadata metadata = sstable.getSSTableMetadata();
-                return metadata.pendingRepair != NO_PENDING_REPAIR || metadata.repairedAt != UNREPAIRED_SSTABLE;
+                boolean abort = metadata.pendingRepair != NO_PENDING_REPAIR || metadata.repairedAt != UNREPAIRED_SSTABLE;
+                if (abort)
+                {
+                    logger.info("Repair session {} aborting anticompaction for sstable {} - likely due to another active repair. " +
+                                "Token range [{},{}] sstableLevel {} pendingRepair {} repairedAt {}",
+                                parentRepairSession, sstable.descriptor.baseFilename(),
+                                sstable.first.getToken(), sstable.last.getToken(), metadata.sstableLevel,
+                                metadata.pendingRepair, metadata.repairedAt);
+                }
+                return abort;
             });
         }
 
         public Future<List<Void>> apply(List<AcquireResult> results)
         {
-            if (Iterables.any(results, AcquisitionCallback::shouldAbort))
+            if (Iterables.any(results, this::shouldAbort))
             {
                 // Release all sstables, and report failure back to coordinator
                 for (AcquireResult result : results)
