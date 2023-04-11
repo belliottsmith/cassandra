@@ -1,5 +1,12 @@
+4.0.3.17
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.16 cie-cassandra-4.0.3
+
 4.0.3.16
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.15 cie-cassandra-4.0.3
+* rdar://107898378 (4.0.3: Rio cleanups - branch rules, junit errs, remove old harry ghprb) (#3373)
+* rdar://107770942 (4.0.3: Retry anticompaction if unable to cancel running compactions) (#3368)
+* rdar://107373804 (4.0.x: Workaround rio/python log globbing creating huge tarballs)
+* rdar://107373674 (4.0.x: Move distributed.fuzz tests to separate GHPRB)
+* rdar://107342918 (4.0.3: Avoid Gossiper deadlock during in-jvm dtest shutdown)
 
 4.0.3.15
 * Revert "rdar://107200687 (4.0.3.14 backport cas append string config and metrics) (#3350)"
