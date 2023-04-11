@@ -14,7 +14,7 @@
 #
 # The version of the build is determined from the contents of the CIE-VERSION file (previously
 # it was hardcoded in the build script on each branch, but moving it to a separate file
-# allows the same Rio config to be used across all branches with branchRule whitelisting).
+# allows the same Rio config to be used across all branches with branchRule includePatterns.
 # It holds the last released version of the branch and optionally a custom suffix for
 # experimental builds, e.g. 3.0.19.0-ndeepq.  The snapshot builds the 'next' suffix is supplied
 # if no custom suffix is provided.
@@ -56,7 +56,7 @@ notify:
     enabled: false
 
 branchRules:
-  whitelist:
+  includePatterns:
     - 'cie-cassandra-(?<version>4(\.\d+)*)(-(?<variant>\w+))?'
 
 builds:
@@ -84,7 +84,7 @@ builds:
     reports:
       junit:
         paths:
-          - parallel-output/**/build/test/output/*
+          - parallel-output/**/build/test/output/*.xml
       logs:
         paths:
           - unified-output/**/build/test/logs/
@@ -185,7 +185,7 @@ builds:
     reports:
       junit:
         paths:
-          - parallel-output/**/build/test/output/*
+          - parallel-output/**/build/test/output/*.xml
       logs:
         paths:
           - unified-output/**/build/test/logs/
@@ -306,7 +306,7 @@ builds:
     reports:
       junit:
         paths:
-          - parallel-output/**/build/test/output/*
+          - parallel-output/**/build/test/output/*.xml
       logs:
         paths:
           - unified-output/**/build/test/logs/
@@ -416,36 +416,6 @@ builds:
     finally:
       notify:
         <<: *notify
-
-  #
-  # Harry build - PRB
-  #
-  - group: ghprb-harry
-    build:
-      steps:
-        - ./rio/run-harry-prb.sh
-      template: freestyle:v4:prb
-    timeout: 120
-    reports:
-      junit: false
-    machine:
-      baseImage: docker.apple.com/cpbuild/applejdk-8:latest
-    finally:
-      radar:
-        annotate: false
-      tag:
-        enabled: false
-    secrets:
-      names:
-        - rio-api-token
-        - rio-test-user-email
-    reports:
-      junit:
-        paths:
-          - build/test/output/*
-      logs:
-        paths:
-          - build/test/logs/
 
   - group: ghprb-checkstyle
     jenkins:
