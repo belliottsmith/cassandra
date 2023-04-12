@@ -1,5 +1,8 @@
+4.0.3.18
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.17 cie-cassandra-4.0.3
+
 4.0.3.17
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.16 cie-cassandra-4.0.3
+* rdar://107919090 (4.0.3: Deadlock handling updated sstable metadata if disk boundaries require reloading) (#3374)
 
 4.0.3.16
 * rdar://107898378 (4.0.3: Rio cleanups - branch rules, junit errs, remove old harry ghprb) (#3373)
