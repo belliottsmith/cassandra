@@ -1368,6 +1368,12 @@ server_encryption_options:
   # to create SSLContext. By default, outbound_keystore is the same as keystore indicating mTLS is not enabled.
 #  outbound_keystore: conf/.keystore
 #  outbound_keystore_password: cassandra
+
+  # Configure the way Cassandra creates SSL contexts.
+  # To use PEM-based key material, see org.apache.cassandra.security.PEMBasedSslContextFactory
+  # ssl_context_factory:
+  #     # Must be an instance of org.apache.cassandra.security.ISslContextFactory
+  #     class_name: org.apache.cassandra.security.DefaultSslContextFactory
   # Verify peer server certificates
   require_client_auth: false
   # Set to a valid trustore if require_client_auth is true
@@ -1407,6 +1413,11 @@ client_encryption_options:
   # Set keystore and keystore_password to valid keystores if enabled is true
   keystore: conf/.keystore
   keystore_password: cassandra
+  # Configure the way Cassandra creates SSL contexts.
+  # To use PEM-based key material, see org.apache.cassandra.security.PEMBasedSslContextFactory
+  # ssl_context_factory:
+  #     # Must be an instance of org.apache.cassandra.security.ISslContextFactory
+  #     class_name: org.apache.cassandra.security.DefaultSslContextFactory
   # Verify client certificates
   require_client_auth: false
   # require_endpoint_verification: false
