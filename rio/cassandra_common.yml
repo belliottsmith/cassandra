@@ -61,6 +61,8 @@ commands:
       # Make sure to match the pattern expected in the parallel-tests-step.sh for checking junit xml files
       echo "<testsuite hostname=\"${K8S_PHYSICAL_NODE_NAME}\" name=\"timedout.${HOSTNAME}.timedout\" errors=\"1\" failures=\"0\" tests=\"1\"><testcase name=\"mappertimedout\" classname=\"so.sad.timed.out\" time=\"0.001\"><error type=\"timeout\"/></testcase></testsuite>" > "$PARALLEL_OUTPUT_DIR/build/test/output/TEST-${HOSTNAME}-timedout.xml"
     fi
+    # Workaround rdar://107855759 (Build archive unavailable to download - perhaps due to permission error)
+    chmod -R go+r "$PARALLEL_OUTPUT_DIR"
     exit "$rc"
 - name: Build dtest jar
   timeout: PT15M
