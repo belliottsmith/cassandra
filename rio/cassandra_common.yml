@@ -43,7 +43,7 @@ commands:
     runner_timeout="$((test_timeout_in_minutes > 160 ? 160 : test_timeout_in_minutes))m"
 
     eval "${BEFORE_TEST:-}"
-    timeout "${runner_timeout}" ant -f rio-build.xml testclasslist -Dno-checkstyle -Dtest.timeout="$test_timeout" -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=$CASSANDRA_TEST_KIND
+    timeout "${runner_timeout}" ant -f rio-build.xml testclasslist -Dno-checkstyle=true -Dtest.timeout="$test_timeout" -Dtest.classlistfile=$PARALLEL_INPUT_DIR/input  -Dtest.classlistprefix=$CASSANDRA_TEST_KIND
     rc=$?
 
     if [ -e build/test/output ]; then
