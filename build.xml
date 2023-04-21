@@ -2022,6 +2022,19 @@
 
   </target>
 
+  <!--
+  Builds the SBOM using the CycloneDX Maven plugin. This plugin analyzes dependencies from the bytecode and POM, so we
+  need to have a JAR and POMs ready.
+  -->
+  <target name="sbom" depends="write-poms,jar">
+      <echo>Building SBOM...</echo>
+      <property name="sh-cmd">-c 'mvn -f ${build.dir}/${final.name}.pom org.cyclonedx:cyclonedx-maven-plugin:2.7.3:makeAggregateBom'</property>
+      <echo>Executing command: ${sh-cmd}</echo>
+      <exec dir="." executable="sh" failonerror="true">
+          <arg line="${sh-cmd}" />
+      </exec>
+  </target>
+
   <import file="${basedir}/.build/build-resolver.xml"/>
   <import file="${basedir}/.build/build-rat.xml"/>
   <import file="${basedir}/.build/build-owasp.xml"/>

@@ -19,8 +19,8 @@ VERSION="$MAJOR_VERSION"
 
 export JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
 ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" realclean
-ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true artifacts dtest-jar sources-jar
-ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true javadoc-jar || true
+ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true artifacts dtest-jar sources-jar sbom
+ant -f rio-build.xml -Drelease=true -Dbase.version="${VERSION}" -Dno-javadoc=true -Dno-checkstyle=true javadoc-jar || true
 
 GROUP_DIR=.dist/publishable/com/apple/cie/db/cassandra
 
@@ -61,5 +61,10 @@ find .dist -ls
 find /workspace/.cicd/ -ls
 ci stage-lib '.dist/publishable/**' -v5 --allow-external 
 find /workspace/.cicd/ -ls
+
+# Stage SBOM
+ci stage-sbom --help
+cat build/target/bom.json
+ci stage-sbom build/target/bom.json
 
 set +xe
