@@ -495,10 +495,10 @@ public class CompactionsCQLTest extends CQLTester
         getCurrentColumnFamilyStore().forceBlockingFlush(ColumnFamilyStore.FlushReason.UNIT_TESTS);
 
         LeveledCompactionStrategy lcs = (LeveledCompactionStrategy) getCurrentColumnFamilyStore().getCompactionStrategyManager().getUnrepairedUnsafe().first();
-        LeveledCompactionTask lcsTask;
+        AbstractCompactionTask lcsTask;
         while (true)
         {
-            lcsTask = (LeveledCompactionTask) lcs.getNextBackgroundTask(0);
+            lcsTask = lcs.getNextBackgroundTask(0);
             if (lcsTask != null)
             {
                 lcsTask.execute(CompactionManager.instance.active);
@@ -544,7 +544,7 @@ public class CompactionsCQLTest extends CQLTester
             // ignored
         }
 
-        lcsTask = (LeveledCompactionTask) lcs.getNextBackgroundTask(0);
+        lcsTask = lcs.getNextBackgroundTask(0);
         try
         {
             assertNotNull(lcsTask);
