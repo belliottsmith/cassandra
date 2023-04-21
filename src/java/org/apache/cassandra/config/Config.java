@@ -1204,7 +1204,7 @@ public class Config
      * of linearizability violations. this facility should be activated only for debugging Cassandra or by power users
      * who are investigating their own application behaviour.
      */
-    public volatile PaxosOnLinearizabilityViolation paxos_on_linearizability_violations = PaxosOnLinearizabilityViolation.ignore;
+    public volatile PaxosOnLinearizabilityViolation paxos_on_linearizability_violations = PaxosOnLinearizabilityViolation.log;
 
     /**
      * See {@link PaxosStatePurging} default is legacy.
