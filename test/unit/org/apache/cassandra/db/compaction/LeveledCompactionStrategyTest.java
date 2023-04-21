@@ -101,6 +101,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class LeveledCompactionStrategyTest
 {
@@ -633,9 +634,20 @@ public class LeveledCompactionStrategyTest
                 {
                     try
                     {
-                        assertTrue(task instanceof LeveledCompactionTask);
-                        LeveledCompactionTask lcsTask = (LeveledCompactionTask) task;
-                        level = Math.max(level, lcsTask.getLevel());
+                        if (task instanceof LeveledCompactionTask)
+                        {
+                            LeveledCompactionTask lcsTask = (LeveledCompactionTask) task;
+                            level = Math.max(level, lcsTask.getLevel());
+                        }
+                        else if (task instanceof SingleSSTableLCSTask)
+                        {
+                            SingleSSTableLCSTask singleSSTableLCSTask = (SingleSSTableLCSTask) task;
+                            level = Math.max(level, singleSSTableLCSTask.getLevel());
+                        }
+                        else
+                        {
+                            fail("Got unexpected task of type " + task.getClass().getCanonicalName());
+                        }
                     }
                     finally
                     {
