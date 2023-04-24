@@ -1024,10 +1024,12 @@ public class LocalSessionTest extends AbstractRepairTest
 
         // failed session should be gone, but finalized should not, since it hasn't been superseded
         Assert.assertNull(sessions.getSession(failed.sessionID));
-        Assert.assertNotNull(sessions.getSession(finalized.sessionID));
+
+        // the tables in sessions don't exist, and before the session cleanup fix we never cleaned those sessions up, now we do, see LocalSessionsCleanupTest
+        Assert.assertNull(sessions.getSession(finalized.sessionID));
 
         Assert.assertNull(sessions.loadUnsafe(failed.sessionID));
-        Assert.assertNotNull(sessions.loadUnsafe(finalized.sessionID));
+        Assert.assertNull(sessions.loadUnsafe(finalized.sessionID));
 
         // add a finalized superseding session
         LocalSession superseding = sessionWithTime(time, time + 1);

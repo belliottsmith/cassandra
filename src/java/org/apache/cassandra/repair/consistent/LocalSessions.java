@@ -160,7 +160,7 @@ public class LocalSessions implements ActiveRepairService.RepairSuccessListener
     private volatile ImmutableMap<TableId, RepairedState> repairedStates = ImmutableMap.of();
 
     @VisibleForTesting
-    int getNumSessions()
+    public int getNumSessions()
     {
         return sessions.size();
     }
@@ -246,19 +246,41 @@ public class LocalSessions implements ActiveRepairService.RepairSuccessListener
      */
     private boolean isSuperseded(LocalSession session)
     {
+        Map<String, RangesAtEndpoint> ksRanges = new HashMap<>();
         for (TableId tid : session.tableIds)
         {
-            RepairedState state = repairedStates.get(tid);
+            ColumnFamilyStore cfs = ColumnFamilyStore.getIfExists(tid);
+            if (cfs != null)
+            {
+                RepairedState state = repairedStates.get(tid);
 
-            if (state == null)
-                return false;
+                if (state == null)
+                    return false;
 
-            long minRepaired = state.minRepairedAt(session.ranges);
-            if (minRepaired <= session.repairedAt)
-                return false;
+                RangesAtEndpoint localRanges = ksRanges.computeIfAbsent(cfs.keyspace.getName(), StorageService.instance::getLocalReplicas);
+                Set<Range<Token>> ranges = !localRanges.isEmpty() ? intersection(session.ranges, localRanges.ranges()) : session.ranges;
+                long minRepaired = state.minRepairedAt(ranges);
+                if (minRepaired <= session.repairedAt)
+                    return false;
+            }
         }
 
         return true;
+    }
+
+    private Set<Range<Token>> intersection(Collection<Range<Token>> s1, Collection<Range<Token>> s2)
+    {
+        Set<Range<Token>> ranges = new HashSet<>();
+        for (Range<Token> r1 : s1)
+        {
+            for (Range<Token> r2 : s2)
+            {
+                Set<Range<Token>> intersection = r1.intersectionWith(r2);
+                ranges.addAll(intersection);
+            }
+        }
+
+        return ranges;
     }
 
     public RepairedState.Stats getRepairedStats(TableId tid, Collection<Range<Token>> ranges)
