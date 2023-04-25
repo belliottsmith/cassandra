@@ -87,6 +87,9 @@ public enum RequestFailureReason
         if (t instanceof IncompatibleSchemaException)
             return INCOMPATIBLE_SCHEMA;
 
+        if (t instanceof CommitlogShutdownException)
+            return NODE_DOWN;
+
         return UNKNOWN;
     }
 

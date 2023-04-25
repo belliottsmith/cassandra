@@ -36,6 +36,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.exceptions.CommitlogShutdownException;
 import org.apache.cassandra.io.compress.BufferType;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.io.util.FileUtils;
@@ -44,6 +45,7 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.HeapUtils;
 import org.apache.cassandra.utils.concurrent.*;
 
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
@@ -141,6 +143,7 @@ public abstract class AbstractCommitLogSegmentManager
                         // If shutdown() started and finished during segment creation, we are now left with a
                         // segment that no one will consume. Discard it.
                         discardAvailableSegment();
+                        segmentPrepared.signalAll(); // wake up any waiters, they will check if allocator is alive still
                         return;
 
                     case NORMAL:
@@ -303,9 +306,20 @@ public abstract class AbstractCommitLogSegmentManager
         {
             WaitQueue.Signal prepared = segmentPrepared.register(commitLog.metrics.waitingOnSegmentAllocation.time(), Context::stop);
             if (availableSegment == null && allocatingFrom == currentAllocatingFrom)
+            {
+                if (executor.isTerminated()) // if terminated while waiting, the allocator terminating/shutdown waiter will signal
+                {
+                    prepared.cancel();
+                    logger.debug("commitlog segment will never be available - allocator is terminated");
+                    HeapUtils.maybeCreateHeapDump();
+                    throw new CommitlogShutdownException("commitlog segment will never be available - segment allocator is terminated");
+                }
                 prepared.awaitUninterruptibly();
+            }
             else
+            {
                 prepared.cancel();
+            }
         }
         while (availableSegment == null && allocatingFrom == currentAllocatingFrom);
     }
@@ -550,6 +564,8 @@ public abstract class AbstractCommitLogSegmentManager
     public boolean awaitTermination(long timeout, TimeUnit units) throws InterruptedException
     {
         boolean res = executor.awaitTermination(timeout, units);
+        segmentPrepared.signalAll(); // wake up any waiters, they will check if allocator is alive still
+
         for (CommitLogSegment segment : activeSegments)
             segment.close();
 
