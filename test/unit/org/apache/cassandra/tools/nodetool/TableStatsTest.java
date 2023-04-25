@@ -31,6 +31,7 @@ import org.junit.Test;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.tools.ToolRunner;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -243,11 +244,14 @@ public class TableStatsTest extends CQLTester
     @Test
     public void testFormatYaml()
     {
+        LoaderOptions loaderOptions = new LoaderOptions();
+        loaderOptions.setMaxAliasesForCollections(100);
+
         Arrays.asList("-F", "--format").forEach(arg -> {
             ToolRunner.ToolResult tool = ToolRunner.invokeNodetool("tablestats", arg, "yaml");
             tool.assertOnCleanExit();
             String yaml = tool.getStdout();
-            assertThatCode(() -> new Yaml().load(yaml)).doesNotThrowAnyException();
+            assertThatCode(() -> new Yaml(loaderOptions).load(yaml)).doesNotThrowAnyException();
             assertThat(yaml).containsPattern("sstable_count:\\s*[0-9]+")
                             .containsPattern("old_sstable_count:\\s*[0-9]+");
         });
