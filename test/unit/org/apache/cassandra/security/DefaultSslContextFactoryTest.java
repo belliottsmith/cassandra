@@ -169,6 +169,7 @@ public class DefaultSslContextFactoryTest
         Map<String, Object> config = new HashMap<>();
         config.putAll(commonConfig);
         config.put("outbound_keystore", "/this/is/probably/not/a/file/on/your/test/machine");
+        config.put("outbound_keystore_password", "topsecret");
 
         DefaultSslContextFactory defaultSslContextFactoryImpl = new DefaultSslContextFactory(config);
         defaultSslContextFactoryImpl.outboundKeystoreContext.checkedExpiry = false;
@@ -184,7 +185,7 @@ public class DefaultSslContextFactoryTest
         config.put("outbound_keystore_password", "HomeOfBadPasswords");
 
         DefaultSslContextFactory defaultSslContextFactoryImpl = new DefaultSslContextFactory(config);
-        defaultSslContextFactoryImpl.buildKeyManagerFactory();
+        defaultSslContextFactoryImpl.buildOutboundKeyManagerFactory();
     }
 
     @Test
