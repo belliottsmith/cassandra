@@ -930,10 +930,10 @@ public class SSTableReaderTest
         for (int j = 0; j < 2; j++)
         {
             new RowUpdateBuilder(cfs.metadata(), j, String.valueOf(j))
-                .clustering("0")
-                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
-                .build()
-                .applyUnsafe();
+            .clustering("0")
+            .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+            .build()
+            .applyUnsafe();
         }
 
         Set<SSTableReader> beforeFlush = cfs.getLiveSSTables();
@@ -952,5 +952,63 @@ public class SSTableReaderTest
 
         // check non-existant keys return nothing
         assertEquals(0, sstable.getSerializedRowSize(k(2)));
+    }
+
+    @Test
+    public void testSingleTokenContainsDataIn()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        cfs.discardSSTables(System.currentTimeMillis());
+        partitioner = cfs.getPartitioner();
+        new RowUpdateBuilder(cfs.metadata(), 1, String.valueOf(5)).clustering("0")
+                                                                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                                                                .build()
+                                                                .applyUnsafe();
+        cfs.forceBlockingFlush(UNIT_TESTS);
+
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+
+        assertTrue(sstable.containsDataIn(r(0, 5)));
+        assertFalse(sstable.containsDataIn(r(0,4)));
+        assertFalse(sstable.containsDataIn(r(5,6)));
+    }
+
+    @Test
+    public void testTwoTokenContainsDataIn()
+    {
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
+        cfs.discardSSTables(System.currentTimeMillis());
+        partitioner = cfs.getPartitioner();
+        new RowUpdateBuilder(cfs.metadata(), 1, String.valueOf(3)).clustering("0")
+                                                                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                                                                .build()
+                                                                .applyUnsafe();
+        new RowUpdateBuilder(cfs.metadata(), 1, String.valueOf(8)).clustering("0")
+                                                                .add("val", ByteBufferUtil.EMPTY_BYTE_BUFFER)
+                                                                .build()
+                                                                .applyUnsafe();
+        cfs.forceBlockingFlush(UNIT_TESTS);
+        SSTableReader sstable = cfs.getLiveSSTables().iterator().next();
+
+        assertTrue(sstable.containsDataIn(r(0, 5)));
+        assertTrue(sstable.containsDataIn(r(5, 9)));
+        assertFalse(sstable.containsDataIn(r(4,7)));
+        assertTrue(sstable.containsDataIn(r(0,9)));
+
+        assertTrue(sstable.containsDataIn(Sets.union(r(0,2), r(2,4))));
+        assertFalse(sstable.containsDataIn(Sets.union(r(0,2), r(4,5))));
+
+        // wraparound cases:
+        assertTrue(sstable.containsDataIn(r(0,0)));
+        assertFalse(sstable.containsDataIn(r(9, 0)));
+        assertTrue(sstable.containsDataIn(r(9, 5)));
+        assertTrue(sstable.containsDataIn(r(5, 1)));
+    }
+
+    private Set<Range<Token>> r(int s, int e)
+    {
+        return Collections.singleton(new Range<>(t(s), t(e)));
     }
 }

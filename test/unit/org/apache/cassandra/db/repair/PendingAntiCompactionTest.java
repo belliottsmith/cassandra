@@ -660,7 +660,8 @@ public class PendingAntiCompactionTest extends AbstractPendingAntiCompactionTest
         };
         try
         {
-            PendingAntiCompaction.AntiCompactionPredicate acp = new PendingAntiCompaction.AntiCompactionPredicate(FULL_RANGE, nextTimeUUID())
+            PendingAntiCompaction.AntiCompactionPredicate acp = new PendingAntiCompaction.AntiCompactionPredicate(Collections.singleton(new Range<>(Murmur3Partitioner.MINIMUM,
+                                                                                                                                                    Murmur3Partitioner.MINIMUM)), nextTimeUUID())
             {
                 @Override
                 public boolean apply(SSTableReader sstable)

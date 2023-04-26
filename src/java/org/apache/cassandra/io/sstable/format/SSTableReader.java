@@ -1504,6 +1504,24 @@ public abstract class SSTableReader extends SSTable implements UnfilteredSource,
     }
 
     /**
+     * Checks if this sstable contains data in the given ranges
+     */
+    public boolean containsDataIn(Collection<Range<Token>> ranges)
+    {
+        Bounds<Token> sstableBounds = new Bounds<>(first.getToken(), last.getToken());
+        for (Range<Token> r : Range.normalize(ranges))
+        {
+            if (!r.intersects(sstableBounds))
+                continue;
+
+            DecoratedKey firstKeyAfterRangeStart = firstKeyBeyond(r.left.maxKeyBound());
+            if (firstKeyAfterRangeStart != null && r.contains(firstKeyAfterRangeStart.getToken()))
+                return true;
+        }
+        return false;
+    }
+
+    /**
      * @return The length in bytes of the data for this SSTable. For
      * compressed files, this is not the same thing as the on disk size (see
      * onDiskLength())

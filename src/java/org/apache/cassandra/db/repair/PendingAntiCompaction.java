@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.concurrent.FutureTask;
@@ -93,7 +94,8 @@ public class PendingAntiCompaction
         }
     }
 
-    static class SSTableAcquisitionException extends RuntimeException
+    @VisibleForTesting
+    public static class SSTableAcquisitionException extends RuntimeException
     {
         SSTableAcquisitionException(String message)
         {
@@ -102,7 +104,7 @@ public class PendingAntiCompaction
     }
 
     @VisibleForTesting
-    static class AntiCompactionPredicate implements Predicate<SSTableReader>
+    public static class AntiCompactionPredicate implements Predicate<SSTableReader>
     {
         private final Collection<Range<Token>> ranges;
         private final TimeUUID prsid;
@@ -201,9 +203,30 @@ public class PendingAntiCompaction
 
                 LifecycleTransaction txn = cfs.getTracker().tryModify(sstables, OperationType.ANTICOMPACTION);
                 if (txn != null)
-                    return new AcquireResult(cfs, Refs.ref(sstables), txn);
+                {
+                    try
+                    {
+                        // Checking this after marking the sstables compacting makes sure that they don't get
+                        // compacted away. Predicate used when filtering on the live sstables above is reused in
+                        // isCompacting which runs it over sstables currently marked compacting.
+                        Set<SSTableReader> nonContaining = Sets.newHashSet();
+                        for (SSTableReader sstable : sstables)
+                        {
+                            if (!sstable.containsDataIn(predicate.ranges))
+                                nonContaining.add(sstable);
+                        }
+                        sstables.removeAll(nonContaining);
+                        txn.cancel(nonContaining);
+                        return new AcquireResult(cfs, Refs.ref(sstables), txn);
+                    }
+                    catch (Exception e)
+                    {
+                        txn.abort();
+                        throw e;
+                    }
+                }
                 else
-                    logger.error("Could not mark compacting for {} (sstables = {}, compacting = {})", sessionID, sstables, cfs.getTracker().getCompacting());
+                    logger.warn("Could not mark compacting for {} (sstables = {}, compacting = {})", sessionID, sstables, cfs.getTracker().getCompacting());
             }
             catch (SSTableAcquisitionException e)
             {
