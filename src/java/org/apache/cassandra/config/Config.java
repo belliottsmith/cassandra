@@ -1434,4 +1434,9 @@ public class Config
      */
     @Deprecated
     public volatile Boolean paxos_state_purging_enabled = null;
+
+    //CIE - this defaults to 0 in OSS but changed to 64k to be enabled by default for prod
+    // see the below thread for justification
+    // https://a1391190.slack.com/archives/GHYBRMG9M/p1682469027358649?thread_ts=1682467527.526069&cid=GHYBRMG9M
+    public double severity_during_decommission = 64_000;
 }

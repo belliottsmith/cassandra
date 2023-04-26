@@ -40,6 +40,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.google.common.util.concurrent.Futures;
+
+import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.io.util.File;
 import org.junit.Assert;
 
@@ -627,6 +629,22 @@ public class ClusterUtils
             }
             return true;
         });
+    }
+
+    public static void awaitGossipStateMatch(ICluster<? extends  IInstance> cluster, IInstance expectedInGossip, ApplicationState key)
+    {
+        Set<String> matches = null;
+        for (int i = 0; i < 100; i++)
+        {
+            matches = cluster.stream().map(ClusterUtils::gossipInfo)
+                             .map(gi -> Objects.requireNonNull(gi.get(getBroadcastAddressString(expectedInGossip))))
+                             .map(m -> m.get(key.name()))
+                             .collect(Collectors.toSet());
+            if (matches.isEmpty() || matches.size() == 1)
+                return;
+            sleepUninterruptibly(1, TimeUnit.SECONDS);
+        }
+        throw new AssertionError("Expected ApplicationState." + key + " to match, but saw " + matches);
     }
 
     /**

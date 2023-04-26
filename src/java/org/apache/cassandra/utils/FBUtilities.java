@@ -1158,4 +1158,18 @@ public class FBUtilities
         }
         return sb.toString();
     }
+
+    public static void closeQuietly(Object o)
+    {
+        if (!(o instanceof AutoCloseable))
+            return;
+        try
+        {
+            ((AutoCloseable) o).close();
+        }
+        catch (Exception e)
+        {
+            logger.warn("Closing {} had an unexpected exception", o, e);
+        }
+    }
 }

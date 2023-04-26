@@ -651,6 +651,16 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         return stream().map(IInstance::coordinator);
     }
 
+    public List<I> get(int... nodes)
+    {
+        if (nodes == null || nodes.length == 0)
+            throw new IllegalArgumentException("No nodes provided");
+        List<I> list = new ArrayList<>(nodes.length);
+        for (int i : nodes)
+            list.add(get(i));
+        return list;
+    }
+
     /**
      * WARNING: we index from 1 here, for consistency with inet address!
      */
@@ -1034,6 +1044,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
     @Override
     public void close()
     {
+        logger.info("Closing cluster {}", this.clusterId);
+        FBUtilities.closeQuietly(instanceInitializer);
         try
         {
             FBUtilities.waitOnFutures(instances.stream()
