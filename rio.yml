@@ -104,12 +104,31 @@ builds:
       steps:
         - ./rio/parallel-tests-step.sh jvm-dtest-upgrade
 
-  - <<: *prb_unit
-    group: ghprb-jvm-dtest-fuzz
+  # Use a separate pipeline definition since this runs within Rio, not a parallelci-managed Kube pod
+  - group: ghprb-jvm-dtest-harry
+    jenkins:
+      concurrentBuild: true
+      throttlingEnabled: true
+      maxConcurrentTotal: 2
+    machine:
+      baseImage: docker.apple.com/piedb/parallelci:latest
     build:
       template: freestyle:v4:prb
       steps:
-        - ./rio/parallel-tests-step.sh jvm-dtest-fuzz
+        # This pipeline is prone to OOM, so log CPU and memory and use a larger heap
+        # Don't try to append all the logs to the test report - that will definitely OOM
+        - wc -l < /sys/fs/cgroup/cpuset/cgroup.procs
+        - awk '{ gb = $1 / 1024^3 ; printf "%.4s GB\n", gb }' /sys/fs/cgroup/memory/memory.limit_in_bytes
+        - export JAVA_TOOL_OPTIONS="-XX:+PrintFlagsFinal -Xmx2g -Dcassandra.keepBriefBrief=true"
+        - ant -f rio-build.xml test-jvm-dtest-some -Dtest.name=org.apache.cassandra.distributed.fuzz.ConcurrentQuiescentCheckerIntegrationTest
+    timeout: 180
+    reports:
+      junit:
+        paths:
+          - build/test/output/*.xml
+      logs:
+        paths:
+          - build/test/logs/
 
   #
   # Pull request builder triggering python dtests
@@ -228,7 +247,7 @@ builds:
                 onFailure: true
 
   #
-  # Snapshot build - runs python dtests, but does not public artifacts
+  # Snapshot build - runs python dtests, but does not publish artifacts
   #
   - group: snapshot-python-dtest
     jenkins:

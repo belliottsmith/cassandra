@@ -77,7 +77,7 @@ public class ConcurrentQuiescentCheckerIntegrationTest extends TestBaseImpl
         final int writeThreads = 2;
         final int readThreads = 2;
 
-        try (ICluster<IInvokableInstance> cluster = builder().withNodes(5)
+        try (ICluster<IInvokableInstance> cluster = builder().withNodes(3)
                                                        .withConfig(config -> config.with(GOSSIP, NETWORK, NATIVE_PROTOCOL))
                                                        .start())
         {
@@ -104,7 +104,7 @@ public class ConcurrentQuiescentCheckerIntegrationTest extends TestBaseImpl
                     new Runner.ConcurrentRunner(config.createRun(), config,
                                                 asList(pool("Writer", writeThreads, MutatingVisitor::new),
                                                        pool("Reader", readThreads, RandomPartitionValidator::new)),
-                                                10, TimeUnit.MINUTES)
+                                                5, TimeUnit.MINUTES)
                     .run();
                 }
                 catch (Throwable e)
