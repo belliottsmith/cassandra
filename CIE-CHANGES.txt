@@ -1,5 +1,5 @@
 4.0.3.25
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.25 cie-cassandra-4.0.3
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.17 cie-cassandra-4.0.3
 * Rebased on OSS 4.1.1, commit 209ba28b4dc5abb32d053d2d9d2605076163d32c
 
 4.0.3.18-4.0.3.24
