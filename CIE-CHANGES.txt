@@ -1,5 +1,50 @@
+4.0.3.26
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.25 cie-cassandra-4.0.3
+
 4.0.3.25
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.17 cie-cassandra-4.0.3
+* fixup: CIE-CHANGES.txt was pointing to wrong version
+* fixup! Fix sstable_count metric missing from tablestats json/yaml output
+* fixup! Allow keystore and truststore passwords to be nullable
+* Test Failure: HintsDisabledTest.testHintedHandoffDisabled
+* Do not remove truncated_at entry in system.local while dropping an index
+* Fix sstable_count metric missing from tablestats json/yaml output
+* Allow keystore and truststore passwords to be nullable
+* Fix nested selection of reversed collections
+* Suppress CVE-2022-45688
+* update zstd-jni library to version 1.5.5
+* Improve debuggability and correctness of ref detection
+* Fix the number of running trees per thread for LongBTreeTest hanging test
+* Suppress CVE-2022-45688
+* Save host id to system.local and flush immediately after startup
+* Return snapshots with dots in their name in nodetool listsnapshots
+* Fix NPE when loading snapshots and data directory is one directory from root
+* Do not submit hints when hinted_handoff_enabled=false
+* Restore COPY ... TO STDOUT behavior in cqlsh
+* Remove six and Py2SaferScanner merge cruft
+* Incompatible file system thrown while running Simulator
+* Fix the ordering of sstables when running sstableupgrade tool
+* Fix BufferPool.memoryInUse counter
+* Deprecate org.apache.cassandra.hadoop code
+* Fix default file system error handler for disk_failure_policy die
+* Small fixes around Schema management
+* Fix typo in suppressions
+* Fix possible NoSuchFileException when removing a snapshot
+* Log warning message on aggregation queries without key or on multiple keys
+* 4.0: rdar://88744799 (Avoid anticompacting sstables not containing any data in the repaired range) (#2799)
+* When decommissioning should set Severity to limit traffic (#3390)
+* rdar://108568186 (Harry PRBs are failing due to timeouts and OOMs) (#3392)
+* * rdar://108058455 (4.0.0.x: Internal queries may block forever during drain/in-jvm instance shutdown)
+* rdar://92597448 (Incremental repair LocalSessions not deleted after e… (#2922)
+* rdar://108380072 (4.0.3: Incremental repairs fail during IPv6 migration with 'Invalid serialized size; expected X, actual size at least X+12, for verb SYNC_REQ) (#3388)
+* rdar://108139058 (Default to logging Paxos linearizability violations) (#3386)
+* rdar://108380763 (4.0.3: Integration aci-cassandra with SBOM Central) (#3387)
+* fixup! rdar://105473401 (Rio: Split checkstyle into separate ghprb pipeline)
+* rdar://106242247 Setting single_sstable_uplevel to true by default for LCS. (#3336)
+* rdar://106242247 Setting single_sstable_uplevel to true by default for LCS. (#3336)
+* Revert "squash! rdar://104402109 (4.0.3: Make Harry PRBs more reliable/direct by running them on Rio not forking out into Kube) (#3234)"
+* squash! <rdar://r64128975> Create/update CIE-{CHANGES,VERSION}
+* fixup! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio (#3376)
+* fixup! rdar://60087087 p21020076 ENV/BLD cie-cassandra on Rio (#3376)
 * Rebased on OSS 4.1.1, commit 209ba28b4dc5abb32d053d2d9d2605076163d32c
 
 4.0.3.18-4.0.3.24
