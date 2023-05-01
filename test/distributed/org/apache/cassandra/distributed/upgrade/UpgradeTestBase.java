@@ -40,11 +40,13 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.distributed.UpgradeableCluster;
+import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.distributed.api.ICluster;
 import org.apache.cassandra.distributed.api.IInstanceConfig;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 import org.apache.cassandra.distributed.shared.ThrowingRunnable;
 import org.apache.cassandra.distributed.shared.Versions;
+import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
@@ -269,6 +271,22 @@ public class UpgradeTestBase extends DistributedTestBase
                     // Possible to further refine in the setup method.
                     cluster.setUncaughtExceptionsFilter(largerThanMaxSupportedMessagingVersionFilter);
                     setup.run(cluster);
+
+                    // Upgrade tests are intermittently failing because migration of peers->peers_v2 happens
+                    // *before* the commitlog is replayed.  This means that TMD is not intialized by calls to
+                    // SystemKeyspace.populateTokenMetadata if peers entries are waiting in the commitlog,
+                    // rather than stored in an sstable.  If not using real NETWORK/GOSSIP, instances start
+                    // receiving requests earlier than real nodes would, and throw exceptions like
+                    // java.lang.AssertionError: Ring is empty when processing verbs.
+                    // Real clusters flush all keyspaces on drain/SIGTERM, so the window is much smaller
+                    // for a cluster that was administratively shutdown before upgrade, but could still
+                    // affect a major version upgrade to an instance after a crash.
+                    boolean gossiperRunning = cluster.stream().filter(i -> i.isValid())
+                                                     .anyMatch(i-> i.config().has(Feature.GOSSIP));
+                    if (!gossiperRunning)
+                    {
+                        cluster.forEach(instance -> instance.flush(SchemaConstants.SYSTEM_KEYSPACE_NAME));
+                    }
 
                     for (int n : nodesToUpgrade)
                     {
