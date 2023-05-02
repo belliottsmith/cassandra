@@ -33,6 +33,7 @@ import io.netty.channel.EventLoop;
 import io.netty.util.AttributeKey;
 import org.apache.cassandra.concurrent.DebuggableTask.RunnableDebuggableTask;
 import org.apache.cassandra.concurrent.LocalAwareExecutorPlus;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.metrics.ClientMetrics;
@@ -184,6 +185,7 @@ public class Dispatcher
         // We do not differentiate between query types here, since if we got into a situation when, say, we have a PREPARE
         // query that is stuck behind the EXECUTE query, we would rather time it out and catch up with a backlog, expecting
         // that the bursts are going to be short-lived.
+        ClientMetrics.instance.queueTime(elapsed, TimeUnit.NANOSECONDS);
         if (elapsed > DatabaseDescriptor.getMaxQueryExecutionTimeout(TimeUnit.NANOSECONDS))
         {
             ClientMetrics.instance.markTimedOutBeforeProcessing();
@@ -219,7 +221,20 @@ public class Dispatcher
 
         Message.logger.trace("Received: {}, v={}", request, connection.getVersion());
         connection.requests.inc();
-        Message.Response response = request.execute(qstate, request.createdAtNanos);
+        long cqlStartTimeNanos;
+        Config.CQLStartTime cqlStartTime = DatabaseDescriptor.getCQLStartTime();
+        switch (cqlStartTime)
+        {
+            case QUEUE:
+                cqlStartTimeNanos = request.createdAtNanos;
+                break;
+            case REQUEST:
+                cqlStartTimeNanos = startTimeNanos;
+                break;
+            default:
+                throw new AssertionError("Unknown type: " + cqlStartTime);
+        }
+        Message.Response response = request.execute(qstate, cqlStartTimeNanos);
 
         if (request.isTrackable())
             CoordinatorWarnings.done();

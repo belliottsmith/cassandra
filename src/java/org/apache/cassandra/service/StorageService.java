@@ -7531,4 +7531,16 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         int time = cfs.getRepairTimeSnapshot().getLastSuccessfulRepairTimeFor(t);
         return String.format("%s (%s)", Instant.ofEpochSecond(time).toString(), time);
     }
+
+    @Override
+    public String getCQLStartTime()
+    {
+        return DatabaseDescriptor.getCQLStartTime().name();
+    }
+
+    @Override
+    public void setCQLStartTime(String value)
+    {
+        DatabaseDescriptor.setCQLStartTime(Config.CQLStartTime.valueOf(value.toUpperCase()));
+    }
 }

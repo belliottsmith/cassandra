@@ -1439,4 +1439,11 @@ public class Config
     // see the below thread for justification
     // https://a1391190.slack.com/archives/GHYBRMG9M/p1682469027358649?thread_ts=1682467527.526069&cid=GHYBRMG9M
     public double severity_during_decommission = 64_000;
+
+    public enum CQLStartTime
+    {
+        REQUEST, // uses a timestamp that represent the start of processing of the request
+        QUEUE    // uses a timestamp that represents when the request was enqueued
+    }
+    public volatile CQLStartTime cql_start_time = CQLStartTime.REQUEST; //TODO change default to QUEUE once we have more data on queue time
 }

@@ -5166,4 +5166,18 @@ public class DatabaseDescriptor
                OptionalDouble.of(conf.severity_during_decommission) :
                OptionalDouble.empty();
     }
+
+    public static Config.CQLStartTime getCQLStartTime()
+    {
+        return conf.cql_start_time;
+    }
+
+    public static void setCQLStartTime(Config.CQLStartTime value)
+    {
+        if (conf.cql_start_time != Objects.requireNonNull(value))
+        {
+            logger.info("Setting cql_start_time to {}", value);
+            conf.cql_start_time = value;
+        }
+    }
 }

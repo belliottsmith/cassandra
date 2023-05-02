@@ -1183,4 +1183,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     String getLastRepairTimeForKey(String keyspace, String table, String key);
     String getLastRepairTimeForToken(String keyspace, String table, String token);
+
+    String getCQLStartTime();
+    void setCQLStartTime(String value);
 }
