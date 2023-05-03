@@ -1,5 +1,10 @@
+4.0.3.27
+AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.26 cie-cassandra-4.0.3
+
 4.0.3.26
-AUTOGEN_CHANGELOG_COMMITS cie-cassandra-4.0.3.25 cie-cassandra-4.0.3
+* fix flaky o.a.c.distributed.test.PaxosRepair2Test.paxosRepairHistoryIsntUpdatedInForcedRepair
+* rdar://107808094 (Read/Write timeout alerts / SLO violations during C* minor version) (#3399)
+* rdar://108574842 (4.0.3.x: MixedModeFrom3UnloggedBatchTest.testSimpleStrategy flake)
 
 4.0.3.25
 * fixup: CIE-CHANGES.txt was pointing to wrong version
