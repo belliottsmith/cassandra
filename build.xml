@@ -1056,6 +1056,7 @@
      <src path="${test.memory.src}"/>
      <src path="${test.microbench.src}"/>
      <src path="${test.distributed.src}"/>
+
      <src path="${test.simulator.src}"/>
      <src path="${test.simulator-asm.src}"/>
      <src path="${test.simulator-bootstrap.src}"/>

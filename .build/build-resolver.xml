@@ -45,9 +45,10 @@
     <target name="_resolver_download" unless="resolver-ant-tasks.jar.exists" description="Fetch Resolver ANT Tasks from Maven Central Repository">
         <echo>Downloading Resolver ANT Tasks...</echo>
         <mkdir dir="${local.repository}/org/apache/maven/resolver/maven-resolver-ant-tasks/${resolver-ant-tasks.version}" />
-
-        <get src="${resolver-ant-tasks.url}/${resolver-ant-tasks.version}/maven-resolver-ant-tasks-${resolver-ant-tasks.version}-uber.jar"
-             dest="${resolver-ant-tasks.local}" usetimestamp="true" quiet="false" verbose="true" retries="10"/>
+        <retry retrycount="3" retrydelay="6000">
+            <get src="${resolver-ant-tasks.url}/${resolver-ant-tasks.version}/maven-resolver-ant-tasks-${resolver-ant-tasks.version}-uber.jar"
+                 dest="${resolver-ant-tasks.local}" usetimestamp="true" quiet="false" verbose="true" retries="10"/>
+        </retry>
     </target>
 
     <target name="resolver-init" depends="init,_resolver_download" unless="resolver-ant-tasks.initialized" description="Initialize Resolver ANT Tasks">
@@ -74,7 +75,7 @@
             <attribute name="failonmissingattachments" default="true"/>
             <element name="elements" implicit="yes"/>
             <sequential>
-                <retry retrycount="3">
+                <retry retrycount="3" retrydelay="6000">
                   <resolver:resolve failonmissingattachments="@{failonmissingattachments}">
                         <resolver:remoterepos refid="all"/>
                         <elements/>
