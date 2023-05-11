@@ -130,6 +130,18 @@ public abstract class CompressedChunkReader extends AbstractReaderFileProxy impl
                         compressed.position(0).limit(chunk.length);
                     }
 
+                    try
+                    {
+                        metadata.compressor().uncompress(compressed, uncompressed);
+                        uncompressed.flip();
+                    }
+                    catch (IOException e)
+                    {
+                        throw new CorruptBlockException(channel.filePath(), chunk, e);
+                    }
+
+                    compressed.position(0);
+                    ByteBuffer buffer = ByteBuffer.allocateDirect(uncompressed.capacity());
                     System.out.println(position + ":" + compressed.remaining() * 8);
                     for (int i = 0 ; i < compressed.remaining() * 8 ; i++)
                     {
@@ -140,26 +152,19 @@ public abstract class CompressedChunkReader extends AbstractReaderFileProxy impl
                         compressed.put(idx, (byte) (prev ^ flip));
                         try
                         {
-                            metadata.compressor().uncompress(compressed, uncompressed);
-                            System.out.println(position + "+" + i);
+                            metadata.compressor().uncompress(compressed, buffer);
+                            buffer.flip();
+                            System.out.println(position + "+" + i + " " + buffer.equals(uncompressed));
                         }
                         catch (IOException e)
                         {
                         }
                         compressed.position(0);
-                        uncompressed.position(0);
+                        buffer.position(0);
                         assert prev == (compressed.get(idx) ^ flip);
                         compressed.put(idx, prev);
                     }
-
-                    try
-                    {
-                        metadata.compressor().uncompress(compressed, uncompressed);
-                    }
-                    catch (IOException e)
-                    {
-                        throw new CorruptBlockException(channel.filePath(), chunk, e);
-                    }
+                    uncompressed.flip();
                 }
                 else
                 {
