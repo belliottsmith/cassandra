@@ -130,6 +130,28 @@ public abstract class CompressedChunkReader extends AbstractReaderFileProxy impl
                         compressed.position(0).limit(chunk.length);
                     }
 
+                    System.out.println(position + ":" + compressed.remaining() * 8);
+                    for (int i = 0 ; i < compressed.remaining() * 8 ; i++)
+                    {
+                        assert compressed.position() == 0;
+                        int idx = (i/8);
+                        byte prev = compressed.get(idx);
+                        byte flip = (byte) (1 << (i % 8));
+                        compressed.put(idx, (byte) (prev ^ flip));
+                        try
+                        {
+                            metadata.compressor().uncompress(compressed, uncompressed);
+                            System.out.println(position + "+" + i);
+                        }
+                        catch (IOException e)
+                        {
+                        }
+                        compressed.position(0);
+                        uncompressed.position(0);
+                        assert prev == (compressed.get(idx) ^ flip);
+                        compressed.put(idx, prev);
+                    }
+
                     try
                     {
                         metadata.compressor().uncompress(compressed, uncompressed);

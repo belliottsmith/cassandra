@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.cassandra.io.util.File;
+import org.apache.cassandra.io.util.RandomAccessReader;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.DecoratedKey;
@@ -159,6 +160,14 @@ public class SSTableExport
             else
             {
                 SSTableReader sstable = SSTableReader.openNoValidation(desc, TableMetadataRef.forOfflineTools(metadata));
+                RandomAccessReader reader = sstable.openDataReader();
+                byte[] buf = new byte[65536];
+                long p = 909312000L;
+                while (p <= 909770752L)
+                {
+                    reader.seek(p);
+                    p += buf.length;
+                }
                 IPartitioner partitioner = sstable.getPartitioner();
                 final ISSTableScanner currentScanner;
                 if ((keys != null) && (keys.length > 0))
