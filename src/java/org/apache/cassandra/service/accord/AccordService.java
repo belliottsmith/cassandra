@@ -231,6 +231,12 @@ public class AccordService implements IAccordService, Shutdownable
         instance = null;
     }
 
+    @VisibleForTesting
+    public static void unsafeSetNoop()
+    {
+        instance = NOOP_SERVICE;
+    }
+
     public static boolean isSetup()
     {
         return instance != null;

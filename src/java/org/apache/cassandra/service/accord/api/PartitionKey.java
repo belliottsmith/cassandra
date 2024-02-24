@@ -96,7 +96,7 @@ public final class PartitionKey extends AccordRoutableKey implements Key
     }
 
     @Override
-    public RoutingKey toUnseekable()
+    public TokenKey toUnseekable()
     {
         return new TokenKey(table, token());
     }
