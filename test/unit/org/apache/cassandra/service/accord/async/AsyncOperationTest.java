@@ -35,8 +35,9 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import accord.api.Key;
 import accord.api.RoutingKey;
-import accord.impl.SafeCommandsForKey;
+import accord.local.SafeCommandsForKey;
 import accord.local.CheckedCommands;
 import accord.local.Command;
 import accord.local.PreLoadContext;
@@ -482,8 +483,7 @@ public class AsyncOperationTest
         }
         try
         {
-            //TODO this is due to bad typing for Instance, it doesn't use ? extends RoutableKey
-            assertNoReferences(commandStore.commandsForKeyCache(), (Iterable<RoutableKey>) (Iterable<?>) keys);
+            assertNoReferences(commandStore.commandsForKeyCache(), keys);
         }
         catch (AssertionError e)
         {
@@ -524,8 +524,7 @@ public class AsyncOperationTest
     private static void awaitDone(AccordCommandStore commandStore, List<TxnId> ids, Keys keys)
     {
         awaitDone(commandStore.commandCache(), ids);
-        //TODO this is due to bad typing for Instance, it doesn't use ? extends RoutableKey
-        awaitDone(commandStore.commandsForKeyCache(), (Iterable<RoutableKey>) (Iterable<?>) keys);
+        awaitDone(commandStore.commandsForKeyCache(), keys);
     }
 
     private static <T> void awaitDone(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)

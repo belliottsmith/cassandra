@@ -38,9 +38,10 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import accord.api.Key;
-import accord.impl.CommandsForKey;
-import accord.impl.CommandsForKey.InternalStatus;
+import accord.local.CommandsForKey;
+import accord.local.CommandsForKey.InternalStatus;
 import accord.local.Command;
+import accord.local.CommandsForKey.TxnInfo;
 import accord.local.CommonAttributes;
 import accord.local.CommonAttributes.Mutable;
 import accord.local.Listeners;
@@ -241,7 +242,10 @@ public class CommandsForKeySerializerTest
             List<TxnId> deps = cmds[i].deps;
             List<TxnId> missing = cmds[i].missing;
             for (int j = 0 ; j < limit ; ++j)
-                if (i != j) deps.add(cmds[j].txnId);
+            {
+                if (i != j && cmds[i].txnId.kind().witnesses(cmds[j].txnId))
+                    deps.add(cmds[j].txnId);
+            }
 
             int missingCount = Math.min(limit - (limit > i ? 1 : 0), missingCountSupplier.getAsInt());
             while (missingCount > 0)
@@ -426,13 +430,13 @@ public class CommandsForKeySerializerTest
                     Assert.assertTrue(cmd.invisible);
                     continue;
                 }
-                CommandsForKey.Info info = cfk.info(i);
+                TxnInfo info = cfk.get(i);
                 InternalStatus expectStatus = InternalStatus.from(cmd.saveStatus);
                 if (expectStatus == null) expectStatus = InternalStatus.TRANSITIVELY_KNOWN;
                 if (expectStatus.hasInfo)
-                    Assert.assertEquals(cmd.executeAt, info.executeAt(cfk.txnId(i)));
+                    Assert.assertEquals(cmd.executeAt, info.executeAt);
                 Assert.assertEquals(expectStatus, info.status);
-                Assert.assertArrayEquals(cmd.missing.toArray(TxnId[]::new), info.missing);
+                Assert.assertArrayEquals(cmd.missing.toArray(TxnId[]::new), info.missing());
                 ++i;
             }
 
@@ -461,11 +465,12 @@ public class CommandsForKeySerializerTest
                     next = txnIdGen.next(rs0);
                 return next;
             }).unique().ofSizeBetween(0, 10).next(rs);
-            CommandsForKey.Info[] info = new CommandsForKey.Info[ids.length];
+            TxnInfo[] info = new TxnInfo[ids.length];
             for (int i = 0; i < info.length; i++)
-                info[i] = rs.pick(InternalStatus.values()).asNoInfo;
-            Arrays.sort(ids, Comparator.naturalOrder());
-            CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk, redudentBefore, ids, info);
+                info[i] = TxnInfo.create(ids[i], rs.pick(InternalStatus.values()), ids[i], CommandsForKey.NO_TXNIDS);
+            Arrays.sort(info, Comparator.naturalOrder());
+
+            CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk, info, CommandsForKey.NO_PENDING_UNMANAGED);
 
             ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
             CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
@@ -479,10 +484,10 @@ public class CommandsForKeySerializerTest
         long tokenValue = -2311778975040348869L;
         DecoratedKey key = Murmur3Partitioner.instance.decorateKey(Murmur3Partitioner.LongToken.keyForToken(tokenValue));
         PartitionKey pk = new PartitionKey(TableId.fromString("1b255f4d-ef25-40a6-0000-000000000009"), key);
+        TxnId txnId = TxnId.fromValues(11,34052499,2,1);
         CommandsForKey expected = CommandsForKey.SerializerSupport.create(pk,
-                                                     TxnId.fromValues(0,0,0,0),
-                                                     new TxnId[] {TxnId.fromValues(11,34052499,2,1)},
-                                                     new CommandsForKey.Info[] { InternalStatus.PREACCEPTED.asNoInfo});
+                                                     new TxnInfo[] { TxnInfo.create(txnId, InternalStatus.PREACCEPTED, txnId, CommandsForKey.NO_TXNIDS) },
+                                                                          CommandsForKey.NO_PENDING_UNMANAGED);
 
         ByteBuffer buffer = CommandsForKeySerializer.toBytesWithoutKey(expected);
         CommandsForKey roundTrip = CommandsForKeySerializer.fromBytes(pk, buffer);
