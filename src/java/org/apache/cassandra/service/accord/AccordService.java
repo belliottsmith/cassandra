@@ -134,7 +134,7 @@ public class AccordService implements IAccordService, Shutdownable
     private final AccordDataStore dataStore;
     private final AccordJournal journal;
     private final CoordinateDurabilityScheduling durabilityScheduling;
-    private final AccordVerbHandler<? extends Request> verbHandler;
+    private final AccordVerbHandler<? extends Request> requestHandler;
     private final LocalConfig configuration;
     @GuardedBy("this")
     private State state = State.INIT;
@@ -312,7 +312,7 @@ public class AccordService implements IAccordService, Shutdownable
                              configuration);
         this.nodeShutdown = toShutdownable(node);
         this.durabilityScheduling = new CoordinateDurabilityScheduling(node);
-        this.verbHandler = new AccordVerbHandler<>(node, configService, journal);
+        this.requestHandler = new AccordVerbHandler<>(node, configService, journal);
     }
 
     @Override
@@ -336,7 +336,7 @@ public class AccordService implements IAccordService, Shutdownable
     @Override
     public IVerbHandler<? extends Request> verbHandler()
     {
-        return verbHandler;
+        return requestHandler;
     }
 
     @Override

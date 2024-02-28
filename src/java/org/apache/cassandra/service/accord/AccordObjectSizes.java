@@ -305,7 +305,6 @@ public class AccordObjectSizes
                     return ACCEPTED;
                 case Committed:
                 case Stable:
-                case ReadyToExecute:
                     return COMMITTED;
                 case PreApplied:
                 case Applied:

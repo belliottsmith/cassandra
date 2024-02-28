@@ -570,6 +570,7 @@ public class AccordJournal implements Shutdownable
 
         Key(Timestamp timestamp, Type type)
         {
+            if (timestamp == null) throw new NullPointerException("Null timestamp for type " + type);
             this.timestamp = timestamp;
             this.type = type;
         }

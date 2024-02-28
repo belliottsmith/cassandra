@@ -372,11 +372,13 @@ public class CommandsForRanges
 
     private static Range toRange(Interval<RoutableKey, RangeCommandSummary> interval)
     {
-        TokenKey start = (TokenKey) interval.min;
-        TokenKey end = (TokenKey) interval.max;
+        AccordRoutingKey start = (AccordRoutingKey) interval.min;
+        if (!(start instanceof AccordRoutingKey.SentinelKey))
+            start = new TokenKey(start.table(), start.token().decreaseSlightly());
+        AccordRoutingKey end = (AccordRoutingKey) interval.max;
         // TODO (required, correctness) : accord doesn't support wrap around, so decreaseSlightly may fail in some cases
         // TODO (required, correctness) : this logic is mostly used for testing, so is it actually safe for all partitioners?
-        return new TokenRange(start.withToken(start.token().decreaseSlightly()), end);
+        return new TokenRange(start, end);
     }
 
     @Nullable
