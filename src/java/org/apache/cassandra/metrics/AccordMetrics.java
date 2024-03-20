@@ -290,7 +290,11 @@ public class AccordMetrics
         {
             AccordMetrics metrics = forTransaction(txnId);
             if (metrics != null)
+            {
+                for (StackTraceElement ste : Thread.currentThread().getStackTrace())
+                    System.out.println(ste);
                 metrics.timeouts.mark();
+            }
         }
 
         @Override
