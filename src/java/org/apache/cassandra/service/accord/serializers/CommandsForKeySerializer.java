@@ -522,8 +522,8 @@ public class CommandsForKeySerializer
             hlcBytesLookup = setHlcByteDeltas((flags >>> 5) & 0x3, (flags >>> 7) & 0x3, (flags >>> 9) & 0x3, (flags >>> 11) & 0x3);
         }
 
-        long prevEpoch = VIntCoding.readUnsignedVInt32(in);
-        long prevHlc = VIntCoding.readUnsignedVInt32(in);
+        long prevEpoch = VIntCoding.readUnsignedVInt(in);
+        long prevHlc = VIntCoding.readUnsignedVInt(in);
         for (int i = 0 ; i < commandCount ; ++i)
         {
             long header = readLeastSignificantBytes(headerByteCount, in);

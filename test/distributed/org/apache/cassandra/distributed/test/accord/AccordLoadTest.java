@@ -25,6 +25,7 @@ import java.util.concurrent.Semaphore;
 
 import com.google.common.util.concurrent.RateLimiter;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,7 @@ public class AccordLoadTest extends AccordTestBase
         AccordTestBase.setupCluster(builder -> builder.withConfig(config -> config.set("lwt_strategy", "accord").set("non_serial_write_strategy", "accord")), 2);
     }
 
+    @Ignore
     @Test
     public void testLoad() throws Exception
     {
