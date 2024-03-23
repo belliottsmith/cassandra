@@ -21,7 +21,6 @@ package org.apache.cassandra.distributed.test.accord;
 import java.io.IOException;
 import java.util.Date;
 import java.util.Random;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
 
 import com.google.common.util.concurrent.RateLimiter;

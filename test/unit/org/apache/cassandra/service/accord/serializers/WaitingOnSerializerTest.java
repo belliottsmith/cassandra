@@ -23,6 +23,7 @@ import org.junit.Test;
 
 import accord.local.Command;
 import accord.primitives.Deps;
+import accord.primitives.Routable;
 import accord.primitives.TxnId;
 import accord.utils.Gen;
 import accord.utils.Gens;
@@ -53,19 +54,20 @@ public class WaitingOnSerializerTest
     {
         DataOutputBuffer buffer = new DataOutputBuffer();
         qt().forAll(waitingOnGen()).check(waitingOn -> {
+            TxnId txnId = TxnId.NONE;
+            if (waitingOn.appliedOrInvalidated != null) txnId = new TxnId(txnId.epoch(), txnId.hlc(), txnId.kind(), Routable.Domain.Range, txnId.node);
             buffer.clear();
             long expectedSize = WaitingOnSerializer.serializedSize(waitingOn);
-            WaitingOnSerializer.serialize(TxnId.NONE, waitingOn, buffer);
+            WaitingOnSerializer.serialize(txnId, waitingOn, buffer);
             Assertions.assertThat(buffer.getLength()).isEqualTo(expectedSize);
-            Command.WaitingOn read = WaitingOnSerializer.deserialize(TxnId.NONE, waitingOn.keys, waitingOn.txnIds, new DataInputBuffer(buffer.unsafeGetBufferAndFlip(), false));
+            Command.WaitingOn read = WaitingOnSerializer.deserialize(txnId, waitingOn.keys, waitingOn.txnIds, new DataInputBuffer(buffer.unsafeGetBufferAndFlip(), false));
             Assertions.assertThat(read)
                       .isEqualTo(waitingOn)
-                      .isEqualTo(WaitingOnSerializer.deserialize(TxnId.NONE, waitingOn.keys, waitingOn.txnIds, WaitingOnSerializer.serialize(TxnId.NONE, waitingOn)));
+                      .isEqualTo(WaitingOnSerializer.deserialize(txnId, waitingOn.keys, waitingOn.txnIds, WaitingOnSerializer.serialize(txnId, waitingOn)));
         });
     }
 
-    private enum WaitingOnSets
-    { APPLY, APPLIED_OR_INVALIDATED }
+    private enum WaitingOnSets { APPLY, APPLIED_OR_INVALIDATED }
 
     private static Gen<Command.WaitingOn> waitingOnGen()
     {
@@ -78,12 +80,12 @@ public class WaitingOnSerializerTest
             if (deps.isEmpty()) return Command.WaitingOn.EMPTY;
             int txnIdCount = deps.rangeDeps.txnIdCount();
             int keyCount = deps.keyDeps.keys().size();
-            int[] selected = Gens.arrays(Gens.ints().between(0, txnIdCount + keyCount)).unique().ofSizeBetween(0, txnIdCount + keyCount).next(rs);
+            int[] selected = Gens.arrays(Gens.ints().between(0, txnIdCount + keyCount - 1)).unique().ofSizeBetween(0, txnIdCount + keyCount).next(rs);
             SimpleBitSet waitingOn = new SimpleBitSet(txnIdCount + keyCount, false);
-            SimpleBitSet appliedOrInvalidated = new SimpleBitSet(txnIdCount, false);
+            SimpleBitSet appliedOrInvalidated = rs.nextBoolean() ? null : new SimpleBitSet(txnIdCount, false);
             for (int i : selected)
             {
-                WaitingOnSets set = i >= txnIdCount ? WaitingOnSets.APPLY : sets.next(rs);
+                WaitingOnSets set = appliedOrInvalidated == null || i >= txnIdCount ? WaitingOnSets.APPLY : sets.next(rs);
                 switch (set)
                 {
                     case APPLY:

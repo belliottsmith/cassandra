@@ -247,7 +247,7 @@ public class CommandsForKeySerializerTest
                     deps.add(cmds[j].txnId);
             }
 
-            int missingCount = Math.min(limit - (limit > i ? 1 : 0), missingCountSupplier.getAsInt());
+            int missingCount = Math.min(deps.size(), missingCountSupplier.getAsInt());
             while (missingCount > 0)
             {
                 int remove = source.nextInt(deps.size());
@@ -271,14 +271,14 @@ public class CommandsForKeySerializerTest
             {
                 InternalStatus status = InternalStatus.from(cmds[j].saveStatus);
                 if (status == null || !status.hasInfo) continue;
-                if (status.depsKnownBefore(cmds[j].txnId, cmds[j].executeAt).compareTo(cmds[i].txnId) > 0 && Collections.binarySearch(cmds[j].missing, cmds[i].txnId) < 0)
+                if (cmds[j].txnId.kind().witnesses(cmds[i].txnId) && status.depsKnownBefore(cmds[j].txnId, cmds[j].executeAt).compareTo(cmds[i].txnId) > 0 && Collections.binarySearch(cmds[j].missing, cmds[i].txnId) < 0)
                     continue outer;
             }
             for (int j = i + 1 ; j < cmds.length ; ++j)
             {
                 InternalStatus status = InternalStatus.from(cmds[j].saveStatus);
                 if (status == null || !status.hasInfo) continue;
-                if (Collections.binarySearch(cmds[j].missing, cmds[i].txnId) < 0)
+                if (cmds[j].txnId.kind().witnesses(cmds[i].txnId) && Collections.binarySearch(cmds[j].missing, cmds[i].txnId) < 0)
                     continue outer;
             }
             cmds[i].invisible = true;
@@ -326,7 +326,7 @@ public class CommandsForKeySerializerTest
     @Test
     public void serde()
     {
-//        testOne(1821931462020409370L);
+        testOne(-6946067792202944553L);
         Random random = new Random();
         for (int i = 0 ; i < 10000 ; ++i)
         {

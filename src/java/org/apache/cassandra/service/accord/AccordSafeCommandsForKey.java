@@ -25,7 +25,6 @@ import com.google.common.annotations.VisibleForTesting;
 import accord.api.Key;
 import accord.local.CommandsForKey;
 import accord.local.SafeCommandsForKey;
-import accord.primitives.RoutableKey;
 
 public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<Key, CommandsForKey>
 {

@@ -26,7 +26,6 @@ import com.google.common.annotations.VisibleForTesting;
 import accord.api.Key;
 import accord.impl.SafeTimestampsForKey;
 import accord.impl.TimestampsForKey;
-import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
 
 public class AccordSafeTimestampsForKey extends SafeTimestampsForKey implements AccordSafeState<Key, TimestampsForKey>

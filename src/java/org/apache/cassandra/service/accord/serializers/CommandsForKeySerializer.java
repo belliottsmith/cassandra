@@ -154,8 +154,8 @@ public class CommandsForKeySerializer
             int maxHeaderBits = minHeaderBits;
             int totalBytes = 0;
 
-            long prevEpoch = cfk.locallyRedundantBefore().epoch();
-            long prevHlc = cfk.locallyRedundantBefore().hlc();
+            long prevEpoch = cfk.get(0).epoch();
+            long prevHlc = cfk.get(0).hlc();
             int[] bytesHistogram = cachedInts().getInts(12);
             Arrays.fill(bytesHistogram, 0);
             for (int i = 0 ; i < commandCount ; ++i)
@@ -226,9 +226,11 @@ public class CommandsForKeySerializer
                 // then pick third number as 75th %ile, but at least 1 less than highest, and one more than second
                 // finally, ensure third then second are distributed so that there is no more than a gap of 4 between them and the next
                 int l0 = Math.max(0, Math.min(3, minBasicBytes - headerBytes));
-                int l1 = Math.max(l0+1, Math.min(l0+4,Arrays.binarySearch(bytesHistogram, commandCount/4) - headerBytes));
+                int l1 = Arrays.binarySearch(bytesHistogram, minBasicBytes, maxBasicBytes, commandCount/4);
+                l1 = Math.max(l0+1, Math.min(l0+4, (l1 < 0 ? -1 - l1 : l1) - headerBytes));
                 int l3 = Math.max(l1+2, maxBasicBytes - headerBytes);
-                int l2 = Math.max(l1+1, Math.min(l3-1, Arrays.binarySearch(bytesHistogram, (3*commandCount)/4) - headerBytes));
+                int l2 = Arrays.binarySearch(bytesHistogram, minBasicBytes, maxBasicBytes,(3*commandCount)/4);
+                l2 = Math.max(l1+1, Math.min(l3-1, (l2 < 0 ? -1 -l2 : l2) - headerBytes));
                 while (l3-l2 > 4) ++l2;
                 while (l2-l1 > 4) ++l1;
                 hlcBytesLookup = setHlcBytes(l0, l1, l2, l3);
@@ -246,16 +248,13 @@ public class CommandsForKeySerializer
                 totalBytes += TypeSizes.sizeofUnsignedVInt(nodeIds[i] - nodeIds[i-1]);
             totalBytes += 2;
 
-            Arrays.fill(bytesHistogram, minBasicBytes, maxBasicBytes + 1, 0);
             cachedInts().forceDiscard(bytesHistogram);
 
-            prevEpoch = cfk.shardRedundantBefore().epoch();
-            prevHlc = cfk.shardRedundantBefore().hlc();
+            prevEpoch = cfk.get(0).epoch();
+            prevHlc = cfk.get(0).hlc();
             // account for encoding redundantBefore
             totalBytes += TypeSizes.sizeofUnsignedVInt(prevEpoch);
             totalBytes += TypeSizes.sizeofUnsignedVInt(prevHlc);
-            totalBytes += 2; // flags TODO (expected): pack this along with uniqueIdBits, as usually zero bits should be needed
-            totalBytes += (bitsPerNodeId+7)/8;
 
             if (missingIdCount + executeAtCount > 0)
             {
@@ -383,6 +382,20 @@ public class CommandsForKeySerializer
                 }
             }
 
+            VIntCoding.writeUnsignedVInt32(unmanagedPendingCommitCount, out);
+            VIntCoding.writeUnsignedVInt32(cfk.unmanagedCount() - unmanagedPendingCommitCount, out);
+            Unmanaged.Pending pending = unmanagedPendingCommitCount == 0 ? Unmanaged.Pending.APPLY : Unmanaged.Pending.COMMIT;
+            for (int i = 0 ; i < cfk.unmanagedCount() ; ++i)
+            {
+                Unmanaged unmanaged = cfk.getUnmanaged(i);
+                Invariants.checkState(unmanaged.pending == pending);
+                CommandSerializers.txnId.serialize(unmanaged.txnId, out, ByteBufferAccessor.instance, out.position());
+                out.position(out.position() + CommandSerializers.txnId.serializedSize());
+                CommandSerializers.timestamp.serialize(unmanaged.waitingUntil, out, ByteBufferAccessor.instance, out.position());
+                out.position(out.position() + CommandSerializers.timestamp.serializedSize());
+                if (--unmanagedPendingCommitCount == 0) pending = Unmanaged.Pending.APPLY;
+            }
+
             if ((executeAtCount | missingIdCount) > 0)
             {
                 int bitsPerCommandId =  numberOfBitsToRepresent(commandCount);
@@ -449,20 +462,7 @@ public class CommandsForKeySerializer
                 writeMostSignificantBytes(buffer, (bufferCount + 7)/8, out);
             }
 
-            VIntCoding.writeUnsignedVInt32(unmanagedPendingCommitCount, out);
-            VIntCoding.writeUnsignedVInt32(cfk.unmanagedCount() - unmanagedPendingCommitCount, out);
-            Unmanaged.Pending pending = unmanagedPendingCommitCount == 0 ? Unmanaged.Pending.APPLY : Unmanaged.Pending.COMMIT;
-            for (int i = 0 ; i < cfk.unmanagedCount() ; ++i)
-            {
-                Unmanaged unmanaged = cfk.getUnmanaged(i);
-                Invariants.checkState(unmanaged.pending == pending);
-                CommandSerializers.txnId.serialize(unmanaged.txnId, out, ByteBufferAccessor.instance, out.position());
-                out.position(out.position() + CommandSerializers.txnId.serializedSize());
-                CommandSerializers.timestamp.serialize(unmanaged.waitingUntil, out, ByteBufferAccessor.instance, out.position());
-                out.position(out.position() + CommandSerializers.timestamp.serializedSize());
-                if (--unmanagedPendingCommitCount == 0) pending = Unmanaged.Pending.APPLY;
-            }
-
+            Invariants.checkState(!out.hasRemaining());
             out.flip();
             return out;
         }
@@ -496,7 +496,7 @@ public class CommandsForKeySerializer
         in = in.duplicate();
         int commandCount = VIntCoding.readUnsignedVInt32(in);
         if (commandCount == 0)
-            return null;
+            return new CommandsForKey(key);
 
         TxnId[] txnIds = cachedTxnIds().get(commandCount);
         TxnInfo[] txns = new TxnInfo[commandCount];
@@ -599,6 +599,28 @@ public class CommandsForKeySerializer
             prevHlc = hlc;
         }
 
+        int unmanagedPendingCommitCount = VIntCoding.readUnsignedVInt32(in);
+        int unmanagedCount = unmanagedPendingCommitCount + VIntCoding.readUnsignedVInt32(in);
+        Unmanaged[] unmanageds;
+        if (unmanagedCount == 0)
+        {
+            unmanageds = NO_PENDING_UNMANAGED;
+        }
+        else
+        {
+            unmanageds = new Unmanaged[unmanagedCount];
+            Unmanaged.Pending pending = unmanagedPendingCommitCount == 0 ? Unmanaged.Pending.APPLY : Unmanaged.Pending.COMMIT;
+            for (int i = 0 ; i < unmanagedCount ; ++i)
+            {
+                TxnId txnId = CommandSerializers.txnId.deserialize(in, ByteBufferAccessor.instance, in.position());
+                in.position(in.position() + CommandSerializers.txnId.serializedSize());
+                Timestamp waitingUntil = CommandSerializers.timestamp.deserialize(in, ByteBufferAccessor.instance, in.position());
+                in.position(in.position() + CommandSerializers.timestamp.serializedSize());
+                unmanageds[i] = new Unmanaged(pending, txnId, waitingUntil);
+                if (--unmanagedPendingCommitCount == 0) pending = Unmanaged.Pending.APPLY;
+            }
+        }
+
         if (executeAtMasks + missingDepsMasks > 0)
         {
             TxnId[] missingIdBuffer = cachedTxnIds().get(8);
@@ -624,8 +646,8 @@ public class CommandsForKeySerializer
             {
                 TxnId txnId = txnIds[i];
                 TxnInfo placeholder = txns[i];
-                Timestamp executeAt = placeholder.executeAt;
-                if (executeAt == null)
+                Timestamp executeAt;
+                if (placeholder.executeAt == null)
                 {
                     long epoch, hlc;
                     int flags;
@@ -649,6 +671,10 @@ public class CommandsForKeySerializer
                         id = nodeIds[(int)(reader.read(bitsPerNodeId, in))];
                     }
                     executeAt = Timestamp.fromValues(epoch, hlc, flags, id);
+                }
+                else
+                {
+                    executeAt = txnId;
                 }
 
                 TxnId[] missing = placeholder.missing();
@@ -684,28 +710,6 @@ public class CommandsForKeySerializer
                 txns[i] = TxnInfo.create(txnIds[i], txns[i].status, txnIds[i]);
         }
         cachedTxnIds().forceDiscard(txnIds, commandCount);
-
-        int unmanagedPendingCommitCount = VIntCoding.readUnsignedVInt32(in);
-        int unmanagedCount = unmanagedPendingCommitCount + VIntCoding.readUnsignedVInt32(in);
-        Unmanaged[] unmanageds;
-        if (unmanagedCount == 0)
-        {
-            unmanageds = NO_PENDING_UNMANAGED;
-        }
-        else
-        {
-            unmanageds = new Unmanaged[unmanagedCount];
-            Unmanaged.Pending pending = unmanagedPendingCommitCount == 0 ? Unmanaged.Pending.APPLY : Unmanaged.Pending.COMMIT;
-            for (int i = 0 ; i < unmanagedCount ; ++i)
-            {
-                TxnId txnId = CommandSerializers.txnId.deserialize(in, ByteBufferAccessor.instance, in.position());
-                in.position(in.position() + CommandSerializers.txnId.serializedSize());
-                Timestamp waitingUntil = CommandSerializers.timestamp.deserialize(in, ByteBufferAccessor.instance, in.position());
-                in.position(in.position() + CommandSerializers.timestamp.serializedSize());
-                unmanageds[i] = new Unmanaged(pending, txnId, waitingUntil);
-                if (--unmanagedPendingCommitCount == 0) pending = Unmanaged.Pending.APPLY;
-            }
-        }
 
         return CommandsForKey.SerializerSupport.create(key, txns, unmanageds);
     }

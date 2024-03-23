@@ -30,8 +30,6 @@ import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.zip.Checksum;
 
-import javax.annotation.Nonnull;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableListMultimap;

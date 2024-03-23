@@ -101,20 +101,20 @@ public class AccordCommandStoreTest
         AtomicLong clock = new AtomicLong(0);
         PartialTxn depTxn = createPartialTxn(0);
         Key key = (Key)depTxn.keys().get(0);
-        Range range = key.asRange();
+        Range range = key.toUnseekable().asRange();
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
 
         QueryProcessor.executeInternal("INSERT INTO ks.tbl (k, c, v) VALUES (0, 0, 1)");
         TableId tableId = Schema.instance.getTableMetadata("ks", "tbl").id;
         TxnId oldTxnId1 = txnId(1, clock.incrementAndGet(), 1, Txn.Kind.Write, Routable.Domain.Range);
         TxnId oldTxnId2 = txnId(1, clock.incrementAndGet(), 1, Txn.Kind.Write, Routable.Domain.Range);
-        TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
+        TxnId txnId = txnId(1, clock.incrementAndGet(), 1, Txn.Kind.Write, Routable.Domain.Range);
 
         PartialDeps dependencies;
         try (PartialDeps.Builder builder = PartialDeps.builder(depTxn.covering()))
         {
-            builder.add(key, oldTxnId1);
-            builder.add(key, oldTxnId2);
+            builder.add(range, oldTxnId1);
+            builder.add(range, oldTxnId2);
             dependencies = builder.build();
         }
 

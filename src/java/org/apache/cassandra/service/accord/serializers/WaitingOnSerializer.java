@@ -49,12 +49,12 @@ public class WaitingOnSerializer
         }
     }
 
-    public static WaitingOn deserialize(TxnId txnid, Keys keys, SortedArrayList<TxnId> txnIds, DataInputPlus in) throws IOException
+    public static WaitingOn deserialize(TxnId txnId, Keys keys, SortedArrayList<TxnId> txnIds, DataInputPlus in) throws IOException
     {
         int waitingOnLength = (txnIds.size() + keys.size() + 63) / 64;
         ImmutableBitSet waitingOn = deserialize(waitingOnLength, in);
         ImmutableBitSet appliedOrInvalidated = null;
-        if (txnid.domain() == Routable.Domain.Range)
+        if (txnId.domain() == Routable.Domain.Range)
         {
             int appliedOrInvalidatedLength = (txnIds.size() + 63) / 64;
             appliedOrInvalidated = deserialize(appliedOrInvalidatedLength, in);
@@ -111,7 +111,7 @@ public class WaitingOnSerializer
         serialize(waitingOnLength, waitingOn.waitingOn, out);
         if (appliedOrInvalidatedLength > 0)
             serialize(appliedOrInvalidatedLength, waitingOn.appliedOrInvalidated, out);
-        return (ByteBuffer) out.flip();
+        return out.flip();
     }
 
     private static void serialize(int length, SimpleBitSet write, ByteBuffer out)
