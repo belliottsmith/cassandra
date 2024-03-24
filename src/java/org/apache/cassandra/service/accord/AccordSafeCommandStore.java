@@ -231,7 +231,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                 Routables<?> sliced = keysOrRanges.slice(slice, Routables.Slice.Minimal);
                 if (!context.keys().slice(slice, Routables.Slice.Minimal).containsAll(sliced))
                     throw new AssertionError("Range(s) detected not present in the PreLoadContext: expected " + context.keys() + " but given " + keysOrRanges);
-                for (Key key : timestampsForKeys.keySet())
+                for (Key key : commandsForKeys.keySet())
                 {
                     //TODO (duplicate code): this is a repeat of Key... only change is checking contains in range
                     if (!sliced.contains(key)) continue;
