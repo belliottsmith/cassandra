@@ -258,7 +258,7 @@ public class AsyncOperationTest
         Accept accept =
             Accept.SerializerSupport.create(txnId, partialRoute, txnId.epoch(), txnId.epoch(), false, Ballot.ZERO, executeAt, partialTxn.keys(), deps);
         Commit commit =
-            Commit.SerializerSupport.create(txnId, partialRoute, txnId.epoch(), Commit.Kind.Commit, Ballot.ZERO, executeAt, partialTxn.keys(), partialTxn, deps, route, null);
+            Commit.SerializerSupport.create(txnId, partialRoute, txnId.epoch(), Commit.Kind.CommitSlowPath, Ballot.ZERO, executeAt, partialTxn.keys(), partialTxn, deps, route, null);
         Commit stable =
             Commit.SerializerSupport.create(txnId, partialRoute, txnId.epoch(), Commit.Kind.StableSlowPath, Ballot.ZERO, executeAt, partialTxn.keys(), partialTxn, deps, route, null);
 
