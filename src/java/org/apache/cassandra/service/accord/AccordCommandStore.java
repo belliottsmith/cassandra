@@ -220,7 +220,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
 
                 MessageProvider messageProvider = journal.makeMessageProvider(txnId);
 
-                SerializerSupport.TxnAndDeps txnAndDeps = SerializerSupport.extractTxnAndDeps(status, accepted, messageProvider);
+                SerializerSupport.TxnAndDeps txnAndDeps = SerializerSupport.extractTxnAndDeps(unsafeRangesForEpoch(), status, accepted, messageProvider);
                 Seekables<?, ?> keys = txnAndDeps.txn.keys();
                 if (keys.domain() != Routable.Domain.Range)
                     throw new AssertionError(String.format("Txn keys are not range for %s", txnAndDeps.txn));

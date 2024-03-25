@@ -32,12 +32,14 @@ import accord.utils.SortedArrays.SortedArrayList;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.utils.vint.VIntCoding;
 
 public class WaitingOnSerializer
 {
     public static void serialize(TxnId txnId, WaitingOn waitingOn, DataOutputPlus out) throws IOException
     {
-        // TODO (expected): use run length encoding; we know that at most 1/3rd of bits will be set between the three bitsets
+        out.writeUnsignedVInt32(waitingOn.keys.size());
+        out.writeUnsignedVInt32(waitingOn.txnIds.size());
         int keyCount = waitingOn.keys.size();
         int txnIdCount = waitingOn.txnIds.size();
         int waitingOnLength = (txnIdCount + keyCount + 63) / 64;
@@ -51,6 +53,8 @@ public class WaitingOnSerializer
 
     public static WaitingOn deserialize(TxnId txnId, Keys keys, SortedArrayList<TxnId> txnIds, DataInputPlus in) throws IOException
     {
+        int a = in.readUnsignedVInt32();
+        int b = in.readUnsignedVInt32();
         int waitingOnLength = (txnIds.size() + keys.size() + 63) / 64;
         ImmutableBitSet waitingOn = deserialize(waitingOnLength, in);
         ImmutableBitSet appliedOrInvalidated = null;
@@ -68,6 +72,8 @@ public class WaitingOnSerializer
         int txnIdCount = waitingOn.txnIds.size();
         int waitingOnLength = (txnIdCount + keyCount + 63) / 64;
         long size = serializedSize(waitingOnLength, waitingOn.waitingOn);
+        size += TypeSizes.sizeofUnsignedVInt(keyCount);
+        size += TypeSizes.sizeofUnsignedVInt(txnIdCount);
         if (waitingOn.appliedOrInvalidated == null)
             return size;
 
@@ -107,7 +113,10 @@ public class WaitingOnSerializer
         if (txnId.domain() == Routable.Domain.Range)
             appliedOrInvalidatedLength = (txnIdCount + 63) / 64;
 
-        ByteBuffer out = ByteBuffer.allocate(TypeSizes.LONG_SIZE * (waitingOnLength + appliedOrInvalidatedLength));
+        ByteBuffer out = ByteBuffer.allocate(TypeSizes.sizeofUnsignedVInt(keyCount) + TypeSizes.sizeofUnsignedVInt(txnIdCount)
+                                             + TypeSizes.LONG_SIZE * (waitingOnLength + appliedOrInvalidatedLength));
+        VIntCoding.writeUnsignedVInt32(keyCount, out);
+        VIntCoding.writeUnsignedVInt32(txnIdCount, out);
         serialize(waitingOnLength, waitingOn.waitingOn, out);
         if (appliedOrInvalidatedLength > 0)
             serialize(appliedOrInvalidatedLength, waitingOn.appliedOrInvalidated, out);
@@ -126,6 +135,10 @@ public class WaitingOnSerializer
     {
         int waitingOnLength = (txnIds.size() + keys.size() + 63) / 64;
         int position = in.position();
+        int a = VIntCoding.readUnsignedVInt32(in, position);
+        position += TypeSizes.sizeofUnsignedVInt(a);
+        int b = VIntCoding.readUnsignedVInt32(in, position);
+        position += TypeSizes.sizeofUnsignedVInt(a);
         ImmutableBitSet waitingOn = deserialize(position, waitingOnLength, in);
         ImmutableBitSet appliedOrInvalidated = null;
         if (txnId.domain() == Routable.Domain.Range)

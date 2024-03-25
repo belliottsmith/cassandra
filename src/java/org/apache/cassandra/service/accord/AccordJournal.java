@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1355,6 +1356,19 @@ public class AccordJournal implements Shutdownable
             for (MessageType message : messages)
                 for (Type synonymousType : Type.synonymousTypesFromMessageType(message))
                     keys.add(new Key(txnId, synonymousType));
+            Set<Key> presentKeys = journal.test(keys);
+            Set<MessageType> presentMessages = new ObjectHashSet<>(presentKeys.size() + 1, 0.9f);
+            for (Key key : presentKeys)
+                presentMessages.add(key.type.outgoingType);
+            return presentMessages;
+        }
+
+        public Set<MessageType> all()
+        {
+            Set<Type> types = EnumSet.allOf(Type.class);
+            Set<Key> keys = new ObjectHashSet<>(types.size() + 1, 0.9f);
+            for (Type type : types)
+                keys.add(new Key(txnId, type));
             Set<Key> presentKeys = journal.test(keys);
             Set<MessageType> presentMessages = new ObjectHashSet<>(presentKeys.size() + 1, 0.9f);
             for (Key key : presentKeys)
