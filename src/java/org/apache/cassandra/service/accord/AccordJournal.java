@@ -173,7 +173,7 @@ public class AccordJournal implements IJournal, Shutdownable
         @Override
         public FlushMode flushMode()
         {
-            return FlushMode.BATCH;
+            return FlushMode.PERIODIC;
         }
 
         @Override
@@ -185,7 +185,7 @@ public class AccordJournal implements IJournal, Shutdownable
         @Override
         public int periodicFlushLagBlock()
         {
-            return 1500;
+            return flushPeriodMillis();
         }
 
         @Override
