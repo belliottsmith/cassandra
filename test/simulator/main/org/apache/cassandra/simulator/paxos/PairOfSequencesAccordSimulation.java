@@ -123,6 +123,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
 
     private final float writeRatio;
     private final HistoryValidator validator;
+    private final String transactionMode;
 
     public PairOfSequencesAccordSimulation(SimulatedSystems simulated,
                                            Cluster cluster,
@@ -131,7 +132,8 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
                                            int concurrency, IntRange simulateKeyForSeconds, IntRange withinKeyConcurrency,
                                            ConsistencyLevel serialConsistency, RunnableActionScheduler scheduler, Debug debug,
                                            long seed, int[] primaryKeys,
-                                           long runForNanos, LongSupplier jitter)
+                                           long runForNanos, LongSupplier jitter,
+                                           String transactionMode)
     {
         super(simulated, cluster, clusterOptions,
               readRatio, concurrency, simulateKeyForSeconds, withinKeyConcurrency,
@@ -140,6 +142,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
               seed, primaryKeys,
               runForNanos, jitter);
         this.writeRatio = 1F - readRatio;
+        this.transactionMode = transactionMode;
         HistoryValidator validator = new StrictSerializabilityValidator(primaryKeys);
         if (CassandraRelevantProperties.TEST_HISTORY_VALIDATOR_LOGGING_ENABLED.getBoolean())
             validator = new LoggingHistoryValidator(validator);
@@ -149,7 +152,7 @@ public class PairOfSequencesAccordSimulation extends AbstractPairOfSequencesPaxo
     @Override
     protected String createTableStmt()
     {
-        return "CREATE TABLE " + KEYSPACE + ".tbl (pk int, count int, seq text, PRIMARY KEY (pk))";
+        return "CREATE TABLE " + KEYSPACE + ".tbl (pk int, count int, seq text, PRIMARY KEY (pk)) WITH transactional_mode = '" + transactionMode + '\'';
     }
 
     @Override

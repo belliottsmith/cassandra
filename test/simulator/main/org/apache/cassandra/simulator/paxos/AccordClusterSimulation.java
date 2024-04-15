@@ -72,10 +72,10 @@ class AccordClusterSimulation extends ClusterSimulation<PaxosSimulation> impleme
                   KindOfSequence.Period jitter = RandomSource.Choices.uniform(KindOfSequence.values()).choose(random)
                                                                      .period(builder.schedulerJitterNanos(), random);
                   return new PairOfSequencesAccordSimulation(simulated, cluster, options,
-                                                            builder.readChance().select(random), builder.concurrency(), builder.primaryKeySeconds(), builder.withinKeyConcurrency(),
-                                                            SERIAL, schedulers, builder.debug(), seed,
-                                                            primaryKeys, builder.secondsToSimulate() >= 0 ? SECONDS.toNanos(builder.secondsToSimulate()) : -1,
-                                                            () -> jitter.get(random));
+                                                             builder.readChance().select(random), builder.concurrency(), builder.primaryKeySeconds(), builder.withinKeyConcurrency(),
+                                                             SERIAL, schedulers, builder.debug(), seed,
+                                                             primaryKeys, builder.secondsToSimulate() >= 0 ? SECONDS.toNanos(builder.secondsToSimulate()) : -1,
+                                                             () -> jitter.get(random), builder.transactionMode());
               });
     }
 

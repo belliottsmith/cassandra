@@ -72,7 +72,7 @@ class PaxosClusterSimulation extends ClusterSimulation<PaxosSimulation> implemen
 
         public String lwtStrategy()
         {
-            return lwtStrategy;
+            return transactionMode;
         }
     }
 

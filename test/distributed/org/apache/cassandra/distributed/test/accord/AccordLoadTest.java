@@ -43,14 +43,22 @@ public class AccordLoadTest extends AccordTestBase
     @BeforeClass
     public static void setUp() throws IOException
     {
-        AccordTestBase.setupCluster(builder -> builder.withConfig(config -> config.set("lwt_strategy", "accord").set("non_serial_write_strategy", "accord")), 2);
+        AccordTestBase.setupCluster(builder -> builder, 2);
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        setUp();
+        AccordLoadTest test = new AccordLoadTest();
+        test.setup();
+        test.testLoad();
     }
 
     @Ignore
     @Test
     public void testLoad() throws Exception
     {
-        test("CREATE TABLE " + qualifiedTableName + " (k int, v int, PRIMARY KEY(k))",
+        test("CREATE TABLE " + qualifiedTableName + " (k int, v int, PRIMARY KEY(k)) WITH transactional_mode = 'full';",
              cluster -> {
                  ICoordinator coordinator = cluster.coordinator(1);
                  final int batchSize = 1000;

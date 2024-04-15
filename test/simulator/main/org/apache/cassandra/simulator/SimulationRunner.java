@@ -271,8 +271,8 @@ public class SimulationRunner
         @Option(name = { "--capture" }, title = "wait,wake,now", description = "Capture thread stack traces alongside events, choose from (wait,wake,now)")
         protected String capture;
 
-        @Option(name = { "--lwt-strategy" }, title = "migration|accord]", description = "What execution strategy to use for CAS and serial read")
-        protected String lwtStrategy;
+        @Option(name = { "--transaction-mode" }, title = "off|unsafe|unsafe_writes|mixed_reads|full", description = "What transaction mode to use for mixing transactional and non-transactional operations")
+        protected String transactionMode;
 
         protected void propagate(B builder)
         {
@@ -344,7 +344,7 @@ public class SimulationRunner
                 builder.debug(debugLevels, debugPrimaryKeys);
             }
 
-            Optional.ofNullable(lwtStrategy).ifPresent(builder::lwtStrategy);
+            Optional.ofNullable(transactionMode).ifPresent(builder::transactionMode);
         }
 
         public void run(B builder) throws IOException
