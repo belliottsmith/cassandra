@@ -249,6 +249,7 @@ public class AccordKeyspace
               + format("execute_at %s,", TIMESTAMP_TUPLE)
               + format("promised_ballot %s,", TIMESTAMP_TUPLE)
               + format("accepted_ballot %s,", TIMESTAMP_TUPLE)
+              + format("execute_atleast %s,", TIMESTAMP_TUPLE)
               + "waiting_on blob,"
               + "listeners set<blob>, "
               + "PRIMARY KEY((store_id, domain, txn_id))"
@@ -1229,6 +1230,7 @@ public class AccordKeyspace
             Timestamp executeAt = deserializeExecuteAtOrNull(row);
             Ballot promised = deserializePromisedOrNull(row);
             Ballot accepted = deserializeAcceptedOrNull(row);
+            Timestamp executeAtLeast = status.is(Status.Truncated) && txnId.kind().awaitsOnlyDeps() ? deserializeExecuteAtLeastOrNull(row) : null;
 
             WaitingOnProvider waitingOn = deserializeWaitingOn(txnId, row);
             MessageProvider messages = commandStore.makeMessageProvider(txnId);
@@ -1304,6 +1306,11 @@ public class AccordKeyspace
     public static Timestamp deserializeExecuteAtOrNull(UntypedResultSet.Row row)
     {
         return deserializeTimestampOrNull(row, "execute_at", Timestamp::fromBits);
+    }
+
+    public static Timestamp deserializeExecuteAtLeastOrNull(UntypedResultSet.Row row)
+    {
+        return deserializeTimestampOrNull(row, "execute_atleast", Timestamp::fromBits);
     }
 
     public static Ballot deserializePromisedOrNull(UntypedResultSet.Row row)
