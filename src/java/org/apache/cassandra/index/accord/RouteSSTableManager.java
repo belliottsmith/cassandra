@@ -30,7 +30,11 @@ import java.util.TreeSet;
 
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.utils.Simulate;
 
+import static org.apache.cassandra.utils.Simulate.With.MONITORS;
+
+@Simulate(with=MONITORS)
 public class RouteSSTableManager implements SSTableManager
 {
     private final Map<SSTableReader, SSTableIndex> sstables = new HashMap<>();
