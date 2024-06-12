@@ -18,7 +18,9 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
@@ -47,8 +49,6 @@ import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
 import accord.local.SafeCommandStore;
-import accord.local.SerializerSupport.MessageProvider;
-import accord.messages.Message;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
@@ -76,7 +76,7 @@ import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFac
 public class AccordCommandStore extends CommandStore implements CacheSize
 {
     private static final Logger logger = LoggerFactory.getLogger(AccordCommandStore.class);
-
+    private static final Runnable NO_OP = () -> {};
     private static final boolean CHECK_THREADS = CassandraRelevantProperties.TEST_ACCORD_STORE_THREAD_CHECKS_ENABLED.getBoolean();
 
     private static long getThreadId(ExecutorService executor)
@@ -214,7 +214,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
                                 AccordSafeCommand.class,
                                 AccordSafeCommand::new,
                                 this::loadCommand,
-                                this::saveCommand,
+                                this::appendToKeyspace,
                                 this::validateCommand,
                                 AccordObjectSizes::command);
         registerJfrListener(id, commandCache, "Command");
@@ -333,22 +333,29 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     {
         return commandsForKeyCache;
     }
-    Command loadCommand(TxnId txnId)
+
+    @Nullable
+    Runnable appendToKeyspace(Command before, Command after)
     {
-        return AccordKeyspace.loadCommand(this, txnId);
+        Mutation mutation = AccordKeyspace.getCommandMutation(this.id, before, after, nextSystemTimestampMicros());
+
+        // TODO (required): make sure we test recovering when this has failed to be persisted
+        if (null != mutation)
+            mutation.applyUnsafe();
+
+        return NO_OP;
     }
 
     @Nullable
-    Runnable saveCommand(Command before, Command after)
+    @VisibleForTesting
+    public void appendToLog(Command before, Command after, Runnable runnable)
     {
-        Mutation mutation = AccordKeyspace.getCommandMutation(id, before, after, nextSystemTimestampMicros());
-        // TODO (required): make sure we test recovering when this has failed to be persisted
-        return null != mutation ? mutation::applyUnsafe : null;
+        journal.appendCommand(id, Collections.singletonList(SavedCommand.SavedDiff.diff(before, after)), null, runnable);
     }
 
     boolean validateCommand(TxnId txnId, Command evicting)
     {
-        Command reloaded = AccordKeyspace.unsafeLoadCommand(this, txnId);
+        Command reloaded = loadCommand(txnId);
         return (evicting == null && reloaded == null) || (evicting != null && reloaded != null && reloaded.isEqualOrFuller(evicting));
     }
 
@@ -557,14 +564,14 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     public NavigableMap<TxnId, Ranges> bootstrapBeganAt() { return super.bootstrapBeganAt(); }
     public NavigableMap<Timestamp, Ranges> safeToRead() { return super.safeToRead(); }
 
-    MessageProvider makeMessageProvider(TxnId txnId)
+    public boolean appendCommands(List<SavedCommand.SavedDiff> commands, List<Command> sanityCheck, Runnable runnable)
     {
-        return journal.makeMessageProvider(txnId);
+        return journal.appendCommand(id, commands, sanityCheck, runnable);
     }
 
     @VisibleForTesting
-    public void appendToJournal(Message message)
+    public Command loadCommand(TxnId txnId)
     {
-        journal.appendMessageBlocking(message);
+        return journal.loadCommand(id, txnId);
     }
 }
