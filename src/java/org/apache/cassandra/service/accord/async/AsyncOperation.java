@@ -261,10 +261,10 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     }
                 }
 
-                boolean requestedFlush = this.commandStore.appendCommands(diffs, sanityCheck, () -> this.commandStore.executor().submit(this));
-                safeStore.postExecute(context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
-                context.releaseResources(commandStore);
+                // TODO (required): we should allow for an exception to be provided by the commit log if it fails (though we probably need to panic in this case anyway)
+                boolean requestedFlush = this.commandStore.appendCommands(diffs, sanityCheck, () -> finish(result, null));
                 commandStore.completeOperation(safeStore);
+                context.releaseResources(commandStore);
                 if (requestedFlush)
                 {
                     state(AWAITING_FLUSH);
@@ -315,6 +315,12 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     {
         Invariants.checkState(this.callback == null);
         this.callback = callback;
+        if (commandStore.inStore())
+        {
+            state(LOADING);
+            if (!loader.load(context, this::onLoaded))
+                return;
+        }
         commandStore.executor().execute(this);
     }
 
