@@ -301,6 +301,13 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     {
         Invariants.checkState(this.callback == null);
         this.callback = callback;
+        if (commandStore.inStore())
+        {
+            commandStore.executionOrder().register(this);
+            state(LOADING);
+            if (!loader.load(context, this::onLoaded))
+                return;
+        }
         commandStore.executor().execute(this);
     }
 

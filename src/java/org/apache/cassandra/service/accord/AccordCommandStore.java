@@ -349,7 +349,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     boolean validateCommand(TxnId txnId, Command evicting)
     {
         Command reloaded = AccordKeyspace.unsafeLoadCommand(this, txnId);
-        return (evicting == null && reloaded == null) || (evicting != null && reloaded != null && reloaded.isEqualOrFuller(evicting));
+        return Objects.equals(evicting, reloaded);
     }
 
     boolean validateTimestampsForKey(RoutableKey key, TimestampsForKey evicting)

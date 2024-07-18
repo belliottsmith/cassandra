@@ -644,7 +644,7 @@ public class AccordKeyspace
             if (current == null)
                 return null;
 
-            CommandsForKey updated = current.withRedundantBefore(redundantBefore);
+            CommandsForKey updated = current.withRedundantBeforeAtLeast(redundantBefore);
             if (current == updated)
                 return row;
 
@@ -1342,7 +1342,7 @@ public class AccordKeyspace
 
             try
             {
-                return WaitingOnSerializer.deserialize(txnId, deps.keyDeps.keys(), deps.rangeDeps.txnIds(), bytes);
+                return WaitingOnSerializer.deserialize(txnId, deps.keyDeps.keys(), deps.rangeDeps, deps.directKeyDeps, bytes);
             }
             catch (IOException e)
             {

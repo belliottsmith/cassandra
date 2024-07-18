@@ -244,7 +244,7 @@ public class AsyncLoader
                         logger.trace("Read result succeeded for {}", callback);
                         readResult = null;
                     }
-                    else
+                    else if (callback != null)
                     {
                         logger.trace("Adding callback for read result: {}", callback);
                         readResult.addCallback(callback, commandStore.executor());
