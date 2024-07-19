@@ -258,7 +258,7 @@ public class SavedCommand
         }
     }
 
-    // TODO: this convert function was added only because AsyncOperationTest was failing without it; maybe after switching to loading from the log we can just pass l and r directly or remove != null checks.
+    // TODO (required): this convert function was added only because AsyncOperationTest was failing without it; maybe after switching to loading from the log we can just pass l and r directly or remove != null checks.
     private static <OBJ, VAL> VAL ifNotEqual(OBJ lo, OBJ ro, Function<OBJ, VAL> convert, boolean allowClassMismatch)
     {
         VAL l = null;
@@ -601,7 +601,6 @@ public class SavedCommand
         return (value & (1 << bit)) != 0;
     }
 
-    // TODO: the other interface with same name should go away after read-path and reconstruct are hooked up
     public interface WaitingOnProvider
     {
         Command.WaitingOn provide(TxnId txnId, PartialDeps deps);
