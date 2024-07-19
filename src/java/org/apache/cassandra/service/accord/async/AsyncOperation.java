@@ -253,9 +253,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 state(RUNNING);
             case RUNNING:
                 result = apply(safeStore);
-                safeStore.postExecute(context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
-                context.releaseResources(commandStore);
                 commandStore.completeOperation(safeStore);
+                context.releaseResources(commandStore);
                 commandStore.executionOrder().unregister(this);
                 state(COMPLETING);
             case COMPLETING:

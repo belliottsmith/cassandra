@@ -64,6 +64,7 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
+import org.apache.cassandra.service.accord.AccordSafeCommand.DebugAccordSafeCommand;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.service.accord.async.ExecutionOrder;
@@ -491,7 +492,6 @@ public class AccordCommandStore extends CommandStore implements CacheSize
             commandsForRanges.preExecute();
 
         current = AccordSafeCommandStore.create(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, this);
-
         return current;
     }
 
@@ -503,8 +503,14 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     public void completeOperation(AccordSafeCommandStore store)
     {
         Invariants.checkState(current == store);
-        current.complete();
-        current = null;
+        try
+        {
+            current.postExecute();
+        }
+        finally
+        {
+            current = null;
+        }
     }
 
     public void abortCurrentOperation()

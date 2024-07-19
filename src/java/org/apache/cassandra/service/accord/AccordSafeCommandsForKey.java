@@ -25,6 +25,7 @@ import com.google.common.annotations.VisibleForTesting;
 import accord.api.Key;
 import accord.local.CommandsForKey;
 import accord.local.SafeCommandsForKey;
+import org.apache.cassandra.utils.concurrent.Ref;
 
 public class AccordSafeCommandsForKey extends SafeCommandsForKey implements AccordSafeState<Key, CommandsForKey>
 {
@@ -35,7 +36,7 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
 
     public AccordSafeCommandsForKey(AccordCachingState<Key, CommandsForKey> global)
     {
-        super((Key) global.key());
+        super(global.key());
         this.global = global;
         this.original = null;
         this.current = null;
@@ -115,14 +116,6 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
         checkNotInvalidated();
         original = global.get();
         current = original;
-    }
-
-    @Override
-    public void postExecute()
-    {
-        checkNotInvalidated();
-        if (current != original)
-            global.set(current);
     }
 
     @Override
