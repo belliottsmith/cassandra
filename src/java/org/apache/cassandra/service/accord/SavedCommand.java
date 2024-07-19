@@ -21,7 +21,10 @@ package org.apache.cassandra.service.accord;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import accord.api.Result;
 import accord.local.Command;
@@ -148,6 +151,18 @@ public class SavedCommand
 
     static Command reconstructFromDiff(List<LoadedDiff> diffs)
     {
+        return reconstructFromDiff(diffs, CommandSerializers.APPLIED);
+    }
+
+    /**
+     * @param result is exposed because we are _not_ persisting result, since during loading or replay
+     *               we do not expect we will have to send a result to the client, and data results
+     *               can potentially contain a large number of entries, so it's best if they are not
+     *               written into the log.
+     */
+    @VisibleForTesting
+    static Command reconstructFromDiff(List<LoadedDiff> diffs, Result result)
+    {
         TxnId txnId = null;
 
         Timestamp executeAt = null;
@@ -235,7 +250,6 @@ public class SavedCommand
                 return Command.Committed.committed(attrs, saveStatus, executeAt, promised, acceptedOrCommitted, waitingOn);
             case PreApplied:
             case Applied:
-                Result result = CommandSerializers.APPLIED;
                 return Command.Executed.executed(attrs, saveStatus, executeAt, promised, acceptedOrCommitted, waitingOn, writes, result);
             case Truncated:
             case Invalidated:

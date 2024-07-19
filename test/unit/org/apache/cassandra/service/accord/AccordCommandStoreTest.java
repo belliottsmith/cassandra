@@ -102,7 +102,7 @@ public class AccordCommandStoreTest
     {
         AtomicLong clock = new AtomicLong(0);
         PartialTxn depTxn = createPartialTxn(0);
-        Key key = (Key)depTxn.keys().get(0);
+        Key key = (Key) depTxn.keys().get(0);
         Range range = key.toUnseekable().asRange();
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
 
@@ -137,19 +137,19 @@ public class AccordCommandStoreTest
         attrs.addListener(new Command.ProxyListener(oldTxnId1));
         Pair<Writes, Result> result = AccordTestUtils.processTxnResult(commandStore, txnId, txn, executeAt);
 
-        Command command = Command.SerializerSupport.executed(attrs, SaveStatus.Applied, executeAt, promised, accepted,
-                                                             waitingOn, result.left, CommandSerializers.APPLIED);
+        Command expected = Command.SerializerSupport.executed(attrs, SaveStatus.Applied, executeAt, promised, accepted,
+                                                              waitingOn, result.left, CommandSerializers.APPLIED);
         AccordSafeCommand safeCommand = new AccordSafeCommand(loaded(txnId, null));
-        safeCommand.set(command);
+        safeCommand.set(expected);
 
-        AccordTestUtils.appendCommandsBlocking(commandStore, null, command);
+        AccordTestUtils.appendCommandsBlocking(commandStore, null, expected);
         AccordKeyspace.getCommandMutation(commandStore, safeCommand, commandStore.nextSystemTimestampMicros()).apply();
 
-        logger.info("E: {}", command);
+        logger.info("E: {}", expected);
         Command actual = commandStore.loadCommand(txnId);
         logger.info("A: {}", actual);
 
-        Assert.assertTrue(command.isEquivalent(actual));
+        Assert.assertEquals(expected, actual);
     }
 
     @Test

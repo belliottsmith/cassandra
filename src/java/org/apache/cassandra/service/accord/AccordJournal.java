@@ -323,8 +323,9 @@ public class AccordJournal implements IJournal, Shutdownable
     public void sanityCheck(int commandStoreId, Command orig)
     {
         List<SavedCommand.LoadedDiff> diffs = loadDiffs(commandStoreId, orig.txnId());
-        Command reconstructed = SavedCommand.reconstructFromDiff(diffs);
-        Invariants.checkState(orig.isEquivalent(reconstructed),
+        // We can only use strict equality if we supply result.
+        Command reconstructed = SavedCommand.reconstructFromDiff(diffs, orig.result());
+        Invariants.checkState(orig.equals(reconstructed),
                               "\n" +
                               "Original:      %s\n" +
                               "Reconstructed: %s\n" +
