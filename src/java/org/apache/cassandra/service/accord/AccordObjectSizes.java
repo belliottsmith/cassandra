@@ -227,7 +227,7 @@ public class AccordObjectSizes
 
     public static long ballot(Ballot ballot)
     {
-        return BALLOT_SIZE;
+        return ballot == Ballot.ZERO ? 0 : BALLOT_SIZE;
     }
 
     private static final long EMPTY_DEPS_SIZE = ObjectSizes.measureDeep(Deps.NONE);
@@ -394,7 +394,7 @@ public class AccordObjectSizes
                 size += EMPTY_INFO_EXTRA_ADDITIONAL_SIZE;
                 size += ObjectSizes.sizeOfReferenceArray(infoExtra.missing.length);
                 size += infoExtra.missing.length * TIMESTAMP_SIZE;
-                size += infoExtra.ballot == Ballot.ZERO ? 0 : ballot();
+                size += ballot(infoExtra.ballot);
             }
         }
         return size;

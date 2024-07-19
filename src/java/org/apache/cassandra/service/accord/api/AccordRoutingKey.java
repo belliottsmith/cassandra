@@ -204,8 +204,7 @@ public abstract class AccordRoutingKey extends AccordRoutableKey implements Rout
 
         static
         {
-            Token key = getPartitioner().decorateKey(ByteBufferUtil.EMPTY_BYTE_BUFFER).getToken();
-            EMPTY_SIZE = ObjectSizes.measureDeep(new TokenKey(null, key));
+            EMPTY_SIZE = ObjectSizes.measure(new TokenKey(null, null));
         }
 
         final Token token;
