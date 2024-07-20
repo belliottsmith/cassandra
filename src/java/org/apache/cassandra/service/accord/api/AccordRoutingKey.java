@@ -43,7 +43,6 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.TokenRange;
-import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.ObjectSizes;
 
 import static org.apache.cassandra.config.DatabaseDescriptor.getPartitioner;

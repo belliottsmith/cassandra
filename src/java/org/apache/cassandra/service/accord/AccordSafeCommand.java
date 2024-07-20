@@ -18,16 +18,12 @@
 
 package org.apache.cassandra.service.accord;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 import com.google.common.annotations.VisibleForTesting;
 
-import accord.api.Key;
 import accord.local.Command;
 import accord.local.Command.TransientListener;
-import accord.local.CommandsForKey;
 import accord.local.Listeners;
 import accord.local.SafeCommand;
 import accord.primitives.TxnId;
