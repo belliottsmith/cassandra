@@ -167,11 +167,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         }
     }
 
-    void onUnblocked()
-    {
-        commandStore.executor().execute(this);
-    }
-
     private void state(State state)
     {
         this.state = state;
@@ -188,12 +183,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         {
             state(failure == null ? FINISHED : FAILED);
         }
-    }
-
-    @Nullable
-    TxnId primaryTxnId()
-    {
-        return preLoadContext.primaryTxnId();
     }
 
     @SuppressWarnings("unchecked")
@@ -223,7 +212,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                     commandStore.abortCurrentOperation();
                 case LOADING:
                     context.releaseResources(commandStore);
-                    commandStore.executionOrder().unregisterOutOfOrder(this);
                 case INITIALIZED:
                     break; // nothing to clean up, call callback
             }
@@ -241,19 +229,13 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     protected void runInternal()
     {
-        Boolean canRun = null;
         switch (state)
         {
             default: throw new IllegalStateException("Unexpected state " + state);
             case INITIALIZED:
-                canRun = commandStore.executionOrder().register(this);
-                if (Invariants.isParanoid())
-                    Invariants.checkState(canRun.booleanValue() == commandStore.executionOrder().canRun(this), "Register of %s returned canRun=%s but canRun returned %s!", this, canRun, !canRun);
                 state(LOADING);
             case LOADING:
-                if (null == canRun)
-                    canRun = commandStore.executionOrder().canRun(this);
-                if (!loader.load(context, this::onLoaded) || !canRun)
+                if (!loader.load(context, this::onLoaded))
                     return;
                 state(PREPARING);
             case PREPARING:
@@ -283,7 +265,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 safeStore.postExecute(context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
                 context.releaseResources(commandStore);
                 commandStore.completeOperation(safeStore);
-                commandStore.executionOrder().unregister(this);
                 if (requestedFlush)
                 {
                     state(AWAITING_FLUSH);

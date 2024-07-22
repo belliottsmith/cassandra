@@ -66,7 +66,6 @@ import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.async.AsyncOperation;
-import org.apache.cassandra.service.accord.async.ExecutionOrder;
 import org.apache.cassandra.service.accord.events.CacheEvents;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
@@ -101,7 +100,6 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     public final String loggingId;
     private final IJournal journal;
     private final ExecutorService executor;
-    private final ExecutionOrder executionOrder;
     private final AccordStateCache stateCache;
     private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
     private final AccordStateCache.Instance<Key, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache;
@@ -206,7 +204,6 @@ public class AccordCommandStore extends CommandStore implements CacheSize
         this.journal = journal;
         loggingId = String.format("[%s]", id);
         executor = executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']');
-        executionOrder = new ExecutionOrder();
         threadId = getThreadId(executor);
         stateCache = new AccordStateCache(loadExecutor, saveExecutor, 8 << 20, cacheMetrics);
         commandCache =
@@ -455,11 +452,6 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     ProgressLog progressLog()
     {
         return progressLog;
-    }
-
-    public ExecutionOrder executionOrder()
-    {
-        return executionOrder;
     }
 
     @Override
