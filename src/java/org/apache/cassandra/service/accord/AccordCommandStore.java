@@ -341,7 +341,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
 
         // TODO (required): make sure we test recovering when this has failed to be persisted
         if (null != mutation)
-            mutation.applyUnsafe();
+            return mutation::applyUnsafe;
 
         return NO_OP;
     }
