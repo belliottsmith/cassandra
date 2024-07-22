@@ -49,6 +49,7 @@ import accord.local.NodeTimeService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
 import accord.local.SafeCommandStore;
+import accord.primitives.Keys;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
@@ -334,7 +335,7 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     @Nullable
     Runnable appendToKeyspace(Command before, Command after)
     {
-        if (after.keysOrRanges() instanceof Ranges)
+        if (after.keysOrRanges() instanceof Keys)
             return NO_OP;
 
         Mutation mutation = AccordKeyspace.getCommandMutation(this.id, before, after, nextSystemTimestampMicros());
