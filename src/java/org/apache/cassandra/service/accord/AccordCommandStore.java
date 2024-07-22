@@ -334,6 +334,9 @@ public class AccordCommandStore extends CommandStore implements CacheSize
     @Nullable
     Runnable appendToKeyspace(Command before, Command after)
     {
+        if (after.keysOrRanges() instanceof Ranges)
+            return NO_OP;
+
         Mutation mutation = AccordKeyspace.getCommandMutation(this.id, before, after, nextSystemTimestampMicros());
 
         // TODO (required): make sure we test recovering when this has failed to be persisted
