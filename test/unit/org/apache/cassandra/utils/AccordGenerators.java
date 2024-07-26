@@ -202,7 +202,7 @@ public class AccordGenerators
         return ranges(Gens.lists(fromQT(CassandraGenerators.TABLE_ID_GEN)).unique().ofSizeBetween(1, 10).map(l -> new HashSet<>(l)), ignore -> partitioner);
     }
 
-    public static Gen<Ranges> rangesBestEffort(IPartitioner partitioner)
+    public static Gen<Ranges> rangesArbitrary(IPartitioner partitioner)
     {
         Gen<Range> rangeGen = range(partitioner);
         Gen.IntGen sizeGen = Gens.ints().between(0, 10);
@@ -278,10 +278,9 @@ public class AccordGenerators
 
     public static Gen<RedundantBefore> redundantBefore(IPartitioner partitioner)
     {
-        Gen<Ranges> rangeGen = rangesBestEffort(partitioner);
+        Gen<Ranges> rangeGen = rangesArbitrary(partitioner);
         Gen<TxnId> txnIdGen = AccordGens.txnIds(Gens.pick(Txn.Kind.SyncPoint, Txn.Kind.ExclusiveSyncPoint), ignore -> Routable.Domain.Range);
         BiFunction<RandomSource, Range, RedundantBefore.Entry> entryGen = (rs, range) -> redundantBeforeEntry(Gens.bools().all(), i -> range, txnIdGen).next(rs);
-        //TODO RedundantBefore.Entry is allowed to be null
         return AccordGens.redundantBefore(rangeGen, entryGen);
     }
 
