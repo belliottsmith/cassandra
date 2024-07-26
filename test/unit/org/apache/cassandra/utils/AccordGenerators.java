@@ -255,30 +255,23 @@ public class AccordGenerators
         return AccordGens.deps(keyDepsGen(partitioner), rangeDepsGen(partitioner), directKeyDepsGen(partitioner));
     }
 
-    public static Gen<RedundantBefore> redundantBefore()
-    {
-        return PARTITIONER_GEN.flatMap(AccordGenerators::redundantBefore);
-    }
-
     public static Gen<RedundantBefore.Entry> redundantBeforeEntry(IPartitioner partitioner)
     {
-        return redundantBeforeEntry(range(partitioner), AccordGens.txnIds(Gens.pick(Txn.Kind.SyncPoint, Txn.Kind.ExclusiveSyncPoint), ignore -> Routable.Domain.Range));
+        return redundantBeforeEntry(Gens.bools().all(), range(partitioner), AccordGens.txnIds(Gens.pick(Txn.Kind.SyncPoint, Txn.Kind.ExclusiveSyncPoint), ignore -> Routable.Domain.Range));
     }
 
-    public static Gen<RedundantBefore.Entry> redundantBeforeEntry(Gen<Range> rangeGen, Gen<TxnId> txnIdGen)
+    public static Gen<RedundantBefore.Entry> redundantBeforeEntry(Gen<Boolean> emptyGen, Gen<Range> rangeGen, Gen<TxnId> txnIdGen)
     {
         return rs -> {
             Range range = rangeGen.next(rs);
-            TxnId locallyAppliedOrInvalidatedBefore = txnIdGen.next(rs); // emptyable or range
-            TxnId shardAppliedOrInvalidatedBefore = txnIdGen.next(rs); // emptyable or range
+            TxnId locallyAppliedOrInvalidatedBefore = emptyGen.next(rs) ? TxnId.NONE : txnIdGen.next(rs); // emptyable or range
+            TxnId shardAppliedOrInvalidatedBefore = emptyGen.next(rs) ? TxnId.NONE : txnIdGen.next(rs); // emptyable or range
             TxnId bootstrappedAt = txnIdGen.next(rs);
-            Timestamp staleUntilAtLeast = txnIdGen.next(rs); // nullable
+            Timestamp staleUntilAtLeast = emptyGen.next(rs) ? null : txnIdGen.next(rs); // nullable
 
-            long maxEpoch = Stream.of(locallyAppliedOrInvalidatedBefore, shardAppliedOrInvalidatedBefore, bootstrappedAt, staleUntilAtLeast).mapToLong(Timestamp::epoch).max().getAsLong();
-            long startEpoch = rs.nextLong(maxEpoch, maxEpoch + 100);
-            long endEpoch = startEpoch + 1;
-            //TODO end can be Long.MAX_VALUE
-            //TODO RedundantBefore.Entry is allowed to be null
+            long maxEpoch = Stream.of(locallyAppliedOrInvalidatedBefore, shardAppliedOrInvalidatedBefore, bootstrappedAt, staleUntilAtLeast).filter(t -> t != null).mapToLong(Timestamp::epoch).max().getAsLong();
+            long startEpoch = rs.nextLong(maxEpoch);
+            long endEpoch = emptyGen.next(rs) ? Long.MAX_VALUE : 1 + rs.nextLong(startEpoch, Long.MAX_VALUE);
             return new RedundantBefore.Entry(range, startEpoch, endEpoch, locallyAppliedOrInvalidatedBefore, shardAppliedOrInvalidatedBefore, bootstrappedAt, staleUntilAtLeast);
         };
     }
@@ -287,7 +280,8 @@ public class AccordGenerators
     {
         Gen<Ranges> rangeGen = rangesBestEffort(partitioner);
         Gen<TxnId> txnIdGen = AccordGens.txnIds(Gens.pick(Txn.Kind.SyncPoint, Txn.Kind.ExclusiveSyncPoint), ignore -> Routable.Domain.Range);
-        BiFunction<RandomSource, Range, RedundantBefore.Entry> entryGen = (rs, range) -> redundantBeforeEntry(i -> range, txnIdGen).next(rs);
+        BiFunction<RandomSource, Range, RedundantBefore.Entry> entryGen = (rs, range) -> redundantBeforeEntry(Gens.bools().all(), i -> range, txnIdGen).next(rs);
+        //TODO RedundantBefore.Entry is allowed to be null
         return AccordGens.redundantBefore(rangeGen, entryGen);
     }
 
