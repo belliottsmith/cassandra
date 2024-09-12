@@ -321,6 +321,8 @@ public class AccordService implements IAccordService, Shutdownable
             as.configurationService().notifyPostCommit(current, current, false);
         }
         instance = as;
+
+        as.journal().replay();
     }
 
     public static void shutdownServiceAndWait(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException
@@ -356,7 +358,7 @@ public class AccordService implements IAccordService, Shutdownable
         this.scheduler = new AccordScheduler();
         this.dataStore = new AccordDataStore();
         this.configuration = new AccordConfiguration(DatabaseDescriptor.getRawConfig());
-        this.journal = new AccordJournal(configService, DatabaseDescriptor.getAccord().journal);
+        this.journal = new AccordJournal(DatabaseDescriptor.getAccord().journal);
         this.node = new Node(localId,
                              messageSink,
                              configService,
@@ -378,7 +380,7 @@ public class AccordService implements IAccordService, Shutdownable
                              configuration);
         this.nodeShutdown = toShutdownable(node);
         this.durabilityScheduling = new CoordinateDurabilityScheduling(node);
-        this.requestHandler = new AccordVerbHandler<>(node, configService, journal);
+        this.requestHandler = new AccordVerbHandler<>(node, configService);
     }
 
     @Override
@@ -395,7 +397,7 @@ public class AccordService implements IAccordService, Shutdownable
         durabilityScheduling.setShardCycleTime(Ints.checkedCast(DatabaseDescriptor.getAccordShardDurabilityCycle(SECONDS)), SECONDS);
         durabilityScheduling.setTxnIdLag(Ints.checkedCast(DatabaseDescriptor.getAccordScheduleDurabilityTxnIdLag(SECONDS)), TimeUnit.SECONDS);
         durabilityScheduling.setFrequency(Ints.checkedCast(DatabaseDescriptor.getAccordScheduleDurabilityFrequency(SECONDS)), SECONDS);
-//        durabilityScheduling.start();
+        durabilityScheduling.start();
         state = State.STARTED;
     }
 
