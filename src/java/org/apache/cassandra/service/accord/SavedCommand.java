@@ -59,6 +59,7 @@ import static accord.primitives.Known.KnownDeps.DepsUnknown;
 import static accord.primitives.Known.KnownDeps.NoDeps;
 import static accord.primitives.Status.Durability.NotDurable;
 import static accord.utils.Invariants.illegalState;
+import static org.apache.cassandra.db.compaction.CompactionIterator.PurgeHistory.Kind.INPUT;
 
 public class SavedCommand
 {
@@ -635,7 +636,7 @@ public class SavedCommand
                 else
                     saveStatus = inputStatus = SaveStatus.values()[in.readInt()];
             }
-            inputs.add(CompactionIterator.PurgeHistory.parse(inputStatus, flags));
+            inputs.add(CompactionIterator.PurgeHistory.parse(inputStatus, flags, INPUT));
 
             if (getFieldChanged(Fields.DURABILITY, flags))
             {

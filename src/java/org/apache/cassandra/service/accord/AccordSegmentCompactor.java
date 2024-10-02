@@ -21,8 +21,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +36,7 @@ import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.compaction.CompactionIterator;
+import org.apache.cassandra.db.compaction.CompactionIterator.PurgeHistory;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.PartitionUpdate.SimpleBuilder;
 import org.apache.cassandra.db.rows.EncodingStats;
@@ -83,6 +88,7 @@ public class AccordSegmentCompactor<V> implements SegmentCompactor<JournalKey, V
         Descriptor descriptor = cfs.newSSTableDescriptor(cfs.getDirectories().getDirectoryForNewSSTables());
         SerializationHeader header = new SerializationHeader(true, cfs.metadata(), cfs.metadata().regularAndStaticColumns(), EncodingStats.NO_STATS);
 
+        Set<JournalKey> alreadyVisited = new HashSet<>();
         try (SSTableTxnWriter writer = SSTableTxnWriter.create(cfs, descriptor, 0, 0, null, false, header))
         {
             JournalKey key = null;
@@ -98,7 +104,10 @@ public class AccordSegmentCompactor<V> implements SegmentCompactor<JournalKey, V
                     if (key == null || !reader.key().equals(key))
                     {
                         if (key != null && key.type == JournalKey.Type.COMMAND_DIFF)
-                            CompactionIterator.debugRewrite(key.id, (SavedCommand.Builder) builder);
+                        {
+                            Invariants.checkState(alreadyVisited.add(key));
+                            PurgeHistory.flush(lastDescriptor, lastOffset, key.id, (SavedCommand.Builder) builder);
+                        }
 
                         maybeWritePartition(cfs, writer, key, builder, serializer, lastDescriptor, lastOffset);
 
@@ -132,6 +141,11 @@ public class AccordSegmentCompactor<V> implements SegmentCompactor<JournalKey, V
                     if (advanced) readers.offer(reader); // there is more to this reader, but not with this key
                 }
 
+                if (key != null && key.type == JournalKey.Type.COMMAND_DIFF)
+                {
+                    Invariants.checkState(alreadyVisited.add(key));
+                    PurgeHistory.flush(lastDescriptor, lastOffset, key.id, (SavedCommand.Builder) builder);
+                }
                 maybeWritePartition(cfs, writer, key, builder, serializer, lastDescriptor, lastOffset);
             }
             catch (Throwable t)

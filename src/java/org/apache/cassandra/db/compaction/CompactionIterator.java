@@ -51,7 +51,6 @@ import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.agrona.collections.Int2ObjectHashMap;
-import org.agrona.collections.LongArrayList;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.AbstractCompactionController;
@@ -120,8 +119,11 @@ import static accord.local.Cleanup.TRUNCATE_WITH_OUTCOME;
 import static accord.local.Cleanup.shouldCleanupPartial;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.of;
 import static org.apache.cassandra.config.Config.PaxosStatePurging.legacy;
 import static org.apache.cassandra.config.DatabaseDescriptor.paxosStatePurging;
+import static org.apache.cassandra.db.compaction.CompactionIterator.PurgeHistory.Kind.COMPACT;
+import static org.apache.cassandra.db.compaction.CompactionIterator.PurgeHistory.Kind.FLUSH;
 import static org.apache.cassandra.service.accord.AccordKeyspace.CommandRows.expungePartial;
 import static org.apache.cassandra.service.accord.AccordKeyspace.CommandRows.saveStatusOnly;
 import static org.apache.cassandra.service.accord.AccordKeyspace.CommandRows.truncatedApply;
@@ -1020,48 +1022,23 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         }
     }
 
-    public static final ConcurrentHashMap<TxnId, PurgeHistory> debug = new ConcurrentHashMap<>();
-    public static final AtomicLong debugSize = new AtomicLong();
-    public static void debugAdd(TxnId txnId, SavedCommand.Builder add)
-    {
-        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
-             .add(add);
-    }
-
-    public static void debugRewrite(TxnId txnId, SavedCommand.Builder add)
-    {
-        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
-            .add(add);
-    }
-
-    public static void debugExpunge(TxnId txnId, SavedCommand.Builder drop)
-    {
-        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
-             .expunge(drop);
-    }
-
-    public static void debugErase(TxnId txnId, SavedCommand.Builder drop)
-    {
-        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
-             .expunge(drop);
-    }
-
-    public static void debugNoop(TxnId txnId, SavedCommand.Builder drop)
-    {
-        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
-             .noop(drop);
-    }
-
     public static class PurgeHistory extends ArrayList<PurgeHistory.Rewrite>
     {
+        public static final ConcurrentHashMap<TxnId, PurgeHistory> debug = new ConcurrentHashMap<>();
+        public static final AtomicLong debugSize = new AtomicLong();
+
         public static final long[] NO_INPUTS = new long[0];
         static class Rewrite
         {
+            final long descriptor;
+            final long offset;
             final long[] inputs;
             final long output;
 
-            Rewrite(long[] inputs, long output)
+            Rewrite(long descriptor, long offset, long[] inputs, long output)
             {
+                this.descriptor = descriptor;
+                this.offset = offset;
                 this.inputs = inputs;
                 this.output = output;
                 debugSize.addAndGet((inputs.length + 4) * 8L);
@@ -1071,14 +1048,19 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             public String toString()
             {
                 StringBuilder out = new StringBuilder();
+                out.append('<');
+                out.append(descriptor);
+                out.append(',');
+                out.append(offset);
+                out.append('>');
                 if (inputs.length > 0)
                 {
                     out.append('[');
-                    for (long input : inputs)
+                    for (int i = 0 ; i < inputs.length ; ++i)
                     {
-                        if (out.length() > 1)
+                        if (i > 0)
                             out.append(',');
-                        out.append(str(input));
+                        out.append(str(inputs[i]));
                     }
                     out.append("]->");
                 }
@@ -1100,7 +1082,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 }
             }
             int flags = (int)status;
-            int ordinal = (int)(status >>> 32) - 1;
+            int ordinal = (int)(status >>> 48) - 1;
             SaveStatus saveStatus = ordinal < 0 ? null : SaveStatus.forOrdinal(ordinal);
             EnumMap<Fields, String> contents = new EnumMap<>(Fields.class);
             for (Fields fields : Fields.FIELDS)
@@ -1108,51 +1090,82 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 if (getFieldChanged(fields, flags))
                     contents.put(fields, getFieldIsNull(fields, flags) ? "0" : "1");
             }
-            return saveStatus + ": " + contents;
+            int kind = (int) ((status >>> 32) & 3);
+            return (kind == 2 ? "" : kind == 0 ? "FLUSH " : "COMPACT ") + saveStatus + ": " + contents;
         }
 
-        public void add(SavedCommand.Builder builder)
+        public boolean add(Rewrite rewrite)
         {
-            add(new Rewrite(builder.inputs(), parse(builder)));
+            if (!isEmpty())
+            {
+                Rewrite prev = get(size() - 1);
+                if (prev.descriptor == rewrite.descriptor && prev.offset == rewrite.offset && rewrite.output >= 0 && prev.output != rewrite.output)
+                    System.out.println();
+            }
+            return super.add(rewrite);
         }
 
-        public void noop(SavedCommand.Builder builder)
+        public enum Kind
         {
-            add(new Rewrite(builder.inputs(), -3));
+            FLUSH, COMPACT, INPUT;
         }
 
-        public void expunge(SavedCommand.Builder builder)
+        public static void flush(long descriptor, int offset, TxnId txnId, SavedCommand.Builder builder)
         {
-            add(new Rewrite(builder.inputs(), -1));
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, builder.inputs(), parse(builder, FLUSH)));
         }
 
-        public void erase(SavedCommand.Builder builder)
+        public static void compact(long descriptor, int offset, TxnId txnId, SavedCommand.Builder inputs, SavedCommand.Builder builder)
         {
-            add(new Rewrite(builder.inputs(), -2));
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, inputs.inputs(), parse(builder, COMPACT)));
         }
 
-        static long[] parse(List<SavedCommand.Builder> inputs)
+        public static void compact(long descriptor, int offset, TxnId txnId, SavedCommand.Builder builder)
         {
-            long[] in = new long[inputs.size()];
-            for (int i = 0 ; i < in.length ; ++i)
-                in[i] = parse(inputs.get(i));
-            return in;
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, builder.inputs(), parse(builder, COMPACT)));
         }
 
-        private static long parse(SavedCommand.Builder builder)
+        public static void noop(long descriptor, int offset, TxnId txnId, SavedCommand.Builder builder)
+        {
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, builder.inputs(), -3));
+        }
+
+        public static void expunge(long descriptor, int offset, TxnId txnId, SavedCommand.Builder builder)
+        {
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, builder.inputs(), -1));
+        }
+
+        public static void erase(long descriptor, int offset, TxnId txnId, SavedCommand.Builder builder)
+        {
+            debug(txnId, new PurgeHistory.Rewrite(descriptor, offset, builder.inputs(), -2));
+        }
+
+        public static void debug(TxnId txnId, PurgeHistory.Rewrite rewrite)
+        {
+            debug.compute(txnId, (id, history) -> {
+                if (history == null)
+                    history = new PurgeHistory();
+                history.add(rewrite);
+                return history;
+            });
+        }
+
+        private static long parse(SavedCommand.Builder builder, PurgeHistory.Kind kind)
         {
             Invariants.nonNull(builder);
             SaveStatus saveStatus = builder.saveStatus();
-            return parse(saveStatus, builder.flags());
+            return parse(saveStatus, builder.flags(), kind);
         }
 
-        public static long parse(SaveStatus saveStatus, int flags)
+        public static long parse(SaveStatus saveStatus, int flags, PurgeHistory.Kind kind)
         {
-            long status = saveStatus == null ? 0 : (saveStatus.ordinal() + 1L) << 32;
+            long status = saveStatus == null ? 0 : (saveStatus.ordinal() + 1L) << 48;
             status |= flags;
+            status |= (long)kind.ordinal() << 32;
             return status;
         }
     }
+
     class AccordJournalPurger extends AbstractPurger
     {
         final Int2ObjectHashMap<RedundantBefore> redundantBefores;
@@ -1206,7 +1219,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             if (partition.isEmpty())
             {
                 if (key.type == JournalKey.Type.COMMAND_DIFF)
-                    debugErase(key.id, (SavedCommand.Builder) builder);
+                    PurgeHistory.erase(lastDescriptor, lastOffset, key.id, (SavedCommand.Builder) builder);
                 return null;
             }
 
@@ -1242,7 +1255,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 if (commandBuilder.isEmpty())
                 {
                     Invariants.checkState(rows.isEmpty());
-                    debugRewrite(key.id, (SavedCommand.Builder) builder);
+                    PurgeHistory.compact(lastDescriptor, lastOffset, key.id, (SavedCommand.Builder) builder);
                     return partition;
                 }
 
@@ -1250,7 +1263,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 Cleanup cleanup = commandBuilder.shouldCleanup(redundantBefore, durableBefore);
                 if (cleanup == ERASE)
                 {
-                    debugErase(key.id, commandBuilder);
+                    PurgeHistory.erase(lastDescriptor, lastOffset, key.id, commandBuilder);
                     return PartitionUpdate.fullPartitionDelete(metadata(), partition.partitionKey(), maxSeenTimestamp, nowInSec).unfilteredIterator();
                 }
 
@@ -1259,11 +1272,11 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 {
                     if (commandBuilder == null)
                     {
-                        debugExpunge(key.id, commandBuilder);
+                        PurgeHistory.expunge(lastDescriptor, lastOffset, key.id, commandBuilder);
                         return null;
                     }
 
-                    debugRewrite(key.id, commandBuilder);
+                    PurgeHistory.compact(lastDescriptor, lastOffset, key.id, (SavedCommand.Builder) builder, commandBuilder);
                     PartitionUpdate.SimpleBuilder newVersion = PartitionUpdate.simpleBuilder(AccordKeyspace.Journal, partition.partitionKey());
 
                     Row.SimpleBuilder rowBuilder;
@@ -1278,7 +1291,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                     return newVersion.build().unfilteredIterator();
                 }
 
-                debugNoop(key.id, commandBuilder);
+                PurgeHistory.noop(lastDescriptor, lastOffset, key.id, commandBuilder);
                 return PartitionUpdate.multiRowUpdate(AccordKeyspace.Journal, partition.partitionKey(), rows)
                                       .unfilteredIterator();
             }

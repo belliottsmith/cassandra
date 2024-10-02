@@ -183,7 +183,7 @@ public class AccordLoadTest extends AccordTestBase
                      final Date date = new Date();
                      System.out.printf("%tT rate: %.2f/s (%d total)\n", date, (((float)batchSizeLimit * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)), batchSize);
                      System.out.printf("%tT percentiles: %d %d %d %d\n", date, histogram.percentile(.25)/1000, histogram.percentile(.5)/1000, histogram.percentile(.75)/1000, histogram.percentile(1)/1000);
-                     System.out.printf("%tT debugSize: %d\n", date, CompactionIterator.debugSize.get());
+                     System.out.printf("%tT debugSize: %d\n", date, CompactionIterator.PurgeHistory.debugSize.get());
 
                      class VerbCount
                      {
