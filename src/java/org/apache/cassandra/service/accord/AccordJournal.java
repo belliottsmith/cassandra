@@ -253,18 +253,18 @@ public class AccordJournal implements IJournal, Shutdownable
     {
         RecordPointer pointer = null;
         // TODO: avoid allocating keys
-        if (fieldUpdates.redundantBefore != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.REDUNDANT_BEFORE, store), fieldUpdates.redundantBefore);
-        if (fieldUpdates.durableBefore != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.DURABLE_BEFORE, store), fieldUpdates.durableBefore);
-        if (fieldUpdates.bootstrapBeganAt != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.BOOTSTRAP_BEGAN_AT, store), fieldUpdates.bootstrapBeganAt);
-        if (fieldUpdates.safeToRead != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.SAFE_TO_READ, store), fieldUpdates.safeToRead);
-        if (fieldUpdates.rangesForEpoch != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.RANGES_FOR_EPOCH, store), fieldUpdates.rangesForEpoch);
-        if (fieldUpdates.historicalTransactions != null)
-            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.HISTORICAL_TRANSACTIONS, store), fieldUpdates.historicalTransactions);
+        if (fieldUpdates.addRedundantBefore != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.REDUNDANT_BEFORE, store), fieldUpdates.addRedundantBefore);
+        if (fieldUpdates.addDurableBefore != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.DURABLE_BEFORE, store), fieldUpdates.addDurableBefore);
+        if (fieldUpdates.newBootstrapBeganAt != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.BOOTSTRAP_BEGAN_AT, store), fieldUpdates.newBootstrapBeganAt);
+        if (fieldUpdates.newSafeToRead != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.SAFE_TO_READ, store), fieldUpdates.newSafeToRead);
+        if (fieldUpdates.newRangesForEpoch != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.RANGES_FOR_EPOCH, store), fieldUpdates.newRangesForEpoch);
+        if (fieldUpdates.addHistoricalTransactions != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.HISTORICAL_TRANSACTIONS, store), fieldUpdates.addHistoricalTransactions);
 
         if (onFlush == null)
             return;

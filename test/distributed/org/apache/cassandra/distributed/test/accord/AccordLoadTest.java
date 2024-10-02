@@ -85,7 +85,7 @@ public class AccordLoadTest extends AccordTestBase
 
                  cluster.forEach(i -> i.runOnInstance(() -> {
                      ((AccordService) AccordService.instance()).journal().compactor().updateCompactionPeriod(1, SECONDS);
-                     ((AccordSpec.JournalSpec)((AccordService) AccordService.instance()).journal().configuration()).segmentSize = 128 << 10;
+//                     ((AccordSpec.JournalSpec)((AccordService) AccordService.instance()).journal().configuration()).segmentSize = 128 << 10;
                  }));
 
                  ICoordinator coordinator = cluster.coordinator(1);

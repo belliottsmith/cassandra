@@ -1266,10 +1266,10 @@ public class AccordService implements IAccordService, Shutdownable
         AsyncChains.getBlockingAndRethrow(node.commandStores().forEach(safeStore -> {
             synchronized (redundantBefores)
             {
-                redundantBefores.put(safeStore.commandStore().id(), safeStore.commandStore().redundantBefore());
+                redundantBefores.put(safeStore.commandStore().id(), safeStore.redundantBefore());
                 ranges.put(safeStore.commandStore().id(), safeStore.ranges());
             }
-            durableBefore.set(DurableBefore.merge(durableBefore.get(), safeStore.commandStore().durableBefore()));
+            durableBefore.set(DurableBefore.merge(durableBefore.get(), safeStore.durableBefore()));
         }));
         return new CompactionInfo(redundantBefores, ranges, durableBefore.get());
     }

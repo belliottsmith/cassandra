@@ -525,6 +525,8 @@ public class Journal<K, V> implements Shutdownable
         ActiveSegment<K, V>.Allocation alloc;
         while (null == (alloc = segment.allocate(entrySize, hosts)))
         {
+            if (entrySize >= (params.segmentSize() * 3) / 4)
+                throw new IllegalStateException("entrySize " + entrySize + " too large for a segmentSize of " + params.segmentSize());
             // failed to allocate; move to a new segment with enough room
             advanceSegment(segment);
             segment = currentSegment;

@@ -34,6 +34,8 @@ import accord.api.Result;
 import accord.impl.TimestampsForKey;
 import accord.impl.TimestampsForKeys;
 import accord.local.Command;
+import accord.local.PreLoadContext;
+import accord.local.SafeCommandStore;
 import accord.local.StoreParticipants;
 import accord.local.cfk.CommandsForKey;
 import accord.local.CommonAttributes;
@@ -159,6 +161,7 @@ public class AccordCommandStoreTest
     {
         AtomicLong clock = new AtomicLong(0);
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
+//        SafeCommandStore safeStore =
         Timestamp maxTimestamp = timestamp(1, clock.incrementAndGet(), 1);
 
         PartialTxn txn = createPartialTxn(1);
@@ -172,10 +175,10 @@ public class AccordCommandStoreTest
         AccordSafeTimestampsForKey tfk = new AccordSafeTimestampsForKey(loaded(key, null));
         tfk.initialize();
 
-        TimestampsForKeys.updateLastExecutionTimestamps(commandStore, tfk, txnId1, txnId1, true);
+        TimestampsForKeys.updateLastExecutionTimestamps(null, tfk, txnId1, txnId1, true);
         Assert.assertEquals(txnId1.hlc(), AccordSafeTimestampsForKey.timestampMicrosFor(tfk.current(), txnId1, true));
 
-        TimestampsForKeys.updateLastExecutionTimestamps(commandStore, tfk, txnId2, txnId2, true);
+        TimestampsForKeys.updateLastExecutionTimestamps(null, tfk, txnId2, txnId2, true);
         Assert.assertEquals(txnId2.hlc(), AccordSafeTimestampsForKey.timestampMicrosFor(tfk.current(), txnId2, true));
 
         Assert.assertEquals(txnId2, tfk.current().lastExecutedTimestamp());

@@ -51,6 +51,7 @@ import org.apache.cassandra.service.accord.serializers.WaitingOnSerializer;
 import org.apache.cassandra.utils.Throwables;
 
 import static accord.local.Cleanup.NO;
+import static accord.local.Cleanup.TRUNCATE_WITH_OUTCOME;
 import static accord.primitives.Known.KnownDeps.DepsErased;
 import static accord.primitives.Known.KnownDeps.DepsUnknown;
 import static accord.primitives.Known.KnownDeps.NoDeps;
@@ -447,19 +448,23 @@ public class SavedCommand
                     return null;
 
                 case EXPUNGE_PARTIAL:
-                    return expungePartial();
+                    return expungePartial(saveStatus, false);
+
                 case VESTIGIAL:
                 case INVALIDATE:
+                    return saveStatusOnly();
+
                 case TRUNCATE_WITH_OUTCOME:
                 case TRUNCATE:
-                    return saveStatusOnly();
+                    return expungePartial(cleanup.appliesIfNot, cleanup == TRUNCATE_WITH_OUTCOME);
+
                 case NO:
                     return this;
                 default:
                     throw new IllegalStateException("Unknown cleanup: " + cleanup);}
         }
 
-        public Builder expungePartial()
+        public Builder expungePartial(SaveStatus saveStatus, boolean includeOutcome)
         {
             Invariants.checkState(txnId != null);
             Builder builder = new Builder(txnId);
@@ -467,12 +472,9 @@ public class SavedCommand
             builder.count++;
             builder.nextCalled = true;
 
-            // TODO: these accesses can be abstracted away
-            if (saveStatus != null)
-            {
-                builder.flags = setFieldChanged(Fields.SAVE_STATUS, builder.flags);
-                builder.saveStatus = saveStatus;
-            }
+            Invariants.checkState(saveStatus != null);
+            builder.flags = setFieldChanged(Fields.SAVE_STATUS, builder.flags);
+            builder.saveStatus = saveStatus;
             if (executeAt != null)
             {
                 builder.flags = setFieldChanged(Fields.EXECUTE_AT, builder.flags);
@@ -487,6 +489,11 @@ public class SavedCommand
             {
                 builder.flags = setFieldChanged(Fields.PARTICIPANTS, builder.flags);
                 builder.participants = participants;
+            }
+            if (includeOutcome && builder.writes != null)
+            {
+                builder.flags = setFieldChanged(Fields.WRITES, builder.flags);
+                builder.writes = writes;
             }
 
             return builder;
