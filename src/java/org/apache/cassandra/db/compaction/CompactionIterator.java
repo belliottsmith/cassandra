@@ -21,10 +21,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
@@ -48,6 +51,7 @@ import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.agrona.collections.Int2ObjectHashMap;
+import org.agrona.collections.LongArrayList;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.AbstractCompactionController;
@@ -104,6 +108,7 @@ import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.SavedCommand;
+import org.apache.cassandra.service.accord.SavedCommand.Fields;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.service.paxos.uncommitted.PaxosRows;
@@ -129,6 +134,8 @@ import static org.apache.cassandra.service.accord.AccordKeyspace.deserializeDura
 import static org.apache.cassandra.service.accord.AccordKeyspace.deserializeParticipantsOrNull;
 import static org.apache.cassandra.service.accord.AccordKeyspace.deserializeSaveStatusOrNull;
 import static org.apache.cassandra.service.accord.AccordKeyspace.deserializeTimestampOrNull;
+import static org.apache.cassandra.service.accord.SavedCommand.getFieldChanged;
+import static org.apache.cassandra.service.accord.SavedCommand.getFieldIsNull;
 
 /**
  * Merge multiple iterators over the content of sstable into a "compacted" iterator.
@@ -1013,6 +1020,139 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         }
     }
 
+    public static final ConcurrentHashMap<TxnId, PurgeHistory> debug = new ConcurrentHashMap<>();
+    public static final AtomicLong debugSize = new AtomicLong();
+    public static void debugAdd(TxnId txnId, SavedCommand.Builder add)
+    {
+        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
+             .add(add);
+    }
+
+    public static void debugRewrite(TxnId txnId, SavedCommand.Builder add)
+    {
+        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
+            .add(add);
+    }
+
+    public static void debugExpunge(TxnId txnId, SavedCommand.Builder drop)
+    {
+        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
+             .expunge(drop);
+    }
+
+    public static void debugErase(TxnId txnId, SavedCommand.Builder drop)
+    {
+        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
+             .expunge(drop);
+    }
+
+    public static void debugNoop(TxnId txnId, SavedCommand.Builder drop)
+    {
+        debug.computeIfAbsent(txnId, ignore -> new PurgeHistory())
+             .noop(drop);
+    }
+
+    public static class PurgeHistory extends ArrayList<PurgeHistory.Rewrite>
+    {
+        public static final long[] NO_INPUTS = new long[0];
+        static class Rewrite
+        {
+            final long[] inputs;
+            final long output;
+
+            Rewrite(long[] inputs, long output)
+            {
+                this.inputs = inputs;
+                this.output = output;
+                debugSize.addAndGet((inputs.length + 4) * 8L);
+            }
+
+            @Override
+            public String toString()
+            {
+                StringBuilder out = new StringBuilder();
+                if (inputs.length > 0)
+                {
+                    out.append('[');
+                    for (long input : inputs)
+                    {
+                        if (out.length() > 1)
+                            out.append(',');
+                        out.append(str(input));
+                    }
+                    out.append("]->");
+                }
+                out.append(str(output));
+                return out.toString();
+            }
+        }
+
+        private static String str(long status)
+        {
+            if (status < 0)
+            {
+                switch ((int)status)
+                {
+                    default: throw new AssertionError("Unhandled status: " + status);
+                    case -1: return "Expunged";
+                    case -2: return "Erased";
+                    case -3: return "Noop";
+                }
+            }
+            int flags = (int)status;
+            int ordinal = (int)(status >>> 32) - 1;
+            SaveStatus saveStatus = ordinal < 0 ? null : SaveStatus.forOrdinal(ordinal);
+            EnumMap<Fields, String> contents = new EnumMap<>(Fields.class);
+            for (Fields fields : Fields.FIELDS)
+            {
+                if (getFieldChanged(fields, flags))
+                    contents.put(fields, getFieldIsNull(fields, flags) ? "0" : "1");
+            }
+            return saveStatus + ": " + contents;
+        }
+
+        public void add(SavedCommand.Builder builder)
+        {
+            add(new Rewrite(builder.inputs(), parse(builder)));
+        }
+
+        public void noop(SavedCommand.Builder builder)
+        {
+            add(new Rewrite(builder.inputs(), -3));
+        }
+
+        public void expunge(SavedCommand.Builder builder)
+        {
+            add(new Rewrite(builder.inputs(), -1));
+        }
+
+        public void erase(SavedCommand.Builder builder)
+        {
+            add(new Rewrite(builder.inputs(), -2));
+        }
+
+        static long[] parse(List<SavedCommand.Builder> inputs)
+        {
+            long[] in = new long[inputs.size()];
+            for (int i = 0 ; i < in.length ; ++i)
+                in[i] = parse(inputs.get(i));
+            return in;
+        }
+
+        private static long parse(SavedCommand.Builder builder)
+        {
+            Invariants.nonNull(builder);
+            SaveStatus saveStatus = builder.saveStatus();
+            return parse(saveStatus, builder.flags());
+        }
+
+        public static long parse(SaveStatus saveStatus, int flags)
+        {
+            long status = saveStatus == null ? 0 : (saveStatus.ordinal() + 1L) << 32;
+            status |= flags;
+            return status;
+        }
+    }
     class AccordJournalPurger extends AbstractPurger
     {
         final Int2ObjectHashMap<RedundantBefore> redundantBefores;
@@ -1063,9 +1203,12 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         protected UnfilteredRowIterator applyToPartition(UnfilteredRowIterator partition)
         {
             beginPartition(partition);
-
             if (partition.isEmpty())
+            {
+                if (key.type == JournalKey.Type.COMMAND_DIFF)
+                    debugErase(key.id, (SavedCommand.Builder) builder);
                 return null;
+            }
 
             try
             {
@@ -1099,20 +1242,28 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 if (commandBuilder.isEmpty())
                 {
                     Invariants.checkState(rows.isEmpty());
+                    debugRewrite(key.id, (SavedCommand.Builder) builder);
                     return partition;
                 }
 
                 RedundantBefore redundantBefore = redundantBefores.get(key.commandStoreId);
                 Cleanup cleanup = commandBuilder.shouldCleanup(redundantBefore, durableBefore);
                 if (cleanup == ERASE)
+                {
+                    debugErase(key.id, commandBuilder);
                     return PartitionUpdate.fullPartitionDelete(metadata(), partition.partitionKey(), maxSeenTimestamp, nowInSec).unfilteredIterator();
+                }
 
                 commandBuilder = commandBuilder.maybeCleanup(cleanup);
                 if (commandBuilder != builder)
                 {
                     if (commandBuilder == null)
+                    {
+                        debugExpunge(key.id, commandBuilder);
                         return null;
+                    }
 
+                    debugRewrite(key.id, commandBuilder);
                     PartitionUpdate.SimpleBuilder newVersion = PartitionUpdate.simpleBuilder(AccordKeyspace.Journal, partition.partitionKey());
 
                     Row.SimpleBuilder rowBuilder;
@@ -1127,6 +1278,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                     return newVersion.build().unfilteredIterator();
                 }
 
+                debugNoop(key.id, commandBuilder);
                 return PartitionUpdate.multiRowUpdate(AccordKeyspace.Journal, partition.partitionKey(), rows)
                                       .unfilteredIterator();
             }
@@ -1171,6 +1323,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             {
                 throw new RuntimeException(e);
             }
+
         }
 
         @Override

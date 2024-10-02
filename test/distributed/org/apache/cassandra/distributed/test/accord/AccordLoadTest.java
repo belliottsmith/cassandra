@@ -39,6 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.apache.cassandra.db.compaction.CompactionIterator;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.api.ICoordinator;
 import org.apache.cassandra.distributed.api.IMessage;
@@ -167,7 +168,6 @@ public class AccordLoadTest extends AccordTestBase
                                  ((AccordService) AccordService.instance()).journal().checkAllCommands();
                              });
                          });
-
                      }
 
                      if ((nextFlushAt -= batchSize) <= 0)
@@ -183,6 +183,7 @@ public class AccordLoadTest extends AccordTestBase
                      final Date date = new Date();
                      System.out.printf("%tT rate: %.2f/s (%d total)\n", date, (((float)batchSizeLimit * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)), batchSize);
                      System.out.printf("%tT percentiles: %d %d %d %d\n", date, histogram.percentile(.25)/1000, histogram.percentile(.5)/1000, histogram.percentile(.75)/1000, histogram.percentile(1)/1000);
+                     System.out.printf("%tT debugSize: %d\n", date, CompactionIterator.debugSize.get());
 
                      class VerbCount
                      {

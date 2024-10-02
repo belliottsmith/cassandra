@@ -41,6 +41,8 @@ import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.primitives.Writes;
 import accord.utils.Invariants;
+import org.agrona.collections.LongArrayList;
+import org.apache.cassandra.db.compaction.CompactionIterator;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -76,7 +78,7 @@ public class SavedCommand
         WRITES,
         ;
 
-        static final Fields[] FIELDS = values();
+        public static final Fields[] FIELDS = values();
     }
 
     // TODO: maybe rename this and enclosing classes?
@@ -262,13 +264,13 @@ public class SavedCommand
     }
 
     @VisibleForTesting
-    static boolean getFieldChanged(Fields field, int oldFlags)
+    public static boolean getFieldChanged(Fields field, int oldFlags)
     {
         return (oldFlags & (1 << (field.ordinal() + Short.SIZE))) != 0;
     }
 
     @VisibleForTesting
-    static boolean getFieldIsNull(Fields field, int oldFlags)
+    public static boolean getFieldIsNull(Fields field, int oldFlags)
     {
         return (oldFlags & (1 << field.ordinal())) != 0;
     }
@@ -308,6 +310,7 @@ public class SavedCommand
 
         boolean nextCalled;
         int count;
+        LongArrayList inputs = new LongArrayList();
 
         public Builder(TxnId txnId)
         {
@@ -316,6 +319,18 @@ public class SavedCommand
 
         public Builder()
         {
+        }
+
+        public int flags()
+        {
+            return flags;
+        }
+
+        public long[] inputs()
+        {
+            if (inputs.isEmpty())
+                return CompactionIterator.PurgeHistory.NO_INPUTS;
+            return inputs.toLongArray();
         }
 
         public TxnId txnId()
@@ -407,6 +422,7 @@ public class SavedCommand
 
             nextCalled = false;
             count = 0;
+            inputs.clear();
         }
 
         public void reset(TxnId txnId)
@@ -611,13 +627,16 @@ public class SavedCommand
                     executeAtLeast = CommandSerializers.timestamp.deserialize(in, userVersion);
             }
 
+            SaveStatus inputStatus = null;
             if (getFieldChanged(Fields.SAVE_STATUS, flags))
             {
                 if (getFieldIsNull(Fields.SAVE_STATUS, flags))
                     saveStatus = null;
                 else
-                    saveStatus = SaveStatus.values()[in.readInt()];
+                    saveStatus = inputStatus = SaveStatus.values()[in.readInt()];
             }
+            inputs.add(CompactionIterator.PurgeHistory.parse(inputStatus, flags));
+
             if (getFieldChanged(Fields.DURABILITY, flags))
             {
                 if (getFieldIsNull(Fields.DURABILITY, flags))
