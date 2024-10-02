@@ -434,20 +434,30 @@ public class AccordJournal implements IJournal, Shutdownable
                 }
 
                 JournalKey finalKey = key;
-                iter.readAllForKey(key, (segment, position, local, buffer, hosts, userVersion) -> {
-                    Invariants.checkState(finalKey.equals(local));
-                    try (DataInputBuffer in = new DataInputBuffer(buffer, false))
-                    {
-                        builder.deserializeNext(in, userVersion);
-                    }
-                    catch (IOException e)
-                    {
-                        // can only throw if serializer is buggy
-                        throw new RuntimeException(e);
-                    }
-                });
+                List<RecordPointer> pointers = new ArrayList<>();
+                try
+                {
+                    iter.readAllForKey(key, (segment, position, local, buffer, hosts, userVersion) -> {
+                        pointers.add(new RecordPointer(segment, position));
+                        Invariants.checkState(finalKey.equals(local));
+                        try (DataInputBuffer in = new DataInputBuffer(buffer, false))
+                        {
+                            builder.deserializeNext(in, userVersion);
+                        }
+                        catch (IOException e)
+                        {
+                            // can only throw if serializer is buggy
+                            throw new RuntimeException(e);
+                        }
+                    });
 
-                builder.construct();
+                    builder.construct();
+                }
+                catch (Throwable t)
+                {
+                    throw new RuntimeException(String.format("Caught an exception after iterating over: %s", pointers),
+                                               t);
+                }
             }
 
         }
