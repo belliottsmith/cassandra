@@ -437,9 +437,8 @@ public class SavedCommand
         // TODO (expected): avoid allocating new builder
         public Builder maybeCleanup(Cleanup cleanup)
         {
-            // Do not have txnId in selected SSTables; remove
             if (saveStatus() == null)
-                return null;
+                return this;
 
             switch (cleanup)
             {
