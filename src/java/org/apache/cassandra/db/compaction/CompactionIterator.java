@@ -1028,6 +1028,8 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         Object[] lastClustering = null;
         long maxSeenTimestamp = -1;
         final int userVersion;
+        long lastDescriptor = -1;
+        int lastOffset = -1;
 
         public AccordJournalPurger(Supplier<IAccordService> serviceSupplier)
         {
@@ -1142,6 +1144,20 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             updateProgress();
             maxSeenTimestamp = row.primaryKeyLivenessInfo().timestamp();
             ByteBuffer record = row.getCell(recordColumn).buffer();
+            long descriptor = LongType.instance.compose(row.clustering().getBufferArray()[0]);
+            int offset = Int32Type.instance.compose(row.clustering().getBufferArray()[1]);
+
+            if (lastOffset != -1)
+            {
+                Invariants.checkState(descriptor >= lastDescriptor,
+                                      "Descriptors were accessed out of order: %d was accessed after %d", descriptor, lastDescriptor);
+                Invariants.checkState(descriptor != lastDescriptor ||
+                                      offset > lastOffset,
+                                      "Offsets within %s were accessed out of order: %d was accessed after %s", offset, lastOffset);
+            }
+            lastDescriptor = descriptor;
+            lastOffset = offset;
+
             try (DataInputBuffer in = new DataInputBuffer(record, false))
             {
                 int userVersion = Int32Type.instance.compose(row.getCell(versionColumn).buffer());
