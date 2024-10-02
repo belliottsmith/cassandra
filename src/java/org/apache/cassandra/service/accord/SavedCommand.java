@@ -386,14 +386,25 @@ public class SavedCommand
         public void clear()
         {
             flags = 0;
+            txnId = null;
+
             executeAt = null;
+            executeAtLeast = null;
             saveStatus = null;
             durability = null;
+
+            acceptedOrCommitted = null;
             promised = null;
+
             participants = null;
             partialTxn = null;
             partialDeps = null;
+
+            waitingOnBytes = null;
+            waitingOn = null;
             writes = null;
+            result = null;
+
             nextCalled = false;
             count = 0;
         }
