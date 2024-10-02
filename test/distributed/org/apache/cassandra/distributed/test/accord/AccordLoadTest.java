@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.util.concurrent.RateLimiter;
@@ -80,7 +81,8 @@ public class AccordLoadTest extends AccordTestBase
                 }).drop();
                  ICoordinator coordinator = cluster.coordinator(1);
                  final int repairInterval = 3000;
-                 final int batchSize = 1000;
+                 final int batchSizeLimit = 1000;
+                 final long batchTime = TimeUnit.SECONDS.toNanos(10);
                  final int concurrency = 100;
                  final int ratePerSecond = 1000;
                  final int keyCount = 1000000;
@@ -92,13 +94,15 @@ public class AccordLoadTest extends AccordTestBase
 //                 CopyOnWriteArrayList<Throwable> exceptions = new CopyOnWriteArrayList<>();
                  final Semaphore inFlight = new Semaphore(concurrency);
                  final RateLimiter rateLimiter = RateLimiter.create(ratePerSecond);
-                 long testStart = System.nanoTime();
+//                 long testStart = System.nanoTime();
 //                 while (NANOSECONDS.toMinutes(System.nanoTime() - testStart) < 10 && exceptions.size() < 10000)
                  while (true)
                  {
                      final EstimatedHistogram histogram = new EstimatedHistogram(200);
                      long batchStart = System.nanoTime();
-                     for (int i = 0 ; i < batchSize ; ++i)
+                     long batchEnd = batchStart + batchTime;
+                     int batchSize = 0;
+                     while (batchSize < batchSizeLimit)
                      {
                          inFlight.acquire();
                          rateLimiter.acquire();
@@ -112,7 +116,7 @@ public class AccordLoadTest extends AccordTestBase
                                  //                             else exceptions.add(fail);
                              }, "SELECT * FROM " + qualifiedAccordTableName + " WHERE k = ?;", ConsistencyLevel.SERIAL, k);
                          }
-                         else if (initialised.get(i))
+                         else if (initialised.get(k))
                          {
                              coordinator.executeWithResult((success, fail) -> {
                                  inFlight.release();
@@ -122,13 +126,16 @@ public class AccordLoadTest extends AccordTestBase
                          }
                          else
                          {
-                             initialised.set(i);
+                             initialised.set(k);
                              coordinator.executeWithResult((success, fail) -> {
                                  inFlight.release();
                                  if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                                  //                             else exceptions.add(fail);
                              }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ? IF NOT EXISTS;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k);
                          }
+                         batchSize++;
+                         if (System.nanoTime() >= batchEnd)
+                             break;
                      }
 
                      if ((nextRepairAt -= batchSize) <= 0)
@@ -139,7 +146,7 @@ public class AccordLoadTest extends AccordTestBase
                      }
 
                      final Date date = new Date();
-                     System.out.printf("%tT rate: %.2f/s\n", date, (((float)batchSize * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)));
+                     System.out.printf("%tT rate: %.2f/s\n", date, (((float)batchSizeLimit * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)));
                      System.out.printf("%tT percentiles: %d %d %d %d\n", date, histogram.percentile(.25)/1000, histogram.percentile(.5)/1000, histogram.percentile(.75)/1000, histogram.percentile(1)/1000);
 
                      class VerbCount
