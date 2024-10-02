@@ -987,7 +987,7 @@ public class Journal<K, V> implements Shutdownable
         private StaticSegmentIterator()
         {
             this.segments = selectAndReference(Segment::isStatic);
-            this.readers = new PriorityQueue<>((o1, o2) -> keySupport.compare(o1.key(), o2.key()));
+            this.readers = new PriorityQueue<>();
             for (Segment<K, V> segment : this.segments.all())
             {
                 StaticSegment<K, V> staticSegment = (StaticSegment<K, V>)segment;
