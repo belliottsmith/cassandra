@@ -776,6 +776,11 @@ public class Journal<K, V> implements Shutdownable
         swapSegments(current -> current.withNewActiveSegment(activeSegment));
     }
 
+    private void removeEmptySegment(ActiveSegment<K, V> activeSegment)
+    {
+        swapSegments(current -> current.withoutEmptySegment(activeSegment));
+    }
+
     private void replaceCompletedSegment(ActiveSegment<K, V> activeSegment, StaticSegment<K, V> staticSegment)
     {
         swapSegments(current -> current.withCompletedSegment(activeSegment, staticSegment));
@@ -869,6 +874,13 @@ public class Journal<K, V> implements Shutdownable
 
     void closeActiveSegmentAndOpenAsStatic(ActiveSegment<K, V> activeSegment)
     {
+        if (activeSegment.isEmpty())
+        {
+            removeEmptySegment(activeSegment);
+            activeSegment.closeAndDiscard();
+            return;
+        }
+
         closer.execute(new CloseActiveSegmentRunnable(activeSegment));
     }
 
