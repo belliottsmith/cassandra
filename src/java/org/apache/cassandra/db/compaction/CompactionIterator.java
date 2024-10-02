@@ -809,8 +809,8 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
     class AccordCommandsPurger extends AbstractPurger
     {
         final Int2ObjectHashMap<RedundantBefore> redundantBefores;
+        final Int2ObjectHashMap<DurableBefore> durableBefores;
         final Int2ObjectHashMap<RangesForEpoch> ranges;
-        final DurableBefore durableBefore;
 
         int storeId;
         TxnId txnId;
@@ -820,7 +820,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             IAccordService.CompactionInfo compactionInfo = accordService.get().getCompactionInfo();
             this.redundantBefores = compactionInfo.redundantBefores;
             this.ranges = compactionInfo.ranges;
-            this.durableBefore = compactionInfo.durableBefore;
+            this.durableBefores = compactionInfo.durableBefores;
         }
 
         protected void beginPartition(UnfilteredRowIterator partition)
@@ -836,6 +836,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             updateProgress();
 
             RedundantBefore redundantBefore = redundantBefores.get(storeId);
+            DurableBefore durableBefore = durableBefores.get(storeId);
             // TODO (expected): if the store has been retired, this should return null
             if (redundantBefore == null)
                 return row;
@@ -1016,8 +1017,8 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
     class AccordJournalPurger extends AbstractPurger
     {
         final Int2ObjectHashMap<RedundantBefore> redundantBefores;
+        final Int2ObjectHashMap<DurableBefore> durableBefores;
         final Int2ObjectHashMap<CommandStores.RangesForEpoch> ranges;
-        final DurableBefore durableBefore;
         final ColumnMetadata recordColumn;
         final ColumnMetadata versionColumn;
         final KeySupport<JournalKey> keySupport = JournalKey.SUPPORT;
@@ -1041,7 +1042,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
 
             this.redundantBefores = compactionInfo.redundantBefores;
             this.ranges = compactionInfo.ranges;
-            this.durableBefore = compactionInfo.durableBefore;
+            this.durableBefores = compactionInfo.durableBefores;
             ColumnFamilyStore cfs = Keyspace.open(AccordKeyspace.metadata().name).getColumnFamilyStore(AccordKeyspace.JOURNAL);
             this.recordColumn = cfs.metadata().getColumn(ColumnIdentifier.getInterned("record", false));
             this.versionColumn = cfs.metadata().getColumn(ColumnIdentifier.getInterned("user_version", false));
@@ -1103,6 +1104,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                 }
 
                 RedundantBefore redundantBefore = redundantBefores.get(key.commandStoreId);
+                DurableBefore durableBefore = durableBefores.get(key.commandStoreId);
                 Cleanup cleanup = commandBuilder.shouldCleanup(redundantBefore, durableBefore);
                 if (cleanup == ERASE)
                     return PartitionUpdate.fullPartitionDelete(metadata(), partition.partitionKey(), maxSeenTimestamp, nowInSec).unfilteredIterator();

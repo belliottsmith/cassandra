@@ -421,6 +421,7 @@ public class AccordJournal implements IJournal, Shutdownable
     {
         try (AccordJournalTable.KeyOrderIterator<JournalKey> iter = journalTable.readAll())
         {
+            IAccordService.CompactionInfo compactionInfo = AccordService.instance().getCompactionInfo();
             JournalKey key;
             SavedCommand.Builder builder = new SavedCommand.Builder();
             while ((key = iter.key()) != null)
@@ -451,6 +452,15 @@ public class AccordJournal implements IJournal, Shutdownable
                         }
                     });
 
+                    Cleanup cleanup = builder.shouldCleanup(compactionInfo.redundantBefores.get(key.commandStoreId), compactionInfo.durableBefores.get(key.commandStoreId));
+                    switch (cleanup)
+                    {
+                        case ERASE:
+                        case EXPUNGE:
+                        case EXPUNGE_PARTIAL:
+                        case VESTIGIAL:
+                            continue;
+                    }
                     builder.construct();
                 }
                 catch (Throwable t)

@@ -74,9 +74,10 @@ public class SavedCommand
         PARTIAL_DEPS,
         WAITING_ON,
         WRITES,
+        CLEANUP
         ;
 
-        static final Fields[] FIELDS = values();
+        public static final Fields[] FIELDS = values();
     }
 
     // TODO: maybe rename this and enclosing classes?
@@ -123,7 +124,6 @@ public class SavedCommand
             return txnId;
         }
     }
-
 
     public static ByteBuffer asSerializedDiff(Command after, int userVersion) throws IOException
     {
@@ -305,6 +305,7 @@ public class SavedCommand
         SavedCommand.WaitingOnProvider waitingOn;
         Writes writes;
         Result result;
+        Cleanup cleanup;
 
         boolean nextCalled;
         int count;
@@ -404,6 +405,7 @@ public class SavedCommand
             waitingOn = null;
             writes = null;
             result = null;
+            cleanup = null;
 
             nextCalled = false;
             count = 0;
@@ -440,9 +442,12 @@ public class SavedCommand
                 return NO;
 
             if (saveStatus == null || participants == null)
-                return Cleanup.EXPUNGE_PARTIAL;
+                return Cleanup.NO;
 
-            return Cleanup.shouldCleanup(txnId, saveStatus, durability, participants, redundantBefore, durableBefore);
+            Cleanup cleanup = Cleanup.shouldCleanup(txnId, saveStatus, durability, participants, redundantBefore, durableBefore);
+            if (this.cleanup != null && this.cleanup.compareTo(cleanup) > 0)
+                cleanup = this.cleanup;
+            return cleanup;
         }
 
         // TODO (expected): avoid allocating new builder
@@ -458,7 +463,7 @@ public class SavedCommand
                     return null;
 
                 case EXPUNGE_PARTIAL:
-                    return expungePartial(saveStatus, false);
+                    return expungePartial(cleanup, saveStatus, true);
 
                 case VESTIGIAL:
                 case INVALIDATE:
@@ -466,7 +471,7 @@ public class SavedCommand
 
                 case TRUNCATE_WITH_OUTCOME:
                 case TRUNCATE:
-                    return expungePartial(cleanup.appliesIfNot, cleanup == TRUNCATE_WITH_OUTCOME);
+                    return expungePartial(cleanup, cleanup.appliesIfNot, cleanup == TRUNCATE_WITH_OUTCOME);
 
                 case NO:
                     return this;
@@ -474,7 +479,7 @@ public class SavedCommand
                     throw new IllegalStateException("Unknown cleanup: " + cleanup);}
         }
 
-        public Builder expungePartial(SaveStatus saveStatus, boolean includeOutcome)
+        public Builder expungePartial(Cleanup cleanup, SaveStatus saveStatus, boolean includeOutcome)
         {
             Invariants.checkState(txnId != null);
             Builder builder = new Builder(txnId);
@@ -485,6 +490,8 @@ public class SavedCommand
             Invariants.checkState(saveStatus != null);
             builder.flags = setFieldChanged(Fields.SAVE_STATUS, builder.flags);
             builder.saveStatus = saveStatus;
+            builder.flags = setFieldChanged(Fields.CLEANUP, builder.flags);
+            builder.cleanup = cleanup;
             if (executeAt != null)
             {
                 builder.flags = setFieldChanged(Fields.EXECUTE_AT, builder.flags);
@@ -571,6 +578,9 @@ public class SavedCommand
 
             if (getFieldChanged(Fields.WRITES, flags) && !getFieldIsNull(Fields.WRITES, flags))
                 CommandSerializers.writes.serialize(writes(), out, userVersion);
+
+            if (getFieldChanged(Fields.CLEANUP, flags))
+                out.writeByte(cleanup.ordinal());
         }
 
 
@@ -698,6 +708,13 @@ public class SavedCommand
                     writes = null;
                 else
                     writes = CommandSerializers.writes.deserialize(in, userVersion);
+            }
+
+            if (getFieldChanged(Fields.CLEANUP, flags))
+            {
+                Cleanup newCleanup = Cleanup.forOrdinal(in.readByte());
+                if (cleanup == null || newCleanup.compareTo(cleanup) > 0)
+                    cleanup = newCleanup;
             }
         }
 
