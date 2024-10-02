@@ -109,6 +109,7 @@ import org.apache.cassandra.service.paxos.uncommitted.PaxosRows;
 import org.apache.cassandra.utils.TimeUUID;
 
 import static accord.local.Cleanup.ERASE;
+import static accord.local.Cleanup.TRUNCATE;
 import static accord.local.Cleanup.TRUNCATE_WITH_OUTCOME;
 import static accord.local.Cleanup.shouldCleanupPartial;
 import static com.google.common.base.Preconditions.checkState;
@@ -148,6 +149,7 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
 {
     private static final Logger logger = LoggerFactory.getLogger(CompactionIterator.class);
     private static final long UNFILTERED_TO_UPDATE_PROGRESS = 100;
+    private static Object[] TRUNCATE_CLUSTERING_VALUE = new Object[] { Long.MAX_VALUE, Integer.MAX_VALUE };
 
     private final OperationType type;
     private final AbstractCompactionController controller;
@@ -1107,9 +1109,16 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
                         return null;
 
                     PartitionUpdate.SimpleBuilder newVersion = PartitionUpdate.simpleBuilder(AccordKeyspace.Journal, partition.partitionKey());
-                    newVersion.row(lastClustering)
-                              .add("record", commandBuilder.asByteBuffer(userVersion))
+
+                    Row.SimpleBuilder rowBuilder;
+                    if (cleanup == TRUNCATE || cleanup == TRUNCATE_WITH_OUTCOME)
+                        rowBuilder = newVersion.row(TRUNCATE_CLUSTERING_VALUE);
+                    else
+                        rowBuilder = newVersion.row(lastClustering);
+
+                    rowBuilder.add("record", commandBuilder.asByteBuffer(userVersion))
                               .add("user_version", userVersion);
+
                     return newVersion.build().unfilteredIterator();
                 }
 
