@@ -414,4 +414,42 @@ public class AccordJournal implements IJournal, Shutdownable
             isReplay.set(false);
         }
     }
+
+    // TODO: this is here temporarily; for debugging purposes
+    @VisibleForTesting
+    public void checkAllCommands()
+    {
+        try (AccordJournalTable.KeyOrderIterator<JournalKey> iter = journalTable.readAll())
+        {
+            JournalKey key;
+            SavedCommand.Builder builder = new SavedCommand.Builder();
+            while ((key = iter.key()) != null)
+            {
+                builder.reset(key.id);
+                if (key.type != JournalKey.Type.COMMAND_DIFF)
+                {
+                    // TODO (required): add "skip" for the key to avoid getting stuck
+                    iter.readAllForKey(key, (segment, position, key1, buffer, hosts, userVersion) -> {});
+                    continue;
+                }
+
+                JournalKey finalKey = key;
+                iter.readAllForKey(key, (segment, position, local, buffer, hosts, userVersion) -> {
+                    Invariants.checkState(finalKey.equals(local));
+                    try (DataInputBuffer in = new DataInputBuffer(buffer, false))
+                    {
+                        builder.deserializeNext(in, userVersion);
+                    }
+                    catch (IOException e)
+                    {
+                        // can only throw if serializer is buggy
+                        throw new RuntimeException(e);
+                    }
+                });
+
+                builder.construct();
+            }
+
+        }
+    }
 }
