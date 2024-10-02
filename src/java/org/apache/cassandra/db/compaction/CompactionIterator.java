@@ -61,6 +61,7 @@ import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.PurgeFunction;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
@@ -1054,6 +1055,8 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
             serializer = (AccordJournalValueSerializers.FlyweightSerializer<Object, Object>) key.type.serializer;
             builder = serializer.mergerFor(key);
             maxSeenTimestamp = -1;
+            lastDescriptor = -1;
+            lastOffset = -1;
         }
 
         @Override
