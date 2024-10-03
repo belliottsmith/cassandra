@@ -28,6 +28,7 @@ import accord.api.ProgressLog;
 import accord.local.CommandStore;
 import accord.local.CommandStores;
 import accord.local.Node;
+import accord.local.NodeCommandStoreService;
 import accord.local.NodeTimeService;
 import accord.local.ShardDistributor;
 import accord.primitives.Range;
@@ -52,11 +53,11 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     private final CommandStoreExecutor[] executors;
     private long cacheSize;
 
-    AccordCommandStores(NodeTimeService time, Agent agent, DataStore store, RandomSource random,
+    AccordCommandStores(NodeCommandStoreService node, Agent agent, DataStore store, RandomSource random,
                         ShardDistributor shardDistributor, ProgressLog.Factory progressLogFactory, LocalListeners.Factory listenerFactory,
                         AccordJournal journal, CommandStoreExecutor[] executors)
     {
-        super(time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory,
+        super(node, agent, store, random, shardDistributor, progressLogFactory, listenerFactory,
               AccordCommandStore.factory(journal, id -> executors[id % executors.length]));
         setCapacity(DatabaseDescriptor.getAccordCacheSizeInMiB() << 20);
         this.executors = executors;

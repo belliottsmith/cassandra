@@ -426,6 +426,7 @@ public class AccordService implements IAccordService, Shutdownable
                              DefaultLocalListeners.Factory::new,
                              AccordCommandStores.factory(journal),
                              new AccordInteropFactory(agent, configService),
+                             journal.durableBeforePersister(),
                              configuration);
         this.nodeShutdown = toShutdownable(node);
         this.durabilityScheduling = new CoordinateDurabilityScheduling(node);
