@@ -29,7 +29,6 @@ import accord.primitives.Deps;
 import accord.primitives.Ranges;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
-import accord.utils.PersistentField;
 import accord.utils.PersistentField.Persister;
 
 public interface IJournal
