@@ -439,6 +439,7 @@ public class AccordService implements IAccordService, Shutdownable
         if (state != State.INIT)
             return;
         journal.start(node);
+        node.load();
         ClusterMetadataService cms = ClusterMetadataService.instance();
         class Ref { List<ClusterMetadata> historic = Collections.emptyList();}
         Ref ref = new Ref();

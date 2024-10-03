@@ -257,7 +257,7 @@ public class AccordJournal implements IJournal, Shutdownable
 
                 AsyncResult.Settable<Void> result = AsyncResults.settable();
                 JournalKey key = new JournalKey(TxnId.NONE, JournalKey.Type.DURABLE_BEFORE, 0);
-                RecordPointer pointer = journal.asyncWrite(key, addDurableBefore, SENTINEL_HOSTS);
+                RecordPointer pointer = appendInternal(key, addDurableBefore);
                 // TODO (required): what happens on failure?
                 journal.onFlush(pointer, () -> result.setSuccess(null));
                 return result;
