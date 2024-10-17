@@ -186,12 +186,6 @@ public class AccordAgent implements Agent
     }
 
     @Override
-    public long replyTimeout(ReplyContext replyContext, TimeUnit units)
-    {
-        return Math.max(1, units.convert(((ResponseContext)replyContext).expiresAtNanos() - Clock.Global.nanoTime(), NANOSECONDS));
-    }
-
-    @Override
     public long attemptCoordinationDelay(Node node, SafeCommandStore safeStore, TxnId txnId, TimeUnit units, int retryCount)
     {
         SafeCommand safeCommand = safeStore.ifInitialised(txnId);
@@ -249,5 +243,11 @@ public class AccordAgent implements Agent
     {
         // TODO (expected): integrate with contention backoff
         return units.convert((1L << Math.min(retryCount, 4)), SECONDS);
+    }
+
+    @Override
+    public long expiresAt(ReplyContext replyContext, TimeUnit unit)
+    {
+        return unit.convert(((ResponseContext)replyContext).expiresAtNanos(), NANOSECONDS);
     }
 }

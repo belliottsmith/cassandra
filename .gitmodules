@@ -1,4 +1,4 @@
 [submodule "modules/accord"]
 	path = modules/accord
-	url = https://github.com/belliottsmith/cassandra-accord.git
-	branch = sync-with-xr
+	url = git@github.pie.apple.com:belliottsmith/accord.git
+	branch = cancel-timedout

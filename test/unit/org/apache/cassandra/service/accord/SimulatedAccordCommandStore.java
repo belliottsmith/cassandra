@@ -47,6 +47,7 @@ import accord.local.SafeCommand;
 import accord.local.SafeCommandStore;
 import accord.messages.BeginRecovery;
 import accord.messages.PreAccept;
+import accord.messages.Reply;
 import accord.messages.TxnRequest;
 import accord.primitives.AbstractUnseekableKeys;
 import accord.primitives.Ballot;
@@ -336,24 +337,24 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         throw error;
     }
 
-    public <T> T process(TxnRequest<T> request) throws ExecutionException, InterruptedException
+    public <T extends Reply> T process(TxnRequest<T> request) throws ExecutionException, InterruptedException
     {
         return process(request, request::apply);
     }
 
-    public <T> T process(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function) throws ExecutionException, InterruptedException
+    public <T extends Reply> T process(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function) throws ExecutionException, InterruptedException
     {
         var result = processAsync(loadCtx, function);
         processAll();
         return AsyncChains.getBlocking(result);
     }
 
-    public <T> AsyncResult<T> processAsync(TxnRequest<T> request)
+    public <T extends Reply> AsyncResult<T> processAsync(TxnRequest<T> request)
     {
         return processAsync(request, request::apply);
     }
 
-    public <T> AsyncResult<T> processAsync(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
+    public <T extends Reply> AsyncResult<T> processAsync(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
         return store.submit(loadCtx, function).beginAsResult();
     }
