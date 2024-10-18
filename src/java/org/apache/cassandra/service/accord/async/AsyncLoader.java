@@ -18,7 +18,6 @@
 package org.apache.cassandra.service.accord.async;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -31,13 +30,11 @@ import javax.annotation.Nullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.RoutingKey;
 import accord.local.KeyHistory;
-import accord.local.PreLoadContext;
 import accord.local.cfk.CommandsForKey;
 import accord.primitives.AbstractKeys;
 import accord.primitives.AbstractRanges;
@@ -77,27 +74,18 @@ public class AsyncLoader
     private State state = State.INITIALIZED;
     private final AccordCommandStore commandStore;
 
-    private final Iterable<TxnId> txnIds;
+    private final List<TxnId> txnIds;
     private final Unseekables<?> keysOrRanges;
     private final KeyHistory keyHistory;
 
     protected AsyncResult<?> readResult;
 
-    public AsyncLoader(AccordCommandStore commandStore, Iterable<TxnId> txnIds, Unseekables<?> keysOrRanges, KeyHistory keyHistory)
+    public AsyncLoader(AccordCommandStore commandStore, List<TxnId> txnIds, Unseekables<?> keysOrRanges, KeyHistory keyHistory)
     {
         this.commandStore = commandStore;
         this.txnIds = txnIds;
         this.keysOrRanges = keysOrRanges;
         this.keyHistory = keyHistory;
-    }
-
-    protected static Iterable<TxnId> txnIds(PreLoadContext context)
-    {
-        TxnId primaryid = context.primaryTxnId();
-        Collection<TxnId> additionalIds = context.additionalTxnIds();
-        if (primaryid == null) return additionalIds;
-        if (additionalIds.isEmpty()) return Collections.singleton(primaryid);
-        return Iterables.concat(Collections.singleton(primaryid), additionalIds);
     }
 
     private static <K, V, S extends AccordSafeState<K, V>> void referenceAndAssembleReadsForKey(K key,
@@ -160,8 +148,10 @@ public class AsyncLoader
             case TIMESTAMPS:
                 referenceAndAssembleReadsForKey(key, context.timestampsForKey, commandStore.timestampsForKeyCache(), listenChains, loadExecutor);
                 break;
-            case COMMANDS:
-            case RECOVERY:
+            case ASYNC:
+            case INCR:
+            case SYNC:
+            case RECOVER:
                 referenceAndAssembleReadsForKey(key, context.commandsForKey, commandStore.commandsForKeyCache(), listenChains, loadExecutor);
             case NONE:
                 break;
@@ -169,7 +159,7 @@ public class AsyncLoader
         }
     }
 
-    private <K, V, S extends AccordSafeState<K, V>> void referenceAndAssembleReads(Iterable<? extends K> keys,
+    private <K, V, S extends AccordSafeState<K, V>> void referenceAndAssembleReads(List<? extends K> keys,
                                                                                    Map<K, S> context,
                                                                                    AccordStateCache.Instance<K, V, S> cache,
                                                                                    List<AsyncChain<?>> listenChains)

@@ -61,10 +61,10 @@ import org.apache.cassandra.service.accord.async.AsyncOperation.Context;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.Condition;
 
-import static accord.local.KeyHistory.COMMANDS;
+import static accord.local.KeyHistory.SYNC;
 import static accord.local.KeyHistory.TIMESTAMPS;
 import static java.util.Collections.emptyList;
-import static java.util.Collections.singleton;
+import static java.util.Collections.singletonList;
 import static org.apache.cassandra.cql3.statements.schema.CreateTableStatement.parse;
 import static org.apache.cassandra.service.accord.AccordTestUtils.Commands.notDefined;
 import static org.apache.cassandra.service.accord.AccordTestUtils.Commands.preaccepted;
@@ -118,7 +118,7 @@ public class AsyncLoaderTest
         AccordCachingState<RoutingKey, TimestampsForKey> safeTimestampsGlobal = safeTimestamps.global();
         timestampsCache.release(safeTimestamps);
 
-        AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), RoutingKeys.of(key), TIMESTAMPS);
+        AsyncLoader loader = new AsyncLoader(commandStore, singletonList(txnId), RoutingKeys.of(key), TIMESTAMPS);
 
         // everything is cached, so the loader should return immediately
         commandStore.executeBlocking(() -> {
@@ -158,7 +158,7 @@ public class AsyncLoaderTest
         AccordKeyspace.getTimestampsForKeyMutation(commandStore.id(), timestamps.current(), commandStore.nextSystemTimestampMicros()).apply();
 
         // resources are on disk only, so the loader should suspend...
-        AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), RoutingKeys.of(key), TIMESTAMPS);
+        AsyncLoader loader = new AsyncLoader(commandStore, singletonList(txnId), RoutingKeys.of(key), TIMESTAMPS);
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
         Context context = new Context();
         commandStore.executeBlocking(() -> {
@@ -206,7 +206,7 @@ public class AsyncLoaderTest
         AccordKeyspace.getTimestampsForKeyMutation(commandStore.id(), new TimestampsForKey(key), commandStore.nextSystemTimestampMicros()).apply();
 
         // resources are on disk only, so the loader should suspend...
-        AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), RoutingKeys.of(key), TIMESTAMPS);
+        AsyncLoader loader = new AsyncLoader(commandStore, singletonList(txnId), RoutingKeys.of(key), TIMESTAMPS);
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
         Context context = new Context();
         commandStore.executeBlocking(() -> {
@@ -254,7 +254,7 @@ public class AsyncLoaderTest
         Assert.assertTrue(commandCache.isReferenced(txnId));
         Assert.assertFalse(commandCache.isLoaded(txnId));
 
-        AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), RoutingKeys.of(key), KeyHistory.NONE);
+        AsyncLoader loader = new AsyncLoader(commandStore, singletonList(txnId), RoutingKeys.of(key), KeyHistory.NONE);
 
         // since there's a read future associated with the txnId, we'll wait for it to load
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
@@ -320,7 +320,7 @@ public class AsyncLoaderTest
                 return notDefined(txnId, null);
             });
 
-            AsyncLoader loader = new AsyncLoader(commandStore, ImmutableList.of(txnId1, txnId2), RoutingKeys.EMPTY, KeyHistory.COMMANDS);
+            AsyncLoader loader = new AsyncLoader(commandStore, ImmutableList.of(txnId1, txnId2), RoutingKeys.EMPTY, KeyHistory.SYNC);
 
             boolean result =  loader.load(txnId1, new Context(), (u, t) -> {
                 Assert.assertFalse(callback.isDone());
@@ -365,7 +365,7 @@ public class AsyncLoaderTest
         Assert.assertEquals(AccordCachingState.Status.SAVING, commandCache.getUnsafe(txnId).status());
 
         // since the command is still saving, the loader shouldn't be able to acquire a reference
-        AsyncLoader loader = new AsyncLoader(commandStore, singleton(txnId), RoutingKeys.of(), KeyHistory.NONE);
+        AsyncLoader loader = new AsyncLoader(commandStore, singletonList(txnId), RoutingKeys.of(), KeyHistory.NONE);
         AsyncPromise<Void> cbFired = new AsyncPromise<>();
         Context context = new Context();
         commandStore.executeBlocking(() -> {
@@ -393,7 +393,7 @@ public class AsyncLoaderTest
     @Test
     public void inProgressCFKSaveTest()
     {
-        this.inProgressCFKSaveTest(COMMANDS, AccordCommandStore::commandsForKeyCache, context -> context.commandsForKey, CommandsForKey::new, (cfk, u) -> cfk.update(u).cfk());
+        this.inProgressCFKSaveTest(SYNC, AccordCommandStore::commandsForKeyCache, context -> context.commandsForKey, CommandsForKey::new, (cfk, u) -> cfk.update(u).cfk());
     }
 
     @Test

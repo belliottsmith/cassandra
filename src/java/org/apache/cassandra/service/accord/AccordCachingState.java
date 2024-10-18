@@ -59,18 +59,19 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
     }
 
     private final K key;
+    final int ownerIndex;
+
     private State<K, V> state;
 
-    int references = 0;
-    int lastQueriedEstimatedSizeOnHeap = 0;
-    final int index;
+    int references;
+    int lastQueriedEstimatedSizeOnHeap;
     private boolean shouldUpdateSize;
 
     AccordCachingState(K key, int index)
     {
         this.key = key;
         Invariants.checkArgument(index >= 0);
-        this.index = index;
+        this.ownerIndex = index;
         //noinspection unchecked
         this.state = (State<K, V>) Uninitialized.instance;
     }
@@ -78,16 +79,17 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
     private AccordCachingState(K key, int index, State<K, V> state)
     {
         this.key = key;
-        this.index = index;
+        this.ownerIndex = index;
         this.state = state;
     }
 
     void unlink()
     {
+        Invariants.checkState(references == 0);
         remove();
     }
 
-    boolean isLinked()
+    boolean isInUnreferencedQueue()
     {
         return !isFree();
     }

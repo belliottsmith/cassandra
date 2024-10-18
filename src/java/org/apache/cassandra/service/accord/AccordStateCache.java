@@ -201,9 +201,9 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         }
     }
 
-    private boolean isInQueue(AccordCachingState<?, ?> node)
+    private static boolean isInUnreferencedQueue(AccordCachingState<?, ?> node)
     {
-        return node.isLinked();
+        return node.isInUnreferencedQueue();
     }
 
     private void evict(AccordCachingState<?, ?> node)
@@ -211,7 +211,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         if (logger.isTraceEnabled())
             logger.trace("Evicting {} {} - {}", node.status(), node.key(), node.isLoaded() ? node.get() : null);
 
-        checkState(!isInQueue(node));
+        checkState(!isInUnreferencedQueue(node));
 
         bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
         Instance<?, ?, ?> instance = instanceForNode(node);
@@ -220,7 +220,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         if (node.status() == LOADED && VALIDATE_LOAD_ON_EVICT)
             instance.validateLoadEvicted(node);
 
-        AccordCachingState<?, ?> self = instances.get(node.index).cache.remove(node.key());
+        AccordCachingState<?, ?> self = instances.get(node.ownerIndex).cache.remove(node.key());
         Invariants.checkState(self.references == 0);
         checkState(self == node, "Leaked node detected; was attempting to remove %s but cache had %s", node, self);
         if (instance.listeners != null)
@@ -234,7 +234,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
 
     private Instance<?, ?, ?> instanceForNode(AccordCachingState<?, ?> node)
     {
-        return instances.get(node.index);
+        return instances.get(node.ownerIndex);
     }
 
     public <K, V, S extends AccordSafeState<K, V>> Instance<K, V, S> instance(
@@ -406,20 +406,15 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             return acquire(key, null);
         }
 
-        public S acquireIfLoaded(K key)
-        {
-            return acquireIfLoaded(key, null);
-        }
-
         public S acquire(K key, @Nullable ExecutorPlus loadExecutor)
         {
             AccordCachingState<K, V> node = acquire(key, false, loadExecutor);
             return safeRefFactory.apply(node);
         }
 
-        public S acquireIfLoaded(K key, @Nullable ExecutorPlus loadExecutor)
+        public S acquireIfLoaded(K key)
         {
-            AccordCachingState<K, V> node = acquire(key, true, loadExecutor);
+            AccordCachingState<K, V> node = acquire(key, true, null);
             if (node == null)
                 return null;
             return safeRefFactory.apply(node);
@@ -481,7 +476,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
                 if (status == FAILED_TO_LOAD || status == EVICTED)
                     node.reset().load(loadExecutor, loadFunction);
 
-                if (isInQueue(node))
+                if (isInUnreferencedQueue(node))
                     unlink(node);
             }
             node.references++;
@@ -500,7 +495,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             checkState(safeRef.global() != null, "safeRef node is null for %s", key);
             checkState(safeRef.global() == node, "safeRef node not in map: %s != %s", safeRef.global(), node);
             checkState(node.references > 0, "references (%d) are zero for %s (%s)", node.references, key, node);
-            checkState(!isInQueue(node));
+            checkState(!isInUnreferencedQueue(node));
 
             if (safeRef.hasUpdate())
                 node.set(safeRef.current());

@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Set;
@@ -35,6 +37,7 @@ import accord.impl.AbstractSafeCommandStore;
 import accord.impl.CommandsSummary;
 import accord.local.CommandStores;
 import accord.local.CommandStores.RangesForEpoch;
+import accord.local.KeyHistory;
 import accord.local.NodeCommandStoreService;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
@@ -42,12 +45,17 @@ import accord.local.cfk.CommandsForKey;
 import accord.primitives.AbstractKeys;
 import accord.primitives.AbstractRanges;
 import accord.primitives.Ranges;
+import accord.primitives.Routable;
 import accord.primitives.Routables;
+import accord.primitives.RoutingKeys;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.primitives.Unseekable;
 import accord.primitives.Unseekables;
 import accord.utils.Invariants;
+
+import static accord.local.KeyHistory.TIMESTAMPS;
 
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeTimestampsForKey, AccordSafeCommandsForKey>
 {
@@ -85,6 +93,74 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                                                 AccordCommandStore commandStore)
     {
         return new AccordSafeCommandStore(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges, commandStore);
+    }
+
+    @Override
+    public PreLoadContext canExecute(PreLoadContext context)
+    {
+        if (context.keys().domain() == Routable.Domain.Range)
+            return context.isSubsetOf(this.context) ? context : null;
+
+        for (TxnId txnId : context.txnIds())
+        {
+            if (this.commands.containsKey(txnId))
+                continue;
+
+            AccordSafeCommand safeCommand = this.commandStore.commandCache().acquireIfLoaded(txnId);
+            if (safeCommand == null)
+                return null;
+
+            commands.put(txnId, safeCommand);
+        }
+
+        KeyHistory keyHistory = context.keyHistory();
+        if (keyHistory == KeyHistory.NONE)
+            return context;
+
+        List<RoutingKey> unavailable = null;
+        Unseekables<?> keys = context.keys();
+        if (keys.size() == 0)
+            return context;
+
+        for (int i = 0 ; i < keys.size() ; ++i)
+        {
+            RoutingKey key = (RoutingKey) keys.get(i);
+            if (keyHistory == TIMESTAMPS)
+            {
+                if (timestampsForKeys.containsKey(key))
+                    continue;
+
+                AccordSafeTimestampsForKey safeTfk = commandStore.timestampsForKeyCache().acquireIfLoaded(key);
+                if (safeTfk != null)
+                {
+                    timestampsForKeys.put(key, safeTfk);
+                    continue;
+                }
+            }
+            else
+            {
+                if (commandsForKeys.containsKey(key))
+                    continue;
+
+                AccordSafeCommandsForKey safeCfk = commandStore.commandsForKeyCache().acquireIfLoaded(key);
+                if (safeCfk != null)
+                {
+                    commandsForKeys.put(key, safeCfk);
+                    continue;
+                }
+            }
+            if (unavailable == null)
+                unavailable = new ArrayList<>();
+            unavailable.add(key);
+        }
+
+        if (unavailable == null)
+            return context;
+
+        if (unavailable.size() == keys.size())
+            return null;
+
+        return PreLoadContext.contextFor(context.primaryTxnId(), context.additionalTxnId(), keys.without(RoutingKeys.of(unavailable)), keyHistory);
     }
 
     @VisibleForTesting

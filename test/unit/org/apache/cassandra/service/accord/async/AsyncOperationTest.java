@@ -89,7 +89,7 @@ import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
 import org.mockito.Mockito;
 
-import static accord.local.KeyHistory.COMMANDS;
+import static accord.local.KeyHistory.SYNC;
 import static accord.local.PreLoadContext.contextFor;
 import static accord.utils.Property.qt;
 import static accord.utils.async.AsyncChains.getUninterruptibly;
@@ -99,7 +99,6 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.createPartialT
 import static org.apache.cassandra.service.accord.AccordTestUtils.keys;
 import static org.apache.cassandra.service.accord.AccordTestUtils.loaded;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
-import static org.apache.cassandra.service.accord.async.AsyncLoader.txnIds;
 
 public class AsyncOperationTest
 {
@@ -132,8 +131,6 @@ public class AsyncOperationTest
     {
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
         TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
-        Txn txn = AccordTestUtils.createWriteTxn((int)clock.incrementAndGet());
-        PartitionKey key = (PartitionKey) Iterables.getOnlyElement(txn.keys());
 
         getUninterruptibly(commandStore.execute(contextFor(txnId), instance -> {
             // TODO review: This change to `ifInitialized` was done in a lot of places and it doesn't preserve this property
@@ -215,7 +212,7 @@ public class AsyncOperationTest
 
         try
         {
-            Command command = getUninterruptibly(commandStore.submit(contextFor(txnId, route, COMMANDS), safe -> {
+            Command command = getUninterruptibly(commandStore.submit(contextFor(txnId, route, SYNC), safe -> {
                 CheckedCommands.preaccept(safe, txnId, partialTxn, route, appendDiffToLog(commandStore));
                 CheckedCommands.commit(safe, SaveStatus.Stable, Ballot.ZERO, txnId, route, partialTxn, executeAt, deps, appendDiffToLog(commandStore));
                 return safe.ifInitialised(txnId).current();
@@ -262,7 +259,7 @@ public class AsyncOperationTest
 
         try
         {
-            Command command = getUninterruptibly(commandStore.submit(contextFor(txnId, route, COMMANDS), safe -> {
+            Command command = getUninterruptibly(commandStore.submit(contextFor(txnId, route, SYNC), safe -> {
                 CheckedCommands.preaccept(safe, txnId, partialTxn, route, appendDiffToLog(commandStore));
                 CheckedCommands.accept(safe, txnId, Ballot.ZERO, partialRoute, executeAt, deps, appendDiffToLog(commandStore));
                 CheckedCommands.commit(safe, SaveStatus.Committed, Ballot.ZERO, txnId, route, partialTxn, executeAt, deps, appendDiffToLog(commandStore));
@@ -327,7 +324,7 @@ public class AsyncOperationTest
             @Override
             AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
             {
-                return new AsyncLoader(commandStore, txnIds(preLoadContext), preLoadContext.keys(), preLoadContext.keyHistory())
+                return new AsyncLoader(commandStore, preLoadContext.txnIds(), preLoadContext.keys(), preLoadContext.keyHistory())
                 {
                     @Override
                     void state(State state)
@@ -370,7 +367,7 @@ public class AsyncOperationTest
 
         qt().withPure(false)
             .withExamples(50)
-            .forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 10))
+            .forAll(Gens.random(), Gens.lists(txnIdGen).ofSizeBetween(1, 2))
             .check((rs, ids) -> {
             before(); // truncate tables
 
@@ -380,7 +377,7 @@ public class AsyncOperationTest
             awaitDone(commandStore, ids, participants);
             assertNoReferences(commandStore, ids, participants);
 
-            PreLoadContext ctx = contextFor(null, ids, participants, COMMANDS);
+            PreLoadContext ctx = contextFor(ids.get(0), ids.size() == 1 ? null : ids.get(1), participants, SYNC);
             Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
 
             Map<TxnId, Boolean> failed = selectFailedTxn(rs, ids);
@@ -440,7 +437,7 @@ public class AsyncOperationTest
             assertNoReferences(commandStore, ids, participants);
             createCommand(commandStore, rs, ids);
 
-            PreLoadContext ctx = contextFor(null, ids, participants, COMMANDS);
+            PreLoadContext ctx = contextFor(ids.get(0), ids.size() == 1 ? null : ids.get(1), participants, SYNC);
 
             Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
             String errorMsg = "txn_ids " + ids;

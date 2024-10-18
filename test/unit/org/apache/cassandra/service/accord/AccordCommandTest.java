@@ -168,7 +168,7 @@ public class AccordCommandTest
         Commit commit = Commit.SerializerSupport.create(txnId, route, 1, 1, Commit.Kind.StableWithTxnAndDeps, Ballot.ZERO, executeAt, partialTxn, deps, fullRoute, null);
         getUninterruptibly(commandStore.execute(commit, commit::apply));
 
-        getUninterruptibly(commandStore.execute(PreLoadContext.contextFor(txnId, Keys.of(key).toParticipants(), KeyHistory.COMMANDS), safeStore -> {
+        getUninterruptibly(commandStore.execute(PreLoadContext.contextFor(txnId, Keys.of(key).toParticipants(), KeyHistory.SYNC), safeStore -> {
             Command before = safeStore.ifInitialised(txnId).current();
             Assert.assertEquals(commit.executeAt, before.executeAt());
             Assert.assertTrue(before.hasBeen(Status.Committed));

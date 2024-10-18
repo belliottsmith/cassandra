@@ -19,6 +19,7 @@ package org.apache.cassandra.service.accord.async;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -49,7 +50,6 @@ import org.apache.cassandra.service.accord.AccordSafeTimestampsForKey;
 import org.apache.cassandra.service.accord.SavedCommand;
 import org.apache.cassandra.utils.concurrent.Condition;
 
-import static org.apache.cassandra.service.accord.async.AsyncLoader.txnIds;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.COMPLETING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FAILED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FINISHED;
@@ -113,11 +113,12 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private final Context context = new Context();
     private AccordSafeCommandStore safeStore;
     private final AsyncLoader loader;
-    private R result;
     private final String loggingId;
     private BiConsumer<? super R, Throwable> callback;
 
+    private R result;
     private List<Command> sanityCheck = null;
+    private Future<?> submitted;
 
     private void setLoggingIds()
     {
@@ -154,7 +155,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
 
     AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
     {
-        return new AsyncLoader(commandStore, txnIds(preLoadContext), preLoadContext.keys(), preLoadContext.keyHistory());
+        return new AsyncLoader(commandStore, preLoadContext.txnIds(), preLoadContext.keys(), preLoadContext.keyHistory());
     }
 
     private void onLoaded(Object o, Throwable throwable)
@@ -366,7 +367,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         Invariants.checkState(this.callback == null);
         this.callback = callback;
         if (!commandStore.inStore() || preRun())
-            commandStore.executor().execute(this);
+            commandStore.executor().submit(this);
         return this;
     }
 

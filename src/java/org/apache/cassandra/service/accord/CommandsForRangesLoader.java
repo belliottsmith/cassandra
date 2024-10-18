@@ -86,8 +86,8 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
     {
         RedundantBefore redundantBefore = store.unsafeGetRedundantBefore();
         TxnId minTxnId = redundantBefore.min(ranges, e -> e.gcBefore);
-        Timestamp maxTxnId = primaryTxnId == null || keyHistory == KeyHistory.RECOVERY || !primaryTxnId.is(ExclusiveSyncPoint) ? Timestamp.MAX : primaryTxnId;
-        TxnId findAsDep = primaryTxnId != null && keyHistory == KeyHistory.RECOVERY ? primaryTxnId : null;
+        Timestamp maxTxnId = primaryTxnId == null || keyHistory == KeyHistory.RECOVER || !primaryTxnId.is(ExclusiveSyncPoint) ? Timestamp.MAX : primaryTxnId;
+        TxnId findAsDep = primaryTxnId != null && keyHistory == KeyHistory.RECOVER ? primaryTxnId : null;
         var watcher = fromCache(findAsDep, ranges, minTxnId, maxTxnId, redundantBefore);
         var before = ImmutableMap.copyOf(watcher.get());
         return AsyncChains.ofCallable(Stage.ACCORD_RANGE_LOADER.executor(), () -> get(ranges, before, findAsDep, minTxnId, maxTxnId, redundantBefore))

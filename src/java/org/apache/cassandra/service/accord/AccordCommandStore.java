@@ -25,7 +25,6 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -69,6 +68,7 @@ import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
 import org.apache.cassandra.cache.CacheSize;
+import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.SequentialExecutorPlus;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -82,7 +82,7 @@ import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.Promise;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
-import static accord.local.KeyHistory.COMMANDS;
+import static accord.local.KeyHistory.SYNC;
 import static accord.primitives.Status.Committed;
 import static accord.primitives.Status.Invalidated;
 import static accord.primitives.Status.Truncated;
@@ -262,7 +262,7 @@ public class AccordCommandStore extends CommandStore
         checkState(!inStore());
     }
 
-    public ExecutorService executor()
+    public ExecutorPlus executor()
     {
         return executor.delegate();
     }
@@ -563,22 +563,13 @@ public class AccordCommandStore extends CommandStore
             {
                 TxnId txnId = command.txnId();
                 Participants<?> keys = null;
-                List<TxnId> deps = null;
                 if (CommandsForKey.manages(txnId))
                     keys = command.hasBeen(Committed) ? command.participants().hasTouched() : command.participants().touches();
                 else if (!CommandsForKey.managesExecution(txnId) && command.hasBeen(Status.Stable) && !command.hasBeen(Status.Truncated))
                     keys = command.asCommitted().waitingOn.keys;
 
-                if (command.partialDeps() != null)
-                    deps = command.partialDeps().txnIds();
-
                 if (keys != null)
-                {
-                    if (deps != null)
-                        return PreLoadContext.contextFor(txnId, deps, keys, keyHistory);
-
                     return PreLoadContext.contextFor(txnId, keys, keyHistory);
-                }
 
                 return PreLoadContext.contextFor(txnId);
             }
@@ -588,7 +579,7 @@ public class AccordCommandStore extends CommandStore
                 TxnId txnId = command.txnId();
 
                 AsyncPromise<?> future = new AsyncPromise<>();
-                execute(context(command, COMMANDS),
+                execute(context(command, SYNC),
                         safeStore -> {
                             Command local = command;
                             if (local.status() != Truncated && local.status() != Invalidated)
@@ -718,7 +709,7 @@ public class AccordCommandStore extends CommandStore
             return delegate.submit(task);
         }
 
-        public ExecutorService delegate()
+        public ExecutorPlus delegate()
         {
             return delegate;
         }
