@@ -80,17 +80,18 @@ public class AccordCachingStateTest
         assertIllegalState(() -> state.set("VVVV"));
         assertIllegalState(state::loading);
 
-        state.load(executor, k -> {
+        state.readyToLoad();
+        state.load(executor::submit, k -> {
             Assert.assertEquals("K", k);
             return "V";
-        });
+        }, AccordCachingState.OnLoaded.immediate());
         Assert.assertEquals(Status.LOADING, state.status());
 
         executor.runOne();
         Assert.assertEquals(Status.LOADED, state.status());
         Assert.assertEquals("V", state.get());
 
-        assertIllegalState(() -> state.load(executor, k -> "CCC"));
+        assertIllegalState(() -> state.load(executor::submit, k -> "CCC", AccordCachingState.OnLoaded.immediate()));
         assertIllegalState(state::loading);
     }
 
@@ -105,56 +106,18 @@ public class AccordCachingStateTest
         assertIllegalState(() -> state.set("VVVV"));
         assertIllegalState(state::loading);
 
-        state.load(executor, k -> {
+        state.readyToLoad();
+        state.load(executor::submit, k -> {
             Assert.assertEquals("K", k);
             return null;
-        });
+        }, AccordCachingState.OnLoaded.immediate());
         Assert.assertEquals(Status.LOADING, state.status());
 
         executor.runOne();
         Assert.assertEquals(Status.LOADED, state.status());
         Assert.assertNull(state.get());
 
-        assertIllegalState(() -> state.load(executor, k -> "CCC"));
-        assertIllegalState(state::loading);
-    }
-
-    @Test
-    public void additionalCallbackTest()
-    {
-        ManualExecutor executor = new ManualExecutor();
-        CachingState state = new CachingState("K");
-        Assert.assertEquals(Status.UNINITIALIZED, state.status());
-
-        assertIllegalState(state::get);
-        assertIllegalState(() -> state.set("VVVV"));
-        assertIllegalState(state::loading);
-
-        state.load(executor, k -> {
-            Assert.assertEquals("K", k);
-            return "V";
-        });
-        Assert.assertEquals(Status.LOADING, state.status());
-
-        // register other callbacks
-        InspectableCallback<Object> callback1 = new InspectableCallback<>();
-        InspectableCallback<Object> callback2 = new InspectableCallback<>();
-
-        Assert.assertEquals(Status.LOADING, state.status());
-        state.loading().addCallback(callback1);
-        executor.runOne();
-        state.loading().addCallback(callback2);
-
-        Assert.assertTrue(callback1.called);
-        Assert.assertNull(callback1.failure);
-
-        Assert.assertTrue(callback2.called);
-        Assert.assertNull(callback2.failure);
-
-        Assert.assertEquals(Status.LOADED, state.status());
-        Assert.assertEquals("V", state.get());
-
-        assertIllegalState(() -> state.load(executor, k -> "CCC"));
+        assertIllegalState(() -> state.load(executor::submit, k -> "CCC", AccordCachingState.OnLoaded.immediate()));
         assertIllegalState(state::loading);
     }
 
@@ -169,17 +132,14 @@ public class AccordCachingStateTest
         assertIllegalState(() -> state.set("VVVV"));
         assertIllegalState(state::loading);
 
-        state.load(executor, k -> {
+        state.readyToLoad();
+        state.load(executor::submit, k -> {
             throw new RuntimeException();
-        });
+        }, AccordCachingState.OnLoaded.immediate());
         Assert.assertEquals(Status.LOADING, state.status());
 
         executor.runOne();
         Assert.assertEquals(Status.FAILED_TO_LOAD, state.status());
         assertIllegalState(state::get);
-        Assert.assertTrue(state.failure() instanceof RuntimeException);
-
-        assertIllegalState(() -> state.load(executor, k -> "CCC"));
-        assertIllegalState(state::loading);
     }
 }

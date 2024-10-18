@@ -25,7 +25,6 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -67,9 +66,6 @@ import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
-import org.apache.cassandra.cache.CacheSize;
-import org.apache.cassandra.concurrent.ExecutorPlus;
-import org.apache.cassandra.concurrent.SequentialExecutorPlus;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
@@ -96,7 +92,7 @@ public class AccordCommandStore extends CommandStore
 
     public final String loggingId;
     private final IJournal journal;
-    private final CommandStoreExecutor executor;
+    private final AccordCommandStoreExecutor executor;
     private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
     private final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache;
     private final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache;
@@ -180,7 +176,7 @@ public class AccordCommandStore extends CommandStore
                               LocalListeners.Factory listenerFactory,
                               EpochUpdateHolder epochUpdateHolder,
                               IJournal journal,
-                              CommandStoreExecutor commandStoreExecutor)
+                              AccordCommandStoreExecutor commandStoreExecutor)
     {
         super(id, node, agent, dataStore, progressLogFactory, listenerFactory, epochUpdateHolder);
         this.journal = journal;
@@ -194,6 +190,7 @@ public class AccordCommandStore extends CommandStore
                                 this::loadCommand,
                                 this::appendToKeyspace,
                                 this::validateCommand,
+                                // TODO (expected): size diff method, so we only revisit portions that have changed
                                 AccordObjectSizes::command);
         registerJfrListener(id, commandCache, "Command");
         timestampsForKeyCache =
@@ -226,7 +223,7 @@ public class AccordCommandStore extends CommandStore
         executor.execute(() -> CommandStore.register(this));
     }
 
-    static Factory factory(AccordJournal journal, IntFunction<CommandStoreExecutor> executorFactory)
+    static Factory factory(AccordJournal journal, IntFunction<AccordCommandStoreExecutor> executorFactory)
     {
         return (id, node, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch) ->
                new AccordCommandStore(id, node, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch, journal, executorFactory.apply(id));
@@ -262,9 +259,9 @@ public class AccordCommandStore extends CommandStore
         checkState(!inStore());
     }
 
-    public ExecutorPlus executor()
+    public AccordCommandStoreExecutor executor()
     {
-        return executor.delegate();
+        return executor;
     }
 
     /**
@@ -401,13 +398,13 @@ public class AccordCommandStore extends CommandStore
     @Override
     public <T> AsyncChain<T> submit(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
-        return AsyncOperation.create(this, loadCtx, function);
+        return AsyncOperation.create(this, loadCtx, function).chain();
     }
 
     @Override
     public <T> AsyncChain<T> submit(Callable<T> task)
     {
-        return AsyncChains.ofCallable(executor.delegate(), task);
+        return AsyncChains.ofCallable(executor, task);
     }
 
     public DataStore dataStore()
@@ -428,7 +425,7 @@ public class AccordCommandStore extends CommandStore
     @Override
     public AsyncChain<Void> execute(PreLoadContext preLoadContext, Consumer<? super SafeCommandStore> consumer)
     {
-        return AsyncOperation.create(this, preLoadContext, consumer);
+        return AsyncOperation.create(this, preLoadContext, consumer).chain();
     }
 
     public void executeBlocking(Runnable runnable)
@@ -448,17 +445,18 @@ public class AccordCommandStore extends CommandStore
     }
 
     public AccordSafeCommandStore beginOperation(PreLoadContext preLoadContext,
-                                                 Map<TxnId, AccordSafeCommand> commands,
-                                                 Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys,
-                                                 Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys,
-                                                 @Nullable AccordSafeCommandsForRanges commandsForRanges)
+                                                 @Nullable Map<TxnId, AccordSafeCommand> commands,
+                                                 @Nullable Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys,
+                                                 @Nullable Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys,
+                                                 @Nullable CommandsForRanges commandsForRanges)
     {
         checkState(current == null);
-        commands.values().forEach(AccordSafeState::preExecute);
-        commandsForKeys.values().forEach(AccordSafeState::preExecute);
-        timestampsForKeys.values().forEach(AccordSafeState::preExecute);
-        if (commandsForRanges != null)
-            commandsForRanges.preExecute();
+        if (commands != null)
+            commands.values().forEach(AccordSafeState::preExecute);
+        if (commandsForKeys != null)
+            commandsForKeys.values().forEach(AccordSafeState::preExecute);
+        if (timestampsForKeys != null)
+            timestampsForKeys.values().forEach(AccordSafeState::preExecute);
 
         current = AccordSafeCommandStore.create(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, this);
         return current;
@@ -659,117 +657,5 @@ public class AccordCommandStore extends CommandStore
     {
         if (rangesForEpoch != null)
             unsafeSetRangesForEpoch(new CommandStores.RangesForEpoch(rangesForEpoch.epochs, rangesForEpoch.ranges, this));
-    }
-
-    public static class CommandStoreExecutor implements CacheSize
-    {
-        final AccordStateCache stateCache;
-        final SequentialExecutorPlus delegate;
-        final long threadId;
-
-        CommandStoreExecutor(AccordStateCache stateCache, SequentialExecutorPlus delegate, long threadId)
-        {
-            this.stateCache = stateCache;
-            this.delegate = delegate;
-            this.threadId = threadId;
-        }
-
-        public boolean hasTasks()
-        {
-            return delegate.getPendingTaskCount() > 0 || delegate.getActiveTaskCount() > 0;
-        }
-
-        CommandStoreExecutor(AccordStateCache stateCache, SequentialExecutorPlus delegate)
-        {
-            this.stateCache = stateCache;
-            this.delegate = delegate;
-            this.threadId = getThreadId();
-        }
-
-        public boolean isInThread()
-        {
-            if (!CHECK_THREADS)
-                return true;
-
-            return threadId == Thread.currentThread().getId();
-        }
-
-        public void shutdown()
-        {
-            delegate.shutdown();
-        }
-
-        public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException
-        {
-            return delegate.awaitTermination(timeout, unit);
-        }
-
-        public Future<?> submit(Runnable task)
-        {
-            return delegate.submit(task);
-        }
-
-        public ExecutorPlus delegate()
-        {
-            return delegate;
-        }
-
-        public void execute(Runnable command)
-        {
-            delegate.submit(command);
-        }
-
-        private long getThreadId()
-        {
-            try
-            {
-                return delegate.submit(() -> Thread.currentThread().getId()).get();
-            }
-            catch (InterruptedException e)
-            {
-                throw new AssertionError(e);
-            }
-            catch (ExecutionException e)
-            {
-                throw new RuntimeException(e);
-            }
-        }
-
-        @VisibleForTesting
-        public AccordStateCache cache()
-        {
-            return stateCache;
-        }
-
-        @VisibleForTesting
-        public void unsafeClearCache()
-        {
-            stateCache.unsafeClear();
-        }
-
-        @Override
-        public void setCapacity(long bytes)
-        {
-            Invariants.checkState(isInThread());
-            stateCache.setCapacity(bytes);
-        }
-
-        @Override
-        public long capacity()
-        {
-            return stateCache.capacity();
-        }
-
-        @Override
-        public int size()
-        {
-            return stateCache.size();
-        }
-
-        @Override
-        public long weightedSize()
-        {
-            return stateCache.weightedSize();
-        }
     }
 }

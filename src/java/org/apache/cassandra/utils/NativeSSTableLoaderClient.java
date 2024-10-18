@@ -21,19 +21,14 @@ import java.nio.ByteBuffer;
 import java.net.InetSocketAddress;
 import java.util.*;
 
-import com.datastax.driver.core.*;
-
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.schema.*;
-import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.ColumnMetadata.ClusteringOrder;
 import org.apache.cassandra.cql3.ColumnIdentifier;
 import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.dht.*;
-import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.dht.Token.TokenFactory;
 import org.apache.cassandra.io.sstable.SSTableLoader;
-import org.apache.cassandra.schema.TableMetadata;
 
 public class NativeSSTableLoaderClient extends SSTableLoader.Client
 {

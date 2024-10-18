@@ -42,8 +42,6 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
-import org.junit.*;
-
 import static org.apache.cassandra.config.CassandraRelevantProperties.CASSANDRA_CONFIG;
 
 public class OperationTest extends SchemaLoader

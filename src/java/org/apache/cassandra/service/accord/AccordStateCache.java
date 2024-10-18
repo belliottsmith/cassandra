@@ -19,16 +19,14 @@ package org.apache.cassandra.service.accord;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.ToLongFunction;
 import java.util.stream.Stream;
-
-import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -36,17 +34,17 @@ import org.slf4j.LoggerFactory;
 
 import accord.utils.IntrusiveLinkedList;
 import accord.utils.Invariants;
-import accord.utils.async.AsyncChains;
 import org.agrona.collections.Int2ObjectHashMap;
+import org.agrona.collections.Object2ObjectHashMap;
 import org.apache.cassandra.cache.CacheSize;
-import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheAccessMetrics;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
+import org.apache.cassandra.service.accord.async.AsyncOperation;
+import org.apache.cassandra.utils.concurrent.Future;
 
 import static accord.utils.Invariants.checkState;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
-import static org.apache.cassandra.service.accord.AccordCachingState.Status.FAILED_TO_LOAD;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.LOADED;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.LOADING;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.SAVING;
@@ -96,7 +94,8 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
     private Int2ObjectHashMap<Instance<?, ?, ?>> instances = new Int2ObjectHashMap<>();
     private int nextIndex;
 
-    private final ExecutorPlus loadExecutor, saveExecutor;
+    private final Function<Runnable, Future<?>> saveExecutor;
+    private final AccordCachingState.OnSaved onSaved;
 
     private int unreferenced = 0;
     private long maxSizeInBytes;
@@ -106,10 +105,10 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
     final AccordStateCacheMetrics metrics;
     final Stats stats = new Stats();
 
-    public AccordStateCache(ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, long maxSizeInBytes, AccordStateCacheMetrics metrics)
+    public AccordStateCache(Function<Runnable, Future<?>> saveExecutor, AccordCachingState.OnSaved onSaved, long maxSizeInBytes, AccordStateCacheMetrics metrics)
     {
-        this.loadExecutor = loadExecutor;
         this.saveExecutor = saveExecutor;
+        this.onSaved = onSaved;
         this.maxSizeInBytes = maxSizeInBytes;
         this.metrics = metrics;
     }
@@ -127,16 +126,18 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         return maxSizeInBytes;
     }
 
-    private void unlink(AccordCachingState<?, ?> node)
+    private void removeFromEvictionQueue(AccordCachingState<?, ?> node, boolean isNewlyReferencedOrEvicted)
     {
         node.unlink();
-        unreferenced--;
+        if (isNewlyReferencedOrEvicted)
+            unreferenced--;
     }
 
-    private void link(AccordCachingState<?, ?> node)
+    private void addToEvictionQueue(AccordCachingState<?, ?> node, boolean isNewlyUnreferenced)
     {
         addLast(node);
-        unreferenced++;
+        if (isNewlyUnreferenced)
+            unreferenced++;
     }
 
     @SuppressWarnings("unchecked")
@@ -146,7 +147,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         {
             long delta = ((AccordCachingState<K, V>) node).estimatedSizeOnHeapDelta((ToLongFunction<V>) estimator);
             bytesCached += delta;
-            instanceForNode(node).bytesCached += delta;
+            instanceFor(node).bytesCached += delta;
         }
     }
 
@@ -168,42 +169,35 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
     }
 
     @VisibleForTesting
-    public boolean maybeEvict(AccordCachingState<?, ?> node)
+    public <K, V> boolean maybeEvict(AccordCachingState<K, V> node)
     {
         checkState(node.references == 0);
 
-        /*
-         * TODO (expected, efficiency):
-         *    can this be reworked so we're not skipping unevictable nodes everytime we try to evict?
-         */
         Status status = node.status(); // status() call completes (if completeable)
         switch (status)
         {
             default: throw new IllegalStateException("Unhandled status " + status);
+            case LOADING:
+                node.loading().loading.cancel(false);
             case LOADED:
-                unlink(node);
+                removeFromEvictionQueue(node, true);
                 evict(node);
                 return true;
             case MODIFIED:
                 // schedule a save to disk, keep linked and in the cache map
-                Instance<?, ?, ?> instance = instanceForNode(node);
-                node.save(saveExecutor, instance.saveFunction);
+                Instance<K, V, ?> instance = instanceFor(node);
+                node.save(saveExecutor, instance.saveFunction, onSaved);
                 maybeUpdateSize(node, instance.heapEstimator);
-                return false;
-            case SAVING:
-                // skip over until completes to LOADED or FAILED_TO_SAVE
-                return false;
-            case FAILED_TO_SAVE:
-                // TODO (consider): panic when a save fails
-                // permanently unlink, but keep in the map
-                unlink(node);
-                return false;
+                boolean evict = node.status() == LOADED;
+                removeFromEvictionQueue(node, evict);
+                if (evict) evict(node);
+                return evict;
         }
     }
 
-    private static boolean isInUnreferencedQueue(AccordCachingState<?, ?> node)
+    private static boolean isInEvictionQueue(AccordCachingState<?, ?> node)
     {
-        return node.isInUnreferencedQueue();
+        return node.isInEvictionQueue();
     }
 
     private void evict(AccordCachingState<?, ?> node)
@@ -211,20 +205,63 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         if (logger.isTraceEnabled())
             logger.trace("Evicting {} {} - {}", node.status(), node.key(), node.isLoaded() ? node.get() : null);
 
-        checkState(!isInUnreferencedQueue(node));
+        checkState(!isInEvictionQueue(node));
 
         bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
-        Instance<?, ?, ?> instance = instanceForNode(node);
+        Instance<?, ?, ?> instance = instanceFor(node);
         instance.bytesCached -= node.lastQueriedEstimatedSizeOnHeap;
 
+        // TODO (expected): use listeners
         if (node.status() == LOADED && VALIDATE_LOAD_ON_EVICT)
             instance.validateLoadEvicted(node);
 
-        AccordCachingState<?, ?> self = instances.get(node.ownerIndex).cache.remove(node.key());
+        AccordCachingState<?, ?> self = instanceFor(node).cache.remove(node.key());
         Invariants.checkState(self.references == 0);
         checkState(self == node, "Leaked node detected; was attempting to remove %s but cache had %s", node, self);
         if (instance.listeners != null)
             instance.listeners.forEach(l -> l.onEvict((AccordCachingState) node));
+        node.evicted();
+    }
+
+    <K, V> Collection<AsyncOperation<?>> load(Function<Runnable, Future<?>> loadExecutor, AccordCachingState<K, V> node, AccordCachingState.OnLoaded onLoaded)
+    {
+        Instance<K, V, ?> instance = instanceFor(node);
+        return node.load(loadExecutor, instance.loadFunction, onLoaded).waiters();
+    }
+
+    <K, V> void loaded(AccordCachingState<K, V> node, V value)
+    {
+        Instance<K, V, ?> instance = instanceFor(node);
+        node.loaded(value);
+        if (instance.listeners != null)
+        {
+            for (Listener<K, V> listener : instance.listeners)
+                listener.onUpdate(node);
+        }
+    }
+
+    <K, V> void failedToLoad(AccordCachingState<K, V> node)
+    {
+        Invariants.checkState(node.references == 0);
+        if (!isInEvictionQueue(node))
+        {
+            Invariants.checkState(node.status() == EVICTED);
+            return;
+        }
+        removeFromEvictionQueue(node, true);
+        node.failedToLoad();
+        evict(node);
+    }
+
+    <K, V> void saved(AccordCachingState<K, V> node, Object identity, Throwable fail)
+    {
+        if (node.saved(identity, fail) && node.referenceCount() == 0)
+            this.addToEvictionQueue(node, false);
+    }
+
+    public <K, V, S extends AccordSafeState<K, V>> void release(S safeRef, AsyncOperation<?> owner)
+    {
+        instanceFor(safeRef).release(safeRef, owner);
     }
 
     public ImmutableStats stats()
@@ -232,9 +269,14 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         return new ImmutableStats(stats);
     }
 
-    private Instance<?, ?, ?> instanceForNode(AccordCachingState<?, ?> node)
+    private <K, V> Instance<K, V, ?> instanceFor(AccordCachingState<K, V> node)
     {
-        return instances.get(node.ownerIndex);
+        return (Instance<K, V, ?>) instances.get(node.ownerIndex);
+    }
+
+    private <K, V, S extends AccordSafeState<K, V>> Instance<K, V, S> instanceFor(S safeRef)
+    {
+        return (Instance<K, V, S>) instances.get(safeRef.global().ownerIndex);
     }
 
     public <K, V, S extends AccordSafeState<K, V>> Instance<K, V, S> instance(
@@ -279,6 +321,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
     public interface Listener<K, V>
     {
         default void onAdd(AccordCachingState<K, V> state) {}
+        default void onUpdate(AccordCachingState<K, V> state) {}
         default void onRelease(AccordCachingState<K, V> state) {}
         default void onEvict(AccordCachingState<K, V> state) {}
     }
@@ -297,7 +340,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         @VisibleForTesting
         final CacheAccessMetrics instanceMetrics;
         private final Stats stats = new Stats();
-        private final Map<Object, AccordCachingState<?, ?>> cache = new HashMap<>();
+        private final Map<K, AccordCachingState<?, ?>> cache = new Object2ObjectHashMap<>();
         private final AccordCachingState.Factory<K, V> nodeFactory;
         private List<Listener<K, V>> listeners = null;
 
@@ -341,7 +384,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         public Stream<AccordCachingState<K, V>> stream()
         {
             return cache.entrySet().stream()
-                        .filter(e -> instanceForNode(e.getValue()) == this)
+                        .filter(e -> instanceFor(e.getValue()) == this)
                         .map(e -> (AccordCachingState<K, V>) e.getValue());
         }
 
@@ -351,97 +394,47 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             return stream().iterator();
         }
 
-        public S acquireOrInitialize(K key, Function<K, V> valueFactory)
-        {
-            incrementCacheQueries();
-            @SuppressWarnings("unchecked")
-            AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
-            if (node == null)
-            {
-                node = nodeFactory.create(key, index);
-                node.initialize(valueFactory.apply(key));
-                cache.put(key, node);
-                if (listeners != null)
-                {
-                    AccordCachingState<K, V> finalNode = node;
-                    listeners.forEach(l -> l.onAdd(finalNode));
-                }
-            }
-            AccordCachingState<K, V> acquired = acquireExisting(node, true, null);
-            Invariants.checkState(acquired != null, "%s could not be acquired", node);
-            return safeRefFactory.apply(acquired);
-        }
-
-        public S acquireIfExists(K key)
-        {
-            incrementCacheQueries();
-            @SuppressWarnings("unchecked")
-            AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
-            if (node == null)
-                return null;
-
-            return safeRefFactory.apply(acquireExisting(node, false, null));
-        }
-
-        public void maybeLoad(K key, V initial)
-        {
-            AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
-            if (node == null)
-            {
-                node = nodeFactory.create(key, index);
-                node.initialize(initial);
-                Object prev = cache.put(key, node);
-                Invariants.checkState(prev == null, "%s not absent from cache: %s already present", key, node);
-                if (listeners != null)
-                {
-                    AccordCachingState<K, V> finalNode = node;
-                    listeners.forEach(l -> l.onAdd(finalNode));
-                }
-                maybeUpdateSize(node, heapEstimator);
-            }
-        }
-
         public S acquire(K key)
         {
-            return acquire(key, null);
-        }
-
-        public S acquire(K key, @Nullable ExecutorPlus loadExecutor)
-        {
-            AccordCachingState<K, V> node = acquire(key, false, loadExecutor);
+            AccordCachingState<K, V> node = acquire(key, false);
             return safeRefFactory.apply(node);
         }
 
         public S acquireIfLoaded(K key)
         {
-            AccordCachingState<K, V> node = acquire(key, true, null);
+            AccordCachingState<K, V> node = acquire(key, true);
             if (node == null)
                 return null;
             return safeRefFactory.apply(node);
         }
 
-        private AccordCachingState<K, V> acquire(K key, boolean onlyIfLoaded, @Nullable ExecutorPlus loadExecutor)
+        public S acquire(AccordCachingState<K, V> node)
+        {
+            Invariants.checkState(node.ownerIndex == index);
+            acquireExisting(node, false);
+            return safeRefFactory.apply(node);
+        }
+
+        private AccordCachingState<K, V> acquire(K key, boolean onlyIfLoaded)
         {
             incrementCacheQueries();
             @SuppressWarnings("unchecked")
             AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
             return node == null
-                 ? acquireAbsent(key, onlyIfLoaded, loadExecutor)
-                 : acquireExisting(node, onlyIfLoaded, loadExecutor);
+                 ? acquireAbsent(key, onlyIfLoaded)
+                 : acquireExisting(node, onlyIfLoaded);
         }
 
         /*
          * Can only return a LOADING Node (or null)
          */
-        private AccordCachingState<K, V> acquireAbsent(K key, boolean onlyIfLoaded, @Nullable ExecutorPlus loadExecutor)
+        private AccordCachingState<K, V> acquireAbsent(K key, boolean onlyIfLoaded)
         {
             incrementCacheMisses();
             if (onlyIfLoaded)
                 return null;
             AccordCachingState<K, V> node = nodeFactory.create(key, index);
-            if (loadExecutor == null)
-                loadExecutor = AccordStateCache.this.loadExecutor;
-            node.load(loadExecutor, loadFunction);
+            node.readyToLoad();
             node.references++;
 
             Object prev = cache.put(key, node);
@@ -457,7 +450,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         /*
          * Can't return EVICTED or INITIALIZED
          */
-        private AccordCachingState<K, V> acquireExisting(AccordCachingState<K, V> node, boolean onlyIfLoaded, @Nullable ExecutorPlus loadExecutor)
+        private AccordCachingState<K, V> acquireExisting(AccordCachingState<K, V> node, boolean onlyIfLoaded)
         {
             Status status = node.status(); // status() completes
 
@@ -470,21 +463,14 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
                 return null;
 
             if (node.references == 0)
-            {
-                if (loadExecutor == null)
-                    loadExecutor = AccordStateCache.this.loadExecutor;
-                if (status == FAILED_TO_LOAD || status == EVICTED)
-                    node.reset().load(loadExecutor, loadFunction);
+                removeFromEvictionQueue(node, true);
 
-                if (isInUnreferencedQueue(node))
-                    unlink(node);
-            }
             node.references++;
 
             return node;
         }
 
-        public void release(S safeRef)
+        public void release(S safeRef, AsyncOperation<?> owner)
         {
             K key = safeRef.global().key();
             logger.trace("Releasing resources for {}: {}", key, safeRef);
@@ -495,10 +481,21 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             checkState(safeRef.global() != null, "safeRef node is null for %s", key);
             checkState(safeRef.global() == node, "safeRef node not in map: %s != %s", safeRef.global(), node);
             checkState(node.references > 0, "references (%d) are zero for %s (%s)", node.references, key, node);
-            checkState(!isInUnreferencedQueue(node));
+            checkState(!isInEvictionQueue(node));
 
             if (safeRef.hasUpdate())
+            {
                 node.set(safeRef.current());
+                if (listeners != null)
+                {
+                    for (Listener<K, V> listener : listeners)
+                        listener.onUpdate(node);
+                }
+            }
+            else if (node.isLoadingOrWaiting())
+            {
+                node.loadingOrWaiting().remove(owner);
+            }
             safeRef.invalidate();
 
             maybeUpdateSize(node, heapEstimator);
@@ -512,17 +509,13 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
                 switch (status)
                 {
                     default: throw new IllegalStateException("Unhandled status " + status);
+                    case WAITING_TO_LOAD:
                     case LOADING:
-                    case FAILED_TO_LOAD:
-                        logger.trace("Evicting {} with status {}", key, status);
-                        evict(node);
-                        break;
                     case LOADED:
                     case MODIFIED:
-                    case SAVING:
                         logger.trace("Moving {} with status {} to eviction queue", key, status);
-                        link(node);
-                        break;
+                        addToEvictionQueue(node, true);
+                    case SAVING:
                     case FAILED_TO_SAVE:
                         break; // can never evict, so no point in adding to eviction queue either
                 }
@@ -547,6 +540,11 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         {
             //noinspection unchecked
             return (AccordCachingState<K, V>) cache.get(key);
+        }
+
+        public Set<K> keySet()
+        {
+            return cache.keySet();
         }
 
         @VisibleForTesting
@@ -580,14 +578,6 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         }
 
         @VisibleForTesting
-        public void complete(K key)
-        {
-            AccordCachingState<?, ?> node = cache.get(key);
-            if (node != null)
-                node.complete();
-        }
-
-        @VisibleForTesting
         boolean keyIsReferenced(Object key, Class<? extends AccordSafeState<?, ?>> valClass)
         {
             AccordCachingState<?, ?> node = cache.get(key);
@@ -598,7 +588,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         boolean keyIsCached(Object key, Class<? extends AccordSafeState<?, ?>> valClass)
         {
             AccordCachingState<?, ?> node = cache.get(key);
-            return node != null && node.status() != EVICTED;
+            return node != null;
         }
 
         @VisibleForTesting
@@ -653,10 +643,20 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             this.loadFunction = loadFunction;
         }
 
+        public Function<K, V> unsafeGetLoadFunction()
+        {
+            return loadFunction;
+        }
+
         @VisibleForTesting
         public void unsafeSetSaveFunction(Function<V, Runnable> saveFunction)
         {
             this.saveFunction = saveFunction;
+        }
+
+        public Function<V, Runnable> unsafeGetSaveFunction()
+        {
+            return saveFunction;
         }
 
         @Override
@@ -745,7 +745,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
     {
         for (AccordCachingState<?, ?> node : this)
             if (node.status() == SAVING)
-                AsyncChains.awaitUninterruptibly(node.saving());
+                node.saving().awaitUninterruptibly();
     }
 
     private int cacheSize()

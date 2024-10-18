@@ -73,7 +73,6 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.JOIN_RING;
 import static org.apache.cassandra.config.CassandraRelevantProperties.RESET_BOOTSTRAP_PROGRESS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.SKIP_GC_INSPECTOR;
-import static org.apache.cassandra.distributed.action.GossipHelper.withProperty;
 import static org.assertj.core.api.Assertions.fail;
 
 // checkstyle: suppress below 'blockSystemPropertyUsage'

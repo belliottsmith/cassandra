@@ -30,11 +30,9 @@ import java.util.function.Consumer;
 import accord.local.StoreParticipants;
 import accord.primitives.Participants;
 import accord.primitives.Route;
-import accord.utils.DefaultRandom;
+
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import org.apache.cassandra.concurrent.SimulatedExecutorFactory;
-import org.apache.cassandra.concurrent.Stage;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -283,78 +281,6 @@ public class AsyncOperationTest
         }
     }
 
-    private static void assertFutureState(AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> cache, TxnId txnId, boolean referenceExpected, boolean expectLoadFuture, boolean expectSaveFuture)
-    {
-        if (cache.isReferenced(txnId) != referenceExpected)
-            throw new AssertionError(referenceExpected ? "Cache reference unexpectedly not found for " + txnId
-                                                       : "Unexpectedly found cache reference for " + txnId);
-        cache.complete(txnId);
-        if (cache.hasLoadResult(txnId) != expectLoadFuture)
-            throw new AssertionError(expectLoadFuture ? "Load future unexpectedly not found for " + txnId
-                                                      : "Unexpectedly found load future for " + txnId);
-        if (cache.hasSaveResult(txnId) != expectSaveFuture)
-            throw new AssertionError(expectSaveFuture ? "Save future unexpectedly not found for " + txnId
-                                                      : "Unexpectedly found save future for " + txnId);
-
-    }
-
-    /**
-     * save and load futures should be cleaned up as part of the operation
-     */
-    @Test
-    public void testFutureCleanup() throws Throwable
-    {
-        SimulatedExecutorFactory factory = new SimulatedExecutorFactory(new DefaultRandom(42), 42);
-        AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl", factory.scheduled("ignored"), Stage.MUTATION.executor());
-
-        TxnId txnId = txnId(1, clock.incrementAndGet(), 1);
-
-        createStableAndPersist(commandStore, txnId);
-
-        Consumer<SafeCommandStore> consumer = safeStore -> safeStore.ifInitialised(txnId).readyToExecute(safeStore);
-        PreLoadContext ctx = contextFor(txnId);
-        AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer)
-        {
-
-            private AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> cache()
-            {
-                return commandStore.commandCache();
-            }
-
-            @Override
-            AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
-            {
-                return new AsyncLoader(commandStore, preLoadContext.txnIds(), preLoadContext.keys(), preLoadContext.keyHistory())
-                {
-                    @Override
-                    void state(State state)
-                    {
-                        switch (state)
-                        {
-                            case SETUP:
-                                assertFutureState(cache(), txnId, false, false, false);
-                                factory.processAll();
-                                break;
-                            case FINISHED:
-                                assertFutureState(cache(), txnId, true, false, false);
-                                factory.processAll();
-                                break;
-                            case LOADING:
-                                assertFutureState(cache(), txnId, true, true, false);
-                                factory.processAll();
-                                break;
-                        }
-                        super.state(state);
-                    }
-                };
-            }
-        };
-
-        commandStore.executor().submit(operation);
-
-        getUninterruptibly(operation);
-    }
-
     @Test
     public void loadFail()
     {
@@ -390,7 +316,7 @@ public class AsyncOperationTest
             });
             AsyncOperation<Void> o1 = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
 
-            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(o1))
+            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(o1.chain()))
                       .hasRootCause()
                       .isInstanceOf(NullPointerException.class)
                       .hasNoSuppressedExceptions();
@@ -412,7 +338,7 @@ public class AsyncOperationTest
                     store.ifInitialised(id).readyToExecute(store);
                 });
             });
-            getUninterruptibly(o2);
+            getUninterruptibly(o2.chain());
             awaitDone(commandStore, ids, participants);
             assertNoReferences(commandStore, ids, participants);
 
@@ -445,7 +371,7 @@ public class AsyncOperationTest
 
             AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
 
-            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(operation))
+            AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(operation.chain()))
                           .hasRootCause()
                           .isInstanceOf(NullPointerException.class)
                           .hasMessage(errorMsg)

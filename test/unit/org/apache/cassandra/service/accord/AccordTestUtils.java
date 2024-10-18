@@ -77,7 +77,6 @@ import accord.utils.SortedArrays.SortedArrayList;
 import accord.utils.async.AsyncChains;
 import org.apache.cassandra.ServerTestUtils;
 import org.apache.cassandra.concurrent.ExecutorPlus;
-import org.apache.cassandra.concurrent.ImmediateExecutor;
 import org.apache.cassandra.concurrent.ManualExecutor;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.AccordSpec;
@@ -170,10 +169,13 @@ public class AccordTestUtils
     public static <K, V> AccordCachingState<K, V> loaded(K key, V value, int index)
     {
         AccordCachingState<K, V> global = new AccordCachingState<>(key, index);
-        global.load(ImmediateExecutor.INSTANCE, k -> {
+        global.readyToLoad();
+        ManualExecutor executor = new ManualExecutor();
+        global.load(executor::submit, k -> {
             Assert.assertEquals(key, k);
             return value;
-        });
+        }, AccordCachingState.OnLoaded.immediate());
+        executor.runOne();
         Assert.assertEquals(AccordCachingState.Status.LOADED, global.status());
         return global;
     }
@@ -197,11 +199,13 @@ public class AccordTestUtils
         };
     }
 
-    public static <K, V> void testLoad(ManualExecutor executor, AccordSafeState<K, V> safeState, V val)
+    public static <K, V> void testLoad(ManualExecutor executor, AccordStateCache.Instance<K, V, ?> instance, AccordSafeState<K, V> safeState, V val)
     {
-        Assert.assertEquals(AccordCachingState.Status.LOADING, safeState.globalStatus());
+        Assert.assertEquals(AccordCachingState.Status.WAITING_TO_LOAD, safeState.global().status());
+        safeState.global().load(executor::submit, instance.unsafeGetLoadFunction(), AccordCachingState.OnLoaded.immediate());
+        Assert.assertEquals(AccordCachingState.Status.LOADING, safeState.global().status());
         executor.runOne();
-        Assert.assertEquals(AccordCachingState.Status.LOADED, safeState.globalStatus());
+        Assert.assertEquals(AccordCachingState.Status.LOADED, safeState.global().status());
         safeState.preExecute();
         Assert.assertEquals(val, safeState.current());
     }
@@ -410,11 +414,11 @@ public class AccordTestUtils
         AccordJournal journal = new AccordJournal(new AccordSpec.JournalSpec());
         journal.start(null);
 
-        AccordStateCache stateCache = new AccordStateCache(loadExecutor, saveExecutor, 8 << 20, new AccordStateCacheMetrics("test"));
+        AccordAgent agent = new AccordAgent();
         SingleEpochRanges holder = new SingleEpochRanges(topology.rangesForNode(node));
         AccordCommandStore result = new AccordCommandStore(0,
                                                            time,
-                                                           new AccordAgent(),
+                                                           agent,
                                                            null,
                                                            cs -> new NoOpProgressLog(),
                                                            cs -> new DefaultLocalListeners(new RemoteListeners.NoOpRemoteListeners(), new DefaultLocalListeners.NotifySink()
@@ -424,7 +428,7 @@ public class AccordTestUtils
                                                            }),
                                                            holder,
                                                            journal,
-                                                           new AccordCommandStore.CommandStoreExecutor(stateCache, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']')));
+                                                           new AccordCommandStoreExecutor(new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']'), agent));
         holder.set(result);
 
         // TODO: CompactionAccordIteratorsTest relies on this

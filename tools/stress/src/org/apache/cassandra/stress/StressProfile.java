@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import com.google.common.base.Function;
 import com.google.common.util.concurrent.Uninterruptibles;
 
-import com.datastax.driver.core.*;
 import com.datastax.driver.core.exceptions.AlreadyExistsException;
 import org.antlr.runtime.RecognitionException;
 import org.apache.cassandra.config.YamlConfigurationLoader;

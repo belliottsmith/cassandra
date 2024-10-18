@@ -48,7 +48,6 @@ import org.apache.cassandra.tcm.Epoch;
 import org.apache.cassandra.tcm.transformations.PrepareJoin;
 import org.apache.cassandra.service.StorageService;
 
-import static org.apache.cassandra.distributed.action.GossipHelper.withProperty;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.getClusterMetadataVersion;
 import static org.apache.cassandra.distributed.shared.ClusterUtils.getSequenceAfterCommit;
 

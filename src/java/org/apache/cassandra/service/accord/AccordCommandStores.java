@@ -18,6 +18,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -37,12 +38,10 @@ import accord.topology.Topology;
 import accord.utils.RandomSource;
 import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.concurrent.ExecutorPlus;
-import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheSizeMetrics;
 import org.apache.cassandra.schema.TableId;
-import org.apache.cassandra.service.accord.AccordCommandStore.CommandStoreExecutor;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
@@ -57,12 +56,12 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     public static final String ACCORD_STATE_CACHE = "AccordStateCache";
 
     private final CacheSizeMetrics cacheSizeMetrics;
-    private final CommandStoreExecutor[] executors;
+    private final AccordCommandStoreExecutor[] executors;
     private long cacheSize;
 
     AccordCommandStores(NodeCommandStoreService node, Agent agent, DataStore store, RandomSource random,
                         ShardDistributor shardDistributor, ProgressLog.Factory progressLogFactory, LocalListeners.Factory listenerFactory,
-                        AccordJournal journal, CommandStoreExecutor[] executors)
+                        AccordJournal journal, AccordCommandStoreExecutor[] executors)
     {
         super(node, agent, store, random, shardDistributor, progressLogFactory, listenerFactory,
               AccordCommandStore.factory(journal, id -> executors[id % executors.length]));
@@ -74,12 +73,11 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     static Factory factory(AccordJournal journal)
     {
         return (time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory) -> {
-            CommandStoreExecutor[] executors = new CommandStoreExecutor[DatabaseDescriptor.getAccordShardCount()];
+            AccordCommandStoreExecutor[] executors = new AccordCommandStoreExecutor[DatabaseDescriptor.getAccordShardCount()];
             for (int id = 0; id < executors.length; id++)
             {
                 AccordStateCacheMetrics metrics = new AccordStateCacheMetrics(ACCORD_STATE_CACHE);
-                AccordStateCache stateCache = new AccordStateCache(Stage.READ.executor(), Stage.MUTATION.executor(), 8 << 20, metrics);
-                executors[id] = new CommandStoreExecutor(stateCache, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']'));
+                executors[id] = new AccordCommandStoreExecutor(metrics, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']'), agent);
             }
 
             return new AccordCommandStores(time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory, journal, executors);
@@ -122,7 +120,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     public int size()
     {
         int size = 0;
-        for (CommandStoreExecutor executor : executors)
+        for (AccordCommandStoreExecutor executor : executors)
             size += executor.size();
         return size;
     }
@@ -131,7 +129,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     public long weightedSize()
     {
         long size = 0;
-        for (CommandStoreExecutor executor : executors)
+        for (AccordCommandStoreExecutor executor : executors)
             size += executor.weightedSize();
         return size;
     }
@@ -142,7 +140,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
             return;
         long perExecutor = cacheSize / executors.length;
         // TODO (low priority, safety): we might transiently breach our limit if we increase one store before decreasing another
-        for (CommandStoreExecutor executor : executors)
+        for (AccordCommandStoreExecutor executor : executors)
             executor.execute(() -> executor.setCapacity(perExecutor));
     }
 
@@ -151,22 +149,13 @@ public class AccordCommandStores extends CommandStores implements CacheSize
         boolean hadPending;
         try
         {
-            List<ExecutorPlus> executors = new ArrayList<>();
-            for (CommandStoreExecutor executor : this.executors)
-                executors.add(executor.delegate);
-
-            executors.add(READ.executor());
-            executors.add(MUTATION.executor());
-            executors.add(ACCORD_MIGRATION.executor());
-            executors.add(ACCORD_RANGE_LOADER.executor());
-
             do
             {
                 hadPending = false;
                 List<Future<?>> futures = new ArrayList<>();
-                for (ExecutorPlus executor : executors)
+                for (AccordCommandStoreExecutor executor : this.executors)
                 {
-                    if (!hadPending && (executor.getPendingTaskCount() > 0 || executor.getActiveTaskCount() > 0))
+                    if (!hadPending && executor.hasTasks())
                         hadPending = true;
                     futures.add(executor.submit(() -> {}));
                 }
@@ -190,7 +179,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     public synchronized void shutdown()
     {
         super.shutdown();
-        for (CommandStoreExecutor executor : executors)
+        for (AccordCommandStoreExecutor executor : executors)
         {
             executor.shutdown();
             try

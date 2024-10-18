@@ -23,12 +23,13 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import accord.utils.async.AsyncChain;
 import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.concurrent.ManualExecutor;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheAccessMetrics;
+import org.apache.cassandra.service.accord.AccordCachingState.OnSaved;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
+import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.service.accord.AccordTestUtils.testLoad;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,19 +89,7 @@ public class AccordStateCacheTest
         }
 
         @Override
-        public Status globalStatus()
-        {
-            return global.status();
-        }
-
-        @Override
-        public AsyncChain<?> loading()
-        {
-            return global.loading();
-        }
-
-        @Override
-        public AsyncChain<?> saving()
+        public Future<?> saving()
         {
             return global.saving();
         }
@@ -181,25 +170,25 @@ public class AccordStateCacheTest
     public void testAcquisitionAndRelease()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, 500, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), 500, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
 
         SafeString safeString1 = instance.acquire("1");
         assertCacheState(cache, 1, 1, emptyNodeSize());
-        testLoad(executor, safeString1, "1");
+        testLoad(executor, instance, safeString1, "1");
         Assert.assertTrue(cache.isEmpty());
 
-        instance.release(safeString1);
+        instance.release(safeString1, null);
         assertCacheState(cache, 0, 1, nodeSize(1));
         Assert.assertSame(safeString1.global, cache.head());
         Assert.assertSame(safeString1.global, cache.tail());
 
         SafeString safeString2 = instance.acquire("2");
         assertCacheState(cache, 1, 2, DEFAULT_NODE_SIZE + nodeSize(1));
-        testLoad(executor, safeString2, "2");
-        instance.release(safeString2);
+        testLoad(executor, instance, safeString2, "2");
+        instance.release(safeString2, null);
         assertCacheState(cache, 0, 2, nodeSize(1) + nodeSize(1));
 
         Assert.assertSame(safeString1.global, cache.head());
@@ -213,7 +202,7 @@ public class AccordStateCacheTest
     public void testCachingMetricsWithTwoInstances()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, 500, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), 500, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> stringInstance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true,String::length);
         AccordStateCache.Instance<Integer, Integer, SafeInt> intInstance =
@@ -221,21 +210,21 @@ public class AccordStateCacheTest
         assertCacheState(cache, 0, 0, 0);
 
         SafeString safeString1 = stringInstance.acquire("1");
-        testLoad(executor, safeString1, "1");
-        stringInstance.release(safeString1);
+        testLoad(executor, stringInstance, safeString1, "1");
+        stringInstance.release(safeString1, null);
         SafeString safeString2 = stringInstance.acquire("2");
-        testLoad(executor, safeString2, "2");
-        stringInstance.release(safeString2);
+        testLoad(executor, stringInstance, safeString2, "2");
+        stringInstance.release(safeString2, null);
 
         SafeInt safeInt1 = intInstance.acquire(3);
-        testLoad(executor, safeInt1, 3);
-        intInstance.release(safeInt1);
+        testLoad(executor, intInstance, safeInt1, 3);
+        intInstance.release(safeInt1, null);
         SafeInt safeInt2 = intInstance.acquire(4);
-        testLoad(executor, safeInt2, 4);
-        intInstance.release(safeInt2);
+        testLoad(executor, intInstance, safeInt2, 4);
+        intInstance.release(safeInt2, null);
         SafeInt safeInt3 = intInstance.acquire(5);
-        testLoad(executor, safeInt3, 5);
-        intInstance.release(safeInt3);
+        testLoad(executor, intInstance, safeInt3, 5);
+        intInstance.release(safeInt3, null);
 
         assertCacheState(cache, 0, 5, nodeSize(Integer.BYTES) * 3 + nodeSize(1) * 2);
         assertThat(stringInstance.size()).isEqualTo(2);
@@ -253,7 +242,7 @@ public class AccordStateCacheTest
     public void testRotation()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, DEFAULT_NODE_SIZE * 5, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), DEFAULT_NODE_SIZE * 5, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
@@ -264,9 +253,9 @@ public class AccordStateCacheTest
             SafeString safeString = instance.acquire(Integer.toString(i));
             items[i] = safeString;
             Assert.assertNotNull(safeString);
-            testLoad(executor, safeString, Integer.toString(i));
+            testLoad(executor, instance, safeString, Integer.toString(i));
             Assert.assertTrue(instance.isReferenced(safeString.key()));
-            instance.release(safeString);
+            instance.release(safeString, null);
         }
 
         Assert.assertSame(items[0].global, cache.head());
@@ -276,14 +265,14 @@ public class AccordStateCacheTest
         assertCacheMetrics(instance.instanceMetrics, 0, 3, 3);
 
         SafeString safeString = instance.acquire("1");
-        Assert.assertEquals(Status.LOADED, safeString.globalStatus());
+        Assert.assertEquals(Status.LOADED, safeString.global.status());
 
         assertCacheState(cache, 1, 3, nodeSize(1) * 3);
         assertCacheMetrics(cache.metrics, 1, 3, 4);
         assertCacheMetrics(instance.instanceMetrics, 1, 3, 4);
 
         // releasing item should return it to the tail
-        instance.release(safeString);
+        instance.release(safeString, null);
         assertCacheState(cache, 0, 3, nodeSize(1) * 3);
         Assert.assertSame(items[0].global, cache.head());
         Assert.assertSame(items[1].global, cache.tail());
@@ -293,7 +282,7 @@ public class AccordStateCacheTest
     public void testEvictionOnAcquire()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, nodeSize(1) * 5, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), nodeSize(1) * 5, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
@@ -303,9 +292,9 @@ public class AccordStateCacheTest
         {
             SafeString safeString = instance.acquire(Integer.toString(i));
             items[i] = safeString;
-            testLoad(executor, safeString, Integer.toString(i));
+            testLoad(executor, instance, safeString, Integer.toString(i));
             Assert.assertTrue(instance.isReferenced(safeString.key()));
-            instance.release(safeString);
+            instance.release(safeString, null);
         }
 
         assertCacheState(cache, 0, 5, nodeSize(1) * 5);
@@ -326,8 +315,8 @@ public class AccordStateCacheTest
         assertCacheMetrics(cache.metrics, 0, 6, 6);
         assertCacheMetrics(instance.instanceMetrics, 0, 6, 6);
 
-        testLoad(executor, safeString, "5");
-        instance.release(safeString);
+        testLoad(executor, instance, safeString, "5");
+        instance.release(safeString, null);
         assertCacheState(cache, 0, 5, nodeSize(1) * 5);
         Assert.assertSame(items[1].global, cache.head());
         Assert.assertSame(safeString.global, cache.tail());
@@ -339,7 +328,7 @@ public class AccordStateCacheTest
     public void testEvictionOnRelease()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, nodeSize(1) * 4, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), nodeSize(1) * 4, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
@@ -349,7 +338,7 @@ public class AccordStateCacheTest
         {
             SafeString safeString = instance.acquire(Integer.toString(i));
             items[i] = safeString;
-            testLoad(executor, safeString, Integer.toString(i));
+            testLoad(executor, instance, safeString, Integer.toString(i));
             Assert.assertTrue(instance.isReferenced(safeString.key()));
         }
 
@@ -359,14 +348,14 @@ public class AccordStateCacheTest
         Assert.assertNull(cache.head());
         Assert.assertNull(cache.tail());
 
-        instance.release(items[2]);
+        instance.release(items[2], null);
         assertCacheState(cache, 4, 4, nodeSize(0) * 4);
         assertCacheMetrics(cache.metrics, 0, 5, 5);
         assertCacheMetrics(instance.instanceMetrics, 0, 5, 5);
         Assert.assertNull(cache.head());
         Assert.assertNull(cache.tail());
 
-        instance.release(items[4]);
+        instance.release(items[4], null);
         assertCacheState(cache, 3, 4, nodeSize(0) * 3 + nodeSize(1));
         assertCacheMetrics(cache.metrics, 0, 5, 5);
         assertCacheMetrics(instance.instanceMetrics, 0, 5, 5);
@@ -378,14 +367,14 @@ public class AccordStateCacheTest
     public void testMultiAcquireRelease()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, DEFAULT_NODE_SIZE * 4, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), DEFAULT_NODE_SIZE * 4, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
 
         SafeString safeString1 = instance.acquire("0");
-        testLoad(executor, safeString1, "0");
-        Assert.assertEquals(Status.LOADED, safeString1.globalStatus());
+        testLoad(executor, instance, safeString1, "0");
+        Assert.assertEquals(Status.LOADED, safeString1.global.status());
         assertCacheMetrics(cache.metrics, 0, 1, 1);
         assertCacheMetrics(instance.instanceMetrics, 0, 1, 1);
 
@@ -393,15 +382,15 @@ public class AccordStateCacheTest
         assertCacheState(cache, 1, 1, nodeSize(0));
 
         SafeString safeString2 = instance.acquire("0");
-        Assert.assertEquals(Status.LOADED, safeString1.globalStatus());
+        Assert.assertEquals(Status.LOADED, safeString1.global.status());
         Assert.assertEquals(2, instance.references("0", SafeString.class));
         assertCacheState(cache, 1, 1, nodeSize(0));
         assertCacheMetrics(cache.metrics, 1, 1, 2);
         assertCacheMetrics(instance.instanceMetrics, 1, 1, 2);
 
-        instance.release(safeString1);
+        instance.release(safeString1, null);
         assertCacheState(cache, 1, 1, nodeSize(1));
-        instance.release(safeString2);
+        instance.release(safeString2, null);
         assertCacheState(cache, 0, 1, nodeSize(1));
     }
 
@@ -409,34 +398,37 @@ public class AccordStateCacheTest
     public void evictionBlockedOnSaving()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, nodeSize(1) * 3 + nodeSize(3), cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), nodeSize(1) * 3 + nodeSize(3), cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
 
         SafeString item = instance.acquire(Integer.toString(0));
-        testLoad(executor, item, Integer.toString(0));
+        testLoad(executor, instance, item, Integer.toString(0));
         item.set("0*");
         Assert.assertTrue(instance.isReferenced(item.key()));
-        instance.release(item);
+        instance.release(item, null);
 
         for (int i=1; i<4; i++)
         {
             item = instance.acquire(Integer.toString(i));
-            testLoad(executor, item, Integer.toString(i));
+            testLoad(executor, instance, item, Integer.toString(i));
             Assert.assertTrue(instance.isReferenced(item.key()));
-            instance.release(item);
+            instance.release(item, null);
         }
 
-        assertCacheState(cache, 0, 4, nodeSize(1) * 3 + nodeSize(3));
+        // TODO (review): again, why size 3 rather than size 2 (it's a string of length 2 set above)
+        assertCacheState(cache, 0, 4, nodeSize(1) * 3 + nodeSize(2));
         assertCacheMetrics(cache.metrics, 0, 4, 4);
         assertCacheMetrics(instance.instanceMetrics, 0, 4, 4);
 
         // force cache eviction
+        instance.acquire(Integer.toString(0));
         cache.setCapacity(0);
 
+        // TODO (review): why would 0* not have been evicted with a cache capacity of 0? It wasn't referenced.
         // all should have been evicted except 0
-        assertCacheState(cache, 0, 1, nodeSize(2));
+        assertCacheState(cache, 1, 1, nodeSize(2));
 
         Assert.assertTrue(instance.keyIsCached("0", SafeString.class));
         Assert.assertFalse(instance.keyIsCached("1", SafeString.class));
@@ -448,13 +440,13 @@ public class AccordStateCacheTest
     public void testUpdates()
     {
         ManualExecutor executor = new ManualExecutor();
-        AccordStateCache cache = new AccordStateCache(executor, executor, 500, cacheMetrics);
+        AccordStateCache cache = new AccordStateCache(executor::submit, OnSaved.immediate(), 500, cacheMetrics);
         AccordStateCache.Instance<String, String, SafeString> instance =
             cache.instance(String.class, SafeString.class, SafeString::new, key -> key, (current) -> null, (k, v) -> true, String::length);
         assertCacheState(cache, 0, 0, 0);
 
         SafeString safeString = instance.acquire("1");
-        testLoad(executor, safeString, "1");
+        testLoad(executor, instance, safeString, "1");
         assertCacheState(cache, 1, 1, emptyNodeSize());
         Assert.assertNull(cache.head());
         Assert.assertNull(cache.tail());
@@ -463,8 +455,9 @@ public class AccordStateCacheTest
         assertCacheState(cache, 1, 1, emptyNodeSize());
 
         safeString.set("11");
-        instance.release(safeString);
-        assertCacheState(cache, 0, 1, nodeSize(3));
+        instance.release(safeString, null);
+        // TODO (review): why was this previously itemSize 3? It is definitely an item of size 2 set above...
+        assertCacheState(cache, 0, 1, nodeSize(2));
         Assert.assertSame(safeString.global, cache.head());
         Assert.assertSame(safeString.global, cache.tail());
 

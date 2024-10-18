@@ -51,7 +51,6 @@ import org.apache.cassandra.service.StorageService;
 import static net.bytebuddy.matcher.ElementMatchers.named;
 import static org.apache.cassandra.config.CassandraRelevantProperties.RESET_BOOTSTRAP_PROGRESS;
 import static org.apache.cassandra.config.CassandraRelevantProperties.TEST_WRITE_SURVEY;
-import static org.apache.cassandra.distributed.action.GossipHelper.withProperty;
 import static org.apache.cassandra.distributed.api.Feature.GOSSIP;
 import static org.apache.cassandra.distributed.api.Feature.JMX;
 import static org.apache.cassandra.distributed.api.Feature.NETWORK;

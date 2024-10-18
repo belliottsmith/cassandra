@@ -105,13 +105,28 @@ public class SimulatedAccordCommandStore implements AutoCloseable
     public final List<String> evictions = new ArrayList<>();
     public Predicate<Throwable> ignoreExceptions = ignore -> false;
 
+    public interface FunctionWrapper
+    {
+        <I, O> Function<I, O> wrap(Function<I, O> f);
+
+        static <I, O> Function<I, O> identity(Function<I, O> f) { return f; }
+        static FunctionWrapper identity() { return FunctionWrapper::identity; }
+    }
+
+
     public SimulatedAccordCommandStore(RandomSource rs)
+    {
+        this(rs, FunctionWrapper.identity(), FunctionWrapper.identity());
+    }
+
+    public SimulatedAccordCommandStore(RandomSource rs, FunctionWrapper loadFunctionWrapper, FunctionWrapper saveFunctionWrapper)
     {
         globalExecutor = new SimulatedExecutorFactory(rs.fork(), fromQT(Generators.TIMESTAMP_GEN.map(java.sql.Timestamp::getTime)).mapToLong(TimeUnit.MILLISECONDS::toNanos).next(rs), failures::add);
         this.unorderedScheduled = globalExecutor.scheduled("ignored");
         ExecutorFactory.Global.unsafeSet(globalExecutor);
         Stage.READ.unsafeSetExecutor(unorderedScheduled);
         Stage.MUTATION.unsafeSetExecutor(unorderedScheduled);
+        Stage.ACCORD_RANGE_LOADER.unsafeSetExecutor(unorderedScheduled);
         for (Stage stage : Arrays.asList(Stage.MISC, Stage.ACCORD_MIGRATION, Stage.READ, Stage.MUTATION))
             stage.unsafeSetExecutor(globalExecutor.configureSequential("ignore").build());
 
@@ -163,25 +178,25 @@ public class SimulatedAccordCommandStore implements AutoCloseable
             }
         };
 
-        AccordStateCache stateCache = new AccordStateCache(Stage.READ.executor(), Stage.MUTATION.executor(), 8 << 20, new AccordStateCacheMetrics("test"));
         this.journal = new MockJournal();
+        TestAgent.RethrowAgent agent = new TestAgent.RethrowAgent()
+        {
+            @Override
+            public long preAcceptTimeout()
+            {
+                return Long.MAX_VALUE;
+            }
+
+            @Override
+            public void onUncaughtException(Throwable t)
+            {
+                if (ignoreExceptions.test(t)) return;
+                super.onUncaughtException(t);
+            }
+        };
         this.store = new AccordCommandStore(0,
                                             storeService,
-                                            new TestAgent.RethrowAgent()
-                                            {
-                                                @Override
-                                                public long preAcceptTimeout()
-                                                {
-                                                    return Long.MAX_VALUE;
-                                                }
-
-                                                @Override
-                                                public void onUncaughtException(Throwable t)
-                                                {
-                                                    if (ignoreExceptions.test(t)) return;
-                                                    super.onUncaughtException(t);
-                                                }
-                                            },
+                                            agent,
                                             null,
                                             ignore -> new ProgressLog.NoOpProgressLog(),
                                             cs -> new DefaultLocalListeners(new RemoteListeners.NoOpRemoteListeners(), new DefaultLocalListeners.NotifySink()
@@ -191,9 +206,21 @@ public class SimulatedAccordCommandStore implements AutoCloseable
                                             }),
                                             updateHolder,
                                             journal,
-                                            new AccordCommandStore.CommandStoreExecutor(stateCache, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']'), Thread.currentThread().getId()));
+                                            new AccordCommandStoreExecutor(new AccordStateCacheMetrics("test"), executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']'), agent));
+
+        this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
+        this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);
+        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), store);
+        store.unsafeSetRangesForEpoch(rangesForEpoch);
+        updateHolder.updateGlobal(topology.ranges());
+
+        shouldEvict = boolSource(rs.fork());
+        shouldFlush = boolSource(rs.fork());
+        shouldCompact = boolSource(rs.fork());
 
         store.cache().instances().forEach(i -> {
+            updateLoadFunction(i, loadFunctionWrapper);
+            updateSaveFunction(i, saveFunctionWrapper);
             i.register(new AccordStateCache.Listener()
             {
                 @Override
@@ -213,16 +240,16 @@ public class SimulatedAccordCommandStore implements AutoCloseable
                 }
             });
         });
+    }
 
-        this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
-        this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);
-        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), store);
-        updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
-        updateHolder.updateGlobal(topology.ranges());
+    private <K, V> void updateLoadFunction(AccordStateCache.Instance<K, V, ?> i, FunctionWrapper wrapper)
+    {
+        i.unsafeSetLoadFunction(wrapper.wrap(i.unsafeGetLoadFunction()));
+    }
 
-        shouldEvict = boolSource(rs.fork());
-        shouldFlush = boolSource(rs.fork());
-        shouldCompact = boolSource(rs.fork());
+    private <K, V> void updateSaveFunction(AccordStateCache.Instance<K, V, ?> i, FunctionWrapper wrapper)
+    {
+        i.unsafeSetSaveFunction(wrapper.wrap(i.unsafeGetSaveFunction()));
     }
 
     private static BooleanSupplier boolSource(RandomSource rs)

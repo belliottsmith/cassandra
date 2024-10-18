@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -51,18 +52,18 @@ import accord.primitives.RoutingKeys;
 import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
-import accord.primitives.Unseekable;
 import accord.primitives.Unseekables;
 import accord.utils.Invariants;
+import org.agrona.collections.Object2ObjectHashMap;
 
 import static accord.local.KeyHistory.TIMESTAMPS;
 
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeTimestampsForKey, AccordSafeCommandsForKey>
 {
-    private final Map<TxnId, AccordSafeCommand> commands;
-    private final Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys;
-    private final Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys;
-    private final @Nullable AccordSafeCommandsForRanges commandsForRanges;
+    private @Nullable Map<TxnId, AccordSafeCommand> commands;
+    private @Nullable Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys;
+    private @Nullable Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys;
+    private final @Nullable CommandsForRanges commandsForRanges;
     private final AccordCommandStore commandStore;
     private RangesForEpoch ranges;
     private FieldUpdates fieldUpdates;
@@ -71,7 +72,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                                    Map<TxnId, AccordSafeCommand> commands,
                                    Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey,
                                    Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey,
-                                   @Nullable AccordSafeCommandsForRanges commandsForRanges,
+                                   @Nullable CommandsForRanges commandsForRanges,
                                    AccordCommandStore commandStore)
     {
         super(context);
@@ -86,10 +87,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     public static AccordSafeCommandStore create(PreLoadContext preLoadContext,
-                                                Map<TxnId, AccordSafeCommand> commands,
-                                                Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey,
-                                                Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey,
-                                                @Nullable AccordSafeCommandsForRanges commandsForRanges,
+                                                @Nullable Map<TxnId, AccordSafeCommand> commands,
+                                                @Nullable Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey,
+                                                @Nullable Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey,
+                                                @Nullable CommandsForRanges commandsForRanges,
                                                 AccordCommandStore commandStore)
     {
         return new AccordSafeCommandStore(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges, commandStore);
@@ -103,14 +104,14 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
 
         for (TxnId txnId : context.txnIds())
         {
-            if (this.commands.containsKey(txnId))
+            if (null != getCommandInternal(txnId))
                 continue;
 
-            AccordSafeCommand safeCommand = this.commandStore.commandCache().acquireIfLoaded(txnId);
+            AccordSafeCommand safeCommand = getIfLoaded(txnId);
             if (safeCommand == null)
                 return null;
 
-            commands.put(txnId, safeCommand);
+            addCommandInternal(safeCommand);
         }
 
         KeyHistory keyHistory = context.keyHistory();
@@ -127,25 +128,25 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
             RoutingKey key = (RoutingKey) keys.get(i);
             if (keyHistory == TIMESTAMPS)
             {
-                if (timestampsForKeys.containsKey(key))
+                if (null != getTimestampsForKeyInternal(key))
                     continue;
 
-                AccordSafeTimestampsForKey safeTfk = commandStore.timestampsForKeyCache().acquireIfLoaded(key);
+                AccordSafeTimestampsForKey safeTfk = getTimestampsForKeyIfLoaded(key);
                 if (safeTfk != null)
                 {
-                    timestampsForKeys.put(key, safeTfk);
+                    addTimestampsForKeyInternal(safeTfk);
                     continue;
                 }
             }
             else
             {
-                if (commandsForKeys.containsKey(key))
+                if (null != getCommandsForKeyInternal(key))
                     continue;
 
                 AccordSafeCommandsForKey safeCfk = commandStore.commandsForKeyCache().acquireIfLoaded(key);
                 if (safeCfk != null)
                 {
-                    commandsForKeys.put(key, safeCfk);
+                    addCommandsForKeyInternal(safeCfk);
                     continue;
                 }
             }
@@ -166,18 +167,24 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @VisibleForTesting
     public Set<RoutingKey> commandsForKeysKeys()
     {
+        if (commandsForKeys == null)
+            return Collections.emptySet();
         return commandsForKeys.keySet();
     }
 
     @Override
     protected AccordSafeCommand getCommandInternal(TxnId txnId)
     {
+        if (commands == null)
+            return null;
         return commands.get(txnId);
     }
 
     @Override
     protected void addCommandInternal(AccordSafeCommand command)
     {
+        if (commands == null)
+            commands = new Object2ObjectHashMap<>();
         commands.put(command.txnId(), command);
     }
 
@@ -192,12 +199,16 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeCommandsForKey getCommandsForKeyInternal(RoutingKey key)
     {
+        if (commandsForKeys == null)
+            return null;
         return commandsForKeys.get(key);
     }
 
     @Override
     protected void addCommandsForKeyInternal(AccordSafeCommandsForKey cfk)
     {
+        if (commandsForKeys == null)
+            commandsForKeys = new Object2ObjectHashMap<>();
         commandsForKeys.put(cfk.key(), cfk);
     }
 
@@ -212,12 +223,16 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeTimestampsForKey getTimestampsForKeyInternal(RoutingKey key)
     {
+        if (timestampsForKeys == null)
+            return null;
         return timestampsForKeys.get(key);
     }
 
     @Override
     protected void addTimestampsForKeyInternal(AccordSafeTimestampsForKey cfk)
     {
+        if (timestampsForKeys == null)
+            timestampsForKeys = new Object2ObjectHashMap<>();
         timestampsForKeys.put(cfk.key(), cfk);
     }
 
@@ -276,27 +291,27 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     {
         if (commandsForRanges == null)
             return accumulate;
-        CommandsForRanges cfr = commandsForRanges.current();
+
         switch (keysOrRanges.domain())
         {
             case Key:
             {
                 AbstractKeys<Key> keys = (AbstractKeys<Key>) keysOrRanges;
-                if (!cfr.ranges.intersects(keys))
+                if (!commandsForRanges.ranges.intersects(keys))
                     return accumulate;
             }
             break;
             case Range:
             {
                 AbstractRanges ranges = (AbstractRanges) keysOrRanges;
-                if (!cfr.ranges.intersects(ranges))
+                if (!commandsForRanges.ranges.intersects(ranges))
                     return accumulate;
             }
             break;
             default:
                 throw new AssertionError("Unknown domain: " + keysOrRanges.domain());
         }
-        return map.apply(cfr, accumulate);
+        return map.apply(commandsForRanges, accumulate);
     }
 
     private <O> O mapReduceForKey(Routables<?> keysOrRanges, BiFunction<CommandsSummary, O, O> map, O accumulate)
@@ -322,6 +337,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
                 // are contained within the ranges... so walk all keys found in commandsForKeys
                 if (!context.keys().containsAll(keysOrRanges))
                     throw new AssertionError("Range(s) detected not present in the PreLoadContext: expected " + context.keys() + " but given " + keysOrRanges);
+
+                if (commandsForKeys == null)
+                    break;
+
                 for (RoutingKey key : commandsForKeys.keySet())
                 {
                     //TODO (duplicate code): this is a repeat of Key... only change is checking contains in range

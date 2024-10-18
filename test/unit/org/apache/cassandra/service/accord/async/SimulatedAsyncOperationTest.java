@@ -18,10 +18,13 @@
 
 package org.apache.cassandra.service.accord.async;
 
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -48,6 +51,7 @@ import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.SimulatedAccordCommandStore;
+import org.apache.cassandra.service.accord.SimulatedAccordCommandStore.FunctionWrapper;
 import org.apache.cassandra.service.accord.SimulatedAccordCommandStoreTestBase;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
@@ -68,19 +72,20 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
     @Test
     public void happyPath()
     {
-        qt().withExamples(100).check(rs -> test(rs, 100, intTbl, ignore -> Action.SUCCESS));
+        qt().withExamples(100).check(rs -> test(rs, 100, intTbl, ignore -> Action.SUCCESS, ignore -> 0L));
     }
 
     @Test
     public void fuzz()
     {
         Gen<Action> actionGen = Gens.enums().allWithWeights(Action.class, 10, 1, 1);
-        qt().withExamples(100).check(rs -> test(rs, 100, intTbl, actionGen));
+        Gen.LongGen delaysNanos = Gens.longs().between(0, TimeUnit.MILLISECONDS.toNanos(10));
+        qt().withExamples(100).check(rs -> test(rs, 100, intTbl, actionGen, delaysNanos));
     }
 
     enum Operation { Task, PreAccept }
 
-    private static void test(RandomSource rs, int numSamples, TableMetadata tbl, Gen<Action> actionGen) throws Exception
+    private static void test(RandomSource rs, int numSamples, TableMetadata tbl, Gen<Action> actionGen, Gen.LongGen delaysNanos) throws Exception
     {
         AccordKeyspace.unsafeClear();
         Gen<Operation> operationGen = Gens.enums().all(Operation.class);
@@ -95,7 +100,7 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
         Gen<Unseekables<?>> unseekablesGen = Gens.oneOf(keysGen, rangesGen);
         Gen<Pair<Txn, FullRoute<?>>> txnGen = randomTxn(mixedDomainGen.next(rs), mixedTokenGen.next(rs));
 
-        try (var instance = new SimulatedAccordCommandStore(rs))
+        try (var instance = new SimulatedAccordCommandStore(rs, new SimulatedLoadFunctionWrapper(actionGen.asSupplier(rs), delaysNanos.asLongSupplier(rs)), FunctionWrapper.identity()))
         {
             instance.ignoreExceptions = t -> t instanceof SimulatedFault;
             Counter counter = new Counter();
@@ -108,7 +113,7 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
                     {
                         PreLoadContext ctx = PreLoadContext.contextFor(unseekablesGen.next(rs));
                         instance.maybeCacheEvict(ctx.keys());
-                        operation(instance, ctx, actionGen.next(rs), rs::nextBoolean).begin(counter);
+                        operation(instance, ctx, actionGen.next(rs), rs::nextBoolean).chain().begin(counter);
                     }
                     break;
                     case PreAccept:
@@ -171,18 +176,11 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
         return new TokenRange(new TokenKey(tableId, new LongToken(start)), new TokenKey(tableId, new LongToken(end)));
     }
 
-    private enum Action {SUCCESS, FAILURE, LOAD_FAILURE}
+    private enum Action { SUCCESS, FAILURE, LOAD_FAILURE }
 
     private static AsyncOperation<Void> operation(SimulatedAccordCommandStore instance, PreLoadContext ctx, Action action, BooleanSupplier delay)
     {
-        return new SimulatedOperation(instance.store, ctx, action == Action.FAILURE ? SimulatedOperation.Action.FAILURE : SimulatedOperation.Action.SUCCESS)
-        {
-            @Override
-            AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
-            {
-                return new SimulatedLoader(action == SimulatedAsyncOperationTest.Action.LOAD_FAILURE ? SimulatedLoader.Action.FAILURE : SimulatedLoader.Action.SUCCESS, delay.getAsBoolean(), instance.unorderedScheduled);
-            }
-        };
+        return new SimulatedOperation(instance.store, ctx, action == Action.FAILURE ? SimulatedOperation.Action.FAILURE : SimulatedOperation.Action.SUCCESS);
     }
 
     private static class Counter implements BiConsumer<Object, Throwable>
@@ -218,37 +216,45 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
         }
     }
 
-    private static class SimulatedLoader extends AsyncLoader
+    private static class SimulatedLoadFunctionWrapper implements FunctionWrapper
     {
+        final Supplier<Action> actions;
+        final LongSupplier delayNanos;
 
-        enum Action { SUCCESS, FAILURE}
-
-        private final Action action;
-        private boolean delay;
-        private final ScheduledExecutorService executor;
-        SimulatedLoader(Action action, boolean delay, ScheduledExecutorService executor)
+        private SimulatedLoadFunctionWrapper(Supplier<Action> actions, LongSupplier delayNanos)
         {
-            super(null, null, null, null);
-            this.action = action;
-            this.delay = delay;
-            this.executor = executor;
+            this.actions = actions;
+            this.delayNanos = delayNanos;
         }
 
         @Override
-        public boolean load(TxnId primaryTxnId, AsyncOperation.Context context, BiConsumer<Object, Throwable> callback)
+        public <I, O> Function<I, O> wrap(Function<I, O> f)
         {
-            if (delay)
-            {
-                executor.schedule(() -> {
-                    callback.accept(null, action == Action.FAILURE ? new SimulatedFault("Failure loading " + context) : null);
-                }, 1, TimeUnit.SECONDS);
-                delay = false;
-                return false;
-            }
-            if (action == Action.FAILURE)
-                throw new SimulatedFault("Failure loading " + context);
+            return new SimulatedLoadFunction<>(f, actions, delayNanos);
+        }
+    }
 
-            return true;
+    private static class SimulatedLoadFunction<K, V> implements Function<K, V>
+    {
+        private final Function<K, V> load;
+        private final Supplier<Action> actions;
+        private final LongSupplier delaysNanos;
+        SimulatedLoadFunction(Function<K, V> load, Supplier<Action> actions, LongSupplier delaysNanos)
+        {
+            this.load = load;
+            this.actions = actions;
+            this.delaysNanos = delaysNanos;
+        }
+
+        @Override
+        public V apply(K key)
+        {
+            long delayNanos = delaysNanos.getAsLong();
+            if (delayNanos > 0)
+                LockSupport.parkNanos(delayNanos);
+            Action action = actions.get();
+            if (action == Action.SUCCESS) return load.apply(key);
+            throw new SimulatedFault("Failure loading " + key);
         }
     }
 }

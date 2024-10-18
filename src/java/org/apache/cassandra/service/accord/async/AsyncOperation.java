@@ -17,9 +17,16 @@
  */
 package org.apache.cassandra.service.accord.async;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.Future;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -34,33 +41,52 @@ import accord.local.Command;
 import accord.local.CommandStore;
 import accord.local.PreLoadContext;
 import accord.local.SafeCommandStore;
+import accord.local.cfk.CommandsForKey;
+import accord.primitives.AbstractRanges;
+import accord.primitives.AbstractUnseekableKeys;
+import accord.primitives.Range;
+import accord.primitives.Ranges;
 import accord.primitives.TxnId;
 import accord.primitives.Unseekables;
+import accord.utils.IntrusivePriorityHeap;
 import accord.utils.Invariants;
+import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.Cancellable;
 import org.agrona.collections.Object2ObjectHashMap;
-import org.apache.cassandra.config.CassandraRelevantProperties;
+import org.agrona.collections.ObjectHashSet;
+import org.apache.cassandra.service.accord.AccordCachingState;
+import org.apache.cassandra.service.accord.AccordCachingState.Status;
 import org.apache.cassandra.service.accord.AccordCommandStore;
+import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
 import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
-import org.apache.cassandra.service.accord.AccordSafeCommandsForRanges;
+import org.apache.cassandra.service.accord.AccordSafeState;
 import org.apache.cassandra.service.accord.AccordSafeTimestampsForKey;
+import org.apache.cassandra.service.accord.AccordStateCache;
+import org.apache.cassandra.service.accord.CommandsForRanges;
+import org.apache.cassandra.service.accord.CommandsForRangesLoader;
 import org.apache.cassandra.service.accord.SavedCommand;
+import org.apache.cassandra.service.accord.api.AccordRoutingKey;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
 
+import static org.apache.cassandra.config.CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.COMPLETING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FAILED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FINISHED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.INITIALIZED;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.LOADING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.PREPARING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.RUNNING;
+import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_LOAD;
+import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_RUN;
 
-public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements Runnable, Function<SafeCommandStore, R>, Cancellable
+public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node implements Comparable<AsyncOperation<?>>, Runnable, Function<SafeCommandStore, R>, Cancellable
 {
     private static final Logger logger = LoggerFactory.getLogger(AsyncOperation.class);
+    private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
+    private static final boolean SANITY_CHECK = DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED.getBoolean();
 
     private static class LoggingProps
     {
@@ -68,38 +94,60 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         private static final String ASYNC_OPERATION = "async_op";
     }
 
-    static class Context
+    static class ForFunction<R> extends AsyncOperation<R>
     {
-        final Object2ObjectHashMap<TxnId, AccordSafeCommand> commands = new Object2ObjectHashMap<>();
-        final Object2ObjectHashMap<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey = new Object2ObjectHashMap<>();
-        final Object2ObjectHashMap<RoutingKey, AccordSafeCommandsForKey> commandsForKey = new Object2ObjectHashMap<>();
-        @Nullable
-        AccordSafeCommandsForRanges commandsForRanges = null;
+        private final Function<? super SafeCommandStore, R> function;
 
-        void releaseResources(AccordCommandStore commandStore)
+        public ForFunction(AccordCommandStore commandStore, PreLoadContext loadCtx, Function<? super SafeCommandStore, R> function)
         {
-            // TODO (expected): we should destructively iterate to avoid invoking second time in fail; or else read and set to null
-            commands.forEach((k, v) -> commandStore.commandCache().release(v));
-            commands.clear();
-            timestampsForKey.forEach((k, v) -> commandStore.timestampsForKeyCache().release(v));
-            timestampsForKey.clear();
-            commandsForKey.forEach((k, v) -> commandStore.commandsForKeyCache().release(v));
-            commandsForKey.clear();
+            super(commandStore, loadCtx);
+            this.function = function;
         }
 
-        void revertChanges()
+        @Override
+        public R apply(SafeCommandStore commandStore)
         {
-            commands.forEach((k, v) -> v.revert());
-            timestampsForKey.forEach((k, v) -> v.revert());
-            commandsForKey.forEach((k, v) -> v.revert());
-            if (commandsForRanges != null)
-                commandsForRanges.revert();
+            return function.apply(commandStore);
         }
     }
 
-    enum State
+    // TODO (desired): these anonymous ops are somewhat tricky to debug. We may want to at least give them names.
+    static class ForConsumer extends AsyncOperation<Void>
     {
-        INITIALIZED, LOADING, PREPARING, RUNNING, COMPLETING, AWAITING_FLUSH, FINISHED, FAILED;
+        private final Consumer<? super SafeCommandStore> consumer;
+
+        public ForConsumer(AccordCommandStore commandStore, PreLoadContext loadCtx, Consumer<? super SafeCommandStore> consumer)
+        {
+            super(commandStore, loadCtx);
+            this.consumer = consumer;
+        }
+
+        @Override
+        public Void apply(SafeCommandStore commandStore)
+        {
+            consumer.accept(commandStore);
+            return null;
+        }
+    }
+
+    public static <T> AsyncOperation<T> create(CommandStore commandStore, PreLoadContext ctx, Function<? super SafeCommandStore, T> function)
+    {
+        return new ForFunction<>((AccordCommandStore) commandStore, ctx, function);
+    }
+
+    public static AsyncOperation<Void> create(CommandStore commandStore, PreLoadContext ctx, Consumer<? super SafeCommandStore> consumer)
+    {
+        return new ForConsumer((AccordCommandStore) commandStore, ctx, consumer);
+    }
+
+    public enum State
+    {
+        INITIALIZED,
+        WAITING_TO_LOAD, LOADING,
+        WAITING_TO_RUN, RUNNING,
+        COMPLETING,
+        WAITING_TO_FINISH, FINISHED,
+        FAILED;
 
         boolean isComplete()
         {
@@ -110,15 +158,20 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
     private State state = INITIALIZED;
     private final AccordCommandStore commandStore;
     private final PreLoadContext preLoadContext;
-    private final Context context = new Context();
-    private AccordSafeCommandStore safeStore;
-    private final AsyncLoader loader;
     private final String loggingId;
-    private BiConsumer<? super R, Throwable> callback;
 
+    @Nullable Object2ObjectHashMap<TxnId, AccordSafeCommand> commands;
+    @Nullable Object2ObjectHashMap<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey;
+    @Nullable Object2ObjectHashMap<RoutingKey, AccordSafeCommandsForKey> commandsForKey;
+    @Nullable Object2ObjectHashMap<Object, AccordSafeState<?, ?>> loading;
+    // TODO (expected): collection supporting faster deletes but still fast poll (e.g. some ordered collection)
+    @Nullable ArrayDeque<AccordCachingState<?, ?>> waitingToLoad;
+    @Nullable RangeLoader rangeLoader;
+
+    private BiConsumer<? super R, Throwable> callback;
+    int queuePosition;
     private R result;
-    private List<Command> sanityCheck = null;
-    private Future<?> submitted;
+    private List<Command> sanityCheck;
 
     private void setLoggingIds()
     {
@@ -137,7 +190,6 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         this.loggingId = "0x" + Integer.toHexString(System.identityHashCode(this));
         this.commandStore = commandStore;
         this.preLoadContext = preLoadContext;
-        this.loader = createAsyncLoader(commandStore, preLoadContext);
 
         if (logger.isTraceEnabled())
         {
@@ -153,27 +205,295 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         return "AsyncOperation{" + state + "}-" + loggingId;
     }
 
-    AsyncLoader createAsyncLoader(AccordCommandStore commandStore, PreLoadContext preLoadContext)
-    {
-        return new AsyncLoader(commandStore, preLoadContext.txnIds(), preLoadContext.keys(), preLoadContext.keyHistory());
-    }
-
-    private void onLoaded(Object o, Throwable throwable)
-    {
-        if (throwable != null)
-        {
-            logger.error(String.format("Operation %s failed", this), throwable);
-            fail(throwable);
-        }
-        else
-        {
-            run();
-        }
-    }
-
     private void state(State state)
     {
         this.state = state;
+    }
+
+    Unseekables<?> keys()
+    {
+        return preLoadContext.keys();
+    }
+
+    public AsyncChain<R> chain()
+    {
+        return new AsyncChains.Head<>()
+        {
+            @Override
+            protected Cancellable start(BiConsumer<? super R, Throwable> callback)
+            {
+                Invariants.checkState(AsyncOperation.this.callback == null);
+                AsyncOperation.this.callback = callback;
+                commandStore.executor().submit(AsyncOperation.this);
+                return AsyncOperation.this;
+            }
+        };
+    }
+
+    // expects to hold executor lock
+    public void setup()
+    {
+        setupInternal();
+        state(loading == null ? WAITING_TO_RUN : waitingToLoad == null ? LOADING : WAITING_TO_LOAD);
+    }
+
+    private void setupInternal()
+    {
+        for (TxnId txnId : preLoadContext.txnIds())
+            setup(txnId, AsyncOperation::ensureCommands, commandStore.commandCache());
+
+        if (preLoadContext.keys().isEmpty())
+            return;
+
+        switch (preLoadContext.keys().domain())
+        {
+            default: throw new AssertionError("Unhandled Domain: " + preLoadContext.keys().domain());
+            case Key:
+                switch (preLoadContext.keyHistory())
+                {
+                    default: throw new AssertionError("Unhandled KeyHistory: " + preLoadContext.keyHistory());
+                    case NONE:
+                        break;
+
+                    case TIMESTAMPS:
+                        for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
+                            setup(key, AsyncOperation::ensureTimestampsForKey, commandStore.timestampsForKeyCache());
+                        break;
+
+                    case ASYNC:
+                    case RECOVER:
+                    case INCR:
+                    case SYNC:
+                        for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
+                            setup(key, AsyncOperation::ensureCommandsForKey, commandStore.commandsForKeyCache());
+                        break;
+                }
+                break;
+
+            case Range:
+                switch (preLoadContext.keyHistory())
+                {
+                    default: throw new AssertionError("Unhandled KeyHistory: " + preLoadContext.keyHistory());
+                    case NONE:
+                        break;
+
+                    case TIMESTAMPS:
+                        throw new AssertionError("TimestampsForKey unsupported for range transactions");
+
+                    case ASYNC:
+                    case RECOVER:
+                    case INCR:
+                    case SYNC:
+                        rangeLoader = new RangeLoader();
+                }
+                break;
+        }
+    }
+
+    // expects to hold lock
+    private <K, V, S extends AccordSafeState<K, V>> void setup(K k, Function<AsyncOperation<?>, Map<? super K, ? super S>> loaded, AccordStateCache.Instance<K, V, S> cache)
+    {
+        S safeRef = cache.acquire(k);
+        Status status = safeRef.global().status();
+        Map<? super K, ? super S> context;
+        switch (status)
+        {
+            default: throw new IllegalStateException("Unhandled global state: " + status);
+            case WAITING_TO_LOAD:
+            case LOADING:
+                context = ensureLoading();
+                break;
+            case SAVING:
+            case LOADED:
+            case MODIFIED:
+            case FAILED_TO_SAVE:
+                context = loaded.apply(this);
+        }
+
+        Object prev = context.putIfAbsent(k, safeRef);
+        if (prev != null)
+        {
+            noSpamLogger.warn("Context {} contained key {} more than once", context, k);
+            cache.release(safeRef, this);
+        }
+        else if (context == loading)
+        {
+            if (status == Status.WAITING_TO_LOAD)
+            {
+                if (waitingToLoad == null)
+                    waitingToLoad = new ArrayDeque<>();
+                waitingToLoad.add(safeRef.global());
+            }
+            safeRef.global().loadingOrWaiting().add(this);
+            Invariants.checkState(safeRef.global().loadingOrWaiting().waiters().size() == safeRef.global().referenceCount());
+        }
+    }
+
+    // expects to hold lock
+    public void onLoad(AccordCachingState<?, ?> state)
+    {
+        Invariants.checkState(loading != null);
+        AccordSafeState<?, ?> safeRef = loading.remove(state.key());
+        Invariants.checkState(safeRef != null && safeRef.global() == state);
+        if (safeRef.getClass() == AccordSafeCommand.class)
+        {
+            ensureCommands().put((TxnId)state.key(), (AccordSafeCommand) safeRef);
+        }
+        else if (safeRef.getClass() == AccordSafeCommandsForKey.class)
+        {
+            ensureCommandsForKey().put((RoutingKey) state.key(), (AccordSafeCommandsForKey) safeRef);
+        }
+        else
+        {
+            Invariants.checkState (safeRef.getClass() == AccordSafeTimestampsForKey.class);
+            ensureTimestampsForKey().put((RoutingKey) state.key(), (AccordSafeTimestampsForKey) safeRef);
+        }
+        if (loading.isEmpty())
+        {
+            loading = null;
+            state(WAITING_TO_RUN);
+        }
+    }
+
+    // expects to hold lock
+    public boolean onLoading(AccordCachingState<?, ?> state)
+    {
+        Invariants.checkState(waitingToLoad != null);
+        waitingToLoad.remove(state);
+        if (!waitingToLoad.isEmpty())
+            return true;
+
+        waitingToLoad = null;
+        state(loading == null ? WAITING_TO_RUN : LOADING);
+        return false;
+    }
+
+    private Map<TxnId, AccordSafeCommand> ensureCommands()
+    {
+        if (commands == null)
+            commands = new Object2ObjectHashMap<>();
+        return commands;
+    }
+
+    private Map<RoutingKey, AccordSafeTimestampsForKey> ensureTimestampsForKey()
+    {
+        if (timestampsForKey == null)
+            timestampsForKey = new Object2ObjectHashMap<>();
+        return timestampsForKey;
+    }
+
+    private Map<RoutingKey, AccordSafeCommandsForKey> ensureCommandsForKey()
+    {
+        if (commandsForKey == null)
+            commandsForKey = new Object2ObjectHashMap<>();
+        return commandsForKey;
+    }
+
+    private Map<Object, AccordSafeState<?, ?>> ensureLoading()
+    {
+        if (loading == null)
+            loading = new Object2ObjectHashMap<>();
+        return loading;
+    }
+
+    private ArrayDeque<AccordCachingState<?, ?>> ensureWaitingToLoad()
+    {
+        if (waitingToLoad == null)
+            waitingToLoad = new ArrayDeque<>();
+        return waitingToLoad;
+    }
+
+    public AccordCachingState<?, ?> pollWaitingToLoad()
+    {
+        if (waitingToLoad == null)
+            return null;
+
+        AccordCachingState<?, ?> next = waitingToLoad.poll();
+        if (waitingToLoad.isEmpty())
+        {
+            waitingToLoad = null;
+            state(loading == null ? WAITING_TO_RUN : LOADING);
+        }
+        return next;
+    }
+
+    public AccordCachingState<?, ?> peekWaitingToLoad()
+    {
+        return waitingToLoad == null ? null : waitingToLoad.peek();
+    }
+
+    public boolean isWaitingToLoad()
+    {
+        return waitingToLoad != null || (rangeLoader != null && !rangeLoader.started);
+    }
+
+    public boolean isLoading()
+    {
+        return loading != null;
+    }
+
+    // return true iff ready to run
+    protected boolean runInternal()
+    {
+        switch (state)
+        {
+            default: throw new IllegalStateException("Unexpected state " + state);
+            case WAITING_TO_RUN:
+                state(RUNNING);
+
+            case RUNNING:
+                CommandsForRanges commandsForRanges = null;
+                if (rangeLoader != null)
+                {
+                    commandsForRanges = rangeLoader.finish();
+                    rangeLoader = null;
+                }
+                AccordSafeCommandStore safeStore = commandStore.beginOperation(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges);
+                result = apply(safeStore);
+
+                // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
+                List<SavedCommand.DiffWriter> diffs = null;
+                if (commands != null)
+                {
+                    for (AccordSafeCommand safeCommand : commands.values())
+                    {
+                        SavedCommand.DiffWriter diff = safeCommand.diff();
+                        if (diff == null)
+                            continue;
+
+                        if (diffs == null)
+                            diffs = new ArrayList<>(commands.size());
+                        diffs.add(diff);
+
+                        maybeSanityCheck(safeCommand);
+                    }
+                }
+
+                boolean flushed = false;
+                if (diffs != null || safeStore.fieldUpdates() != null)
+                {
+                    Runnable onFlush = () -> finish(result, null);
+                    if (safeStore.fieldUpdates() != null)
+                        commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
+                    if (diffs != null)
+                        save(diffs, onFlush);
+                    flushed = true;
+                }
+
+                commandStore.completeOperation(safeStore);
+                releaseResources(commandStore);
+                state(COMPLETING);
+                if (flushed)
+                    return false;
+
+            case COMPLETING:
+                finish(result, null);
+            case FINISHED:
+            case FAILED:
+                break;
+        }
+
+        return false;
     }
 
     private void finish(R result, Throwable failure)
@@ -189,13 +509,8 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         }
     }
 
-    @SuppressWarnings("unchecked")
-    Unseekables<?> keys()
-    {
-        return preLoadContext.keys();
-    }
-
-    private void fail(Throwable throwable)
+    // expects to hold lock
+    public void fail(Throwable throwable)
     {
         commandStore.agent().onUncaughtException(throwable);
         commandStore.checkInStoreThread();
@@ -211,11 +526,12 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
                 case COMPLETING:
                     break; // everything's cleaned up, invoke callback
                 case RUNNING:
-                    context.revertChanges();
-                case PREPARING:
+                    revertChanges();
                     commandStore.abortCurrentOperation();
+                case WAITING_TO_RUN:
                 case LOADING:
-                    context.releaseResources(commandStore);
+                case WAITING_TO_LOAD:
+                    releaseResources(commandStore);
                 case INITIALIZED:
                     break; // nothing to clean up, call callback
             }
@@ -231,76 +547,21 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         finish(null, throwable);
     }
 
-    // return true iff ready to run
-    protected boolean runInternal(boolean loadOnly)
+    private void maybeSanityCheck(AccordSafeCommand safeCommand)
     {
-        switch (state)
+        if (SANITY_CHECK)
         {
-            default: throw new IllegalStateException("Unexpected state " + state);
-            case INITIALIZED:
-                state(LOADING);
-            case LOADING:
-                if (!loader.load(preLoadContext.primaryTxnId(), context, this::onLoaded))
-                    return false;
-                state(PREPARING);
-                if (loadOnly)
-                    return true;
-            case PREPARING:
-                safeStore = commandStore.beginOperation(preLoadContext, context.commands, context.timestampsForKey, context.commandsForKey, context.commandsForRanges);
-                state(RUNNING);
-            case RUNNING:
-
-                result = apply(safeStore);
-                // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
-                List<SavedCommand.DiffWriter> diffs = null;
-                for (AccordSafeCommand commandState : context.commands.values())
-                {
-                    SavedCommand.DiffWriter diff = commandState.diff();
-                    if (diff == null)
-                        continue;
-                    if (diffs == null)
-                        diffs = new ArrayList<>(context.commands.size());
-                    diffs.add(diff);
-                    if (CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED.getBoolean())
-                    {
-                        if (sanityCheck == null)
-                            sanityCheck = new ArrayList<>(context.commands.size());
-                        sanityCheck.add(commandState.current());
-                    }
-                }
-
-                boolean flushed = false;
-                if (diffs != null || safeStore.fieldUpdates() != null)
-                {
-                    Runnable onFlush = () -> finish(result, null);
-                    if (safeStore.fieldUpdates() != null)
-                        commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
-                    if (diffs != null)
-                        appendCommands(diffs, onFlush);
-                    flushed = true;
-                }
-
-                commandStore.completeOperation(safeStore);
-                context.releaseResources(commandStore);
-                state(COMPLETING);
-                if (flushed)
-                    return false;
-
-            case COMPLETING:
-                finish(result, null);
-            case FINISHED:
-            case FAILED:
-                break;
+            if (sanityCheck == null)
+                sanityCheck = new ArrayList<>(commands.size());
+            sanityCheck.add(safeCommand.current());
         }
-
-        return false;
     }
 
-    private void appendCommands(List<SavedCommand.DiffWriter> diffs, Runnable onFlush)
+    private void save(List<SavedCommand.DiffWriter> diffs, Runnable onFlush)
     {
         if (sanityCheck != null)
         {
-            Invariants.checkState(CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED.getBoolean());
+            Invariants.checkState(SANITY_CHECK);
             Condition condition = Condition.newOneTimeCondition();
             this.commandStore.appendCommands(diffs, condition::signal);
             condition.awaitUninterruptibly();
@@ -327,7 +588,7 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
             commandStore.setCurrentOperation(this);
             try
             {
-                runInternal(false);
+                runInternal();
             }
             catch (Throwable t)
             {
@@ -346,79 +607,210 @@ public abstract class AsyncOperation<R> extends AsyncChains.Head<R> implements R
         }
     }
 
-    private boolean preRun()
+    public RangeLoader rangeLoader()
     {
-        commandStore.checkInStoreThread();
-        try
-        {
-            return runInternal(true);
-        }
-        catch (Throwable t)
-        {
-            logger.error("Operation {} failed", this, t);
-            fail(t);
-            return false;
-        }
+        return rangeLoader;
     }
 
-    @Override
-    public Cancellable start(BiConsumer<? super R, Throwable> callback)
+    public boolean hasRanges()
     {
-        Invariants.checkState(this.callback == null);
-        this.callback = callback;
-        if (!commandStore.inStore() || preRun())
-            commandStore.executor().submit(this);
-        return this;
+        return rangeLoader != null;
     }
 
     @Override
     public void cancel()
     {
+        commandStore.executor().cancel(this);
     }
 
-    static class ForFunction<R> extends AsyncOperation<R>
+    public void realCancel()
     {
-        private final Function<? super SafeCommandStore, R> function;
+        Invariants.checkState(state.compareTo(RUNNING) < 0);
+        state = FAILED;
+        releaseResources(commandStore);
+    }
 
-        public ForFunction(AccordCommandStore commandStore, PreLoadContext loadCtx, Function<? super SafeCommandStore, R> function)
+    public State state()
+    {
+        return state;
+    }
+
+    @Override
+    public int compareTo(AsyncOperation<?> o)
+    {
+        return Integer.compare(queuePosition, o.queuePosition);
+    }
+
+    public void unsafeSetQueuePosition(int newQueuePosition)
+    {
+        this.queuePosition = newQueuePosition;
+    }
+
+    void releaseResources(AccordCommandStore commandStore)
+    {
+        // TODO (expected): we should destructively iterate to avoid invoking second time in fail; or else read and set to null
+        if (commands != null)
         {
-            super(commandStore, loadCtx);
-            this.function = function;
+            commands.forEach((k, v) -> commandStore.commandCache().release(v, this));
+            commands.clear();
+            commands = null;
         }
+        if (timestampsForKey != null)
+        {
+            timestampsForKey.forEach((k, v) -> commandStore.timestampsForKeyCache().release(v, this));
+            timestampsForKey.clear();
+            timestampsForKey = null;
+        }
+        if (commandsForKey != null)
+        {
+            commandsForKey.forEach((k, v) -> commandStore.commandsForKeyCache().release(v, this));
+            commandsForKey.clear();
+            commandsForKey = null;
+        }
+        if (loading != null)
+        {
+            loading.forEach((k, v) -> commandStore.cache().release(v, this));
+            loading.clear();
+            loading = null;
+        }
+        waitingToLoad = null;
+    }
+
+    void revertChanges()
+    {
+        if (commands != null)
+            commands.forEach((k, v) -> v.revert());
+        if (timestampsForKey != null)
+            timestampsForKey.forEach((k, v) -> v.revert());
+        if (commandsForKey != null)
+            commandsForKey.forEach((k, v) -> v.revert());
+    }
+
+    public class RangeLoader implements Runnable
+    {
+        class KeyWatcher implements AccordStateCache.Listener<RoutingKey, CommandsForKey>
+        {
+            @Override
+            public void onAdd(AccordCachingState<RoutingKey, CommandsForKey> state)
+            {
+                if (ranges.contains(state.key()))
+                    reference(state);
+            }
+        }
+
+        class CommandWatcher implements AccordStateCache.Listener<TxnId, Command>
+        {
+            @Override
+            public void onUpdate(AccordCachingState<TxnId, Command> state)
+            {
+                CommandsForRangesLoader.Summary summary = summaryLoader.from(state);
+                if (summary != null)
+                    summaries.put(summary.txnId, summary);
+            }
+        }
+
+        final ConcurrentHashMap<TxnId, CommandsForRangesLoader.Summary> summaries = new ConcurrentHashMap<>();
+        // TODO (expected): produce key summaries to avoid locking all in memory
+        final Set<AccordRoutingKey.TokenKey> intersectingKeys = new ObjectHashSet<>();
+        final KeyWatcher keyWatcher = new KeyWatcher();
+        final CommandWatcher commandWatcher = new CommandWatcher();
+        final Ranges ranges = ((AbstractRanges) preLoadContext.keys()).toRanges();
+
+        CommandsForRangesLoader.Loader summaryLoader;
+        boolean started, scanned;
 
         @Override
-        public R apply(SafeCommandStore commandStore)
+        public void run()
         {
-            return function.apply(commandStore);
+            try
+            {
+                for (Range range : ranges)
+                {
+                    AccordKeyspace.findAllKeysBetween(commandStore.id(),
+                                                      (AccordRoutingKey) range.start(), range.startInclusive(),
+                                                      (AccordRoutingKey) range.end(), range.endInclusive(),
+                                                      intersectingKeys::add);
+                }
+
+                Collection<TxnId> txnIds = summaryLoader.intersects();
+                for (TxnId txnId : txnIds)
+                {
+                    if (summaries.containsKey(txnId))
+                        continue;
+
+                    summaries.putIfAbsent(txnId, summaryLoader.load(txnId));
+                }
+            }
+            catch (Throwable t)
+            {
+                commandStore.executor().onScannedRanges(AsyncOperation.this, t);
+                throw t;
+            }
+            commandStore.executor().onScannedRanges(AsyncOperation.this, null);
+        }
+
+        private void reference(AccordCachingState<RoutingKey, CommandsForKey> state)
+        {
+            switch (state.status())
+            {
+                default: throw new AssertionError("Unhandled Status: " + state.status());
+                case WAITING_TO_LOAD:
+                case LOADING:
+                    if (loading != null && loading.containsKey(state.key()))
+                        return;
+                    ensureLoading().put(state.key(), commandStore.commandsForKeyCache().acquire(state));
+                    if (state.status() == Status.WAITING_TO_LOAD)
+                        ensureWaitingToLoad().add(state);
+                    state.loadingOrWaiting().add(AsyncOperation.this);
+                    return;
+
+                case MODIFIED:
+                case SAVING:
+                case LOADED:
+                    if (commandsForKey != null && commandsForKey.containsKey(state.key()))
+                        return;
+                    ensureCommandsForKey().putIfAbsent(state.key(), commandStore.commandsForKeyCache().acquire(state));
+            }
+        }
+
+        public boolean hasStarted()
+        {
+            return started;
+        }
+
+        public void start(Executor executor)
+        {
+            Invariants.checkState(!started);
+            started = true;
+
+            for (RoutingKey key : commandStore.commandsForKeyCache().keySet())
+            {
+                if (ranges.contains(key))
+                    intersectingKeys.add((AccordRoutingKey.TokenKey) key);
+            }
+
+            summaryLoader = commandStore.diskCommandsForRanges().loader(preLoadContext.primaryTxnId(), preLoadContext.keyHistory(), ranges);
+            summaryLoader.forEachInCache(summary -> summaries.put(summary.txnId, summary));
+            commandStore.commandsForKeyCache().register(keyWatcher);
+            commandStore.commandCache().register(commandWatcher);
+            executor.execute(this);
+        }
+
+        public void scanned()
+        {
+            scanned = true;
+            if (loading == null)
+                state(WAITING_TO_RUN);
+            else if (waitingToLoad == null)
+                state(LOADING);
+        }
+
+        CommandsForRanges finish()
+        {
+            commandStore.commandsForKeyCache().unregister(keyWatcher);
+            commandStore.commandCache().unregister(commandWatcher);
+            return CommandsForRanges.create(ranges, new TreeMap<>(summaries));
         }
     }
 
-    public static <T> AsyncOperation<T> create(CommandStore commandStore, PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
-    {
-        return new ForFunction<>((AccordCommandStore) commandStore, loadCtx, function);
-    }
-
-    // TODO (desired): these anonymous ops are somewhat tricky to debug. We may want to at least give them names.
-    static class ForConsumer extends AsyncOperation<Void>
-    {
-        private final Consumer<? super SafeCommandStore> consumer;
-
-        public ForConsumer(AccordCommandStore commandStore, PreLoadContext loadCtx, Consumer<? super SafeCommandStore> consumer)
-        {
-            super(commandStore, loadCtx);
-            this.consumer = consumer;
-        }
-
-        @Override
-        public Void apply(SafeCommandStore commandStore)
-        {
-            consumer.accept(commandStore);
-            return null;
-        }
-    }
-
-    public static AsyncOperation<Void> create(CommandStore commandStore, PreLoadContext loadCtx, Consumer<? super SafeCommandStore> consumer)
-    {
-        return new ForConsumer((AccordCommandStore) commandStore, loadCtx, consumer);
-    }
 }
