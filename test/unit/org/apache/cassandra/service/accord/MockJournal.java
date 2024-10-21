@@ -167,7 +167,8 @@ public class MockJournal implements IJournal
         if (fieldUpdates.newRangesForEpoch != null)
             updates.rangesForEpochAccumulator.update(fieldUpdates.newRangesForEpoch);
 
-        onFlush.run();
+        if (onFlush != null)
+            onFlush.run();
     }
 
     /**
