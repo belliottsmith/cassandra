@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -357,6 +358,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
     {
         if (Thread.interrupted())
             failures.add(new InterruptedException());
+        failures.removeIf(f -> f instanceof CancellationException);
         if (failures.isEmpty()) return;
         AssertionError error = new AssertionError("Unexpected exceptions found");
         failures.forEach(error::addSuppressed);
