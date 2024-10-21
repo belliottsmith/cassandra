@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import org.junit.Test;
 
+import com.datastax.driver.core.*;
 import com.datastax.driver.core.ResultSet;
 
 import static org.junit.Assert.assertEquals;

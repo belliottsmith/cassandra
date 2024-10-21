@@ -24,6 +24,7 @@ import java.util.UUID;
 
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
+import org.junit.*;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.ColumnIdentifier;

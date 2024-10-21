@@ -31,6 +31,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.datastax.driver.core.*;
 import io.netty.buffer.ByteBuf;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.service.NativeTransportService;

@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
 import com.google.common.util.concurrent.FutureCallback;
 import org.apache.cassandra.distributed.api.*;
 import org.apache.cassandra.distributed.test.accord.AccordTestBase;
+import org.junit.*;
 
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;

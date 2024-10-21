@@ -23,6 +23,7 @@ package org.apache.cassandra.concurrent;
 
 import org.apache.cassandra.Util;
 import org.apache.cassandra.utils.concurrent.WaitQueue;
+import org.junit.*;
 
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;

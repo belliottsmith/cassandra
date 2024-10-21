@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 
 import com.google.common.collect.Iterators;
+import org.junit.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;

@@ -27,8 +27,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
+import com.datastax.driver.core.*;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.stress.generate.*;
+import org.apache.cassandra.stress.generate.Row;
 import org.apache.cassandra.stress.operations.PartitionOperation;
 import org.apache.cassandra.stress.report.Timer;
 import org.apache.cassandra.stress.settings.StressSettings;

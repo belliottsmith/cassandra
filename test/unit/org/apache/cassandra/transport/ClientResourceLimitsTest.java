@@ -29,6 +29,7 @@ import java.util.function.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.Ints;
 import org.apache.cassandra.service.StorageService;
+import org.junit.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLTester;

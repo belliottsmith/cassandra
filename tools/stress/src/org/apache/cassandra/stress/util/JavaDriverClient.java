@@ -29,6 +29,7 @@ import javax.net.ssl.SSLEngine;
 
 import com.google.common.net.HostAndPort;
 
+import com.datastax.driver.core.*;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.LoadBalancingPolicy;
 import com.datastax.driver.core.policies.TokenAwarePolicy;
