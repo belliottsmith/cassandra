@@ -58,6 +58,7 @@ import org.agrona.collections.ObjectHashSet;
 import org.apache.cassandra.service.accord.AccordCachingState;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
 import org.apache.cassandra.service.accord.AccordCommandStore;
+import org.apache.cassandra.service.accord.AccordCommandStoreExecutor;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordSafeCommand;
 import org.apache.cassandra.service.accord.AccordSafeCommandStore;
@@ -81,8 +82,9 @@ import static org.apache.cassandra.service.accord.async.AsyncOperation.State.LOA
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.RUNNING;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_LOAD;
 import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_RUN;
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
-public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node implements Comparable<AsyncOperation<?>>, Runnable, Function<SafeCommandStore, R>, Cancellable
+public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Operation implements Runnable, Function<SafeCommandStore, R>, Cancellable
 {
     private static final Logger logger = LoggerFactory.getLogger(AsyncOperation.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
@@ -169,9 +171,9 @@ public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node imple
     @Nullable RangeLoader rangeLoader;
 
     private BiConsumer<? super R, Throwable> callback;
-    int queuePosition;
     private R result;
     private List<Command> sanityCheck;
+    public long createdAt = nanoTime(), loadedAt, runQueuedAt, runAt, completedAt;
 
     private void setLoggingIds()
     {
@@ -208,6 +210,15 @@ public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node imple
     private void state(State state)
     {
         this.state = state;
+        if (state == WAITING_TO_RUN) loadedAt = nanoTime();
+        else if (state == RUNNING) runAt = nanoTime();
+        else if (state == FINISHED) completedAt = nanoTime();
+    }
+
+    // TODO (expected): avoid this in the common case, or use CAS to guard this final update
+    private synchronized void synchronizedState(State state)
+    {
+        state(state);
     }
 
     Unseekables<?> keys()
@@ -482,7 +493,7 @@ public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node imple
 
                 commandStore.completeOperation(safeStore);
                 releaseResources(commandStore);
-                state(COMPLETING);
+                synchronizedState(COMPLETING);
                 if (flushed)
                     return false;
 
@@ -505,7 +516,7 @@ public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node imple
         }
         finally
         {
-            state(failure == null ? FINISHED : FAILED);
+            synchronizedState(failure == null ? FINISHED : FAILED);
         }
     }
 
@@ -633,17 +644,6 @@ public abstract class AsyncOperation<R> extends IntrusivePriorityHeap.Node imple
     public State state()
     {
         return state;
-    }
-
-    @Override
-    public int compareTo(AsyncOperation<?> o)
-    {
-        return Integer.compare(queuePosition, o.queuePosition);
-    }
-
-    public void unsafeSetQueuePosition(int newQueuePosition)
-    {
-        this.queuePosition = newQueuePosition;
     }
 
     void releaseResources(AccordCommandStore commandStore)

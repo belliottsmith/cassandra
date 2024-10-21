@@ -206,7 +206,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
                                             }),
                                             updateHolder,
                                             journal,
-                                            new AccordCommandStoreExecutor(new AccordStateCacheMetrics("test"), executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']'), agent));
+                                            new AccordCommandStoreExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), agent));
 
         this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);

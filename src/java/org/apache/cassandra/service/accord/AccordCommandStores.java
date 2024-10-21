@@ -77,7 +77,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
             for (int id = 0; id < executors.length; id++)
             {
                 AccordStateCacheMetrics metrics = new AccordStateCacheMetrics(ACCORD_STATE_CACHE);
-                executors[id] = new AccordCommandStoreExecutor(metrics, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + id + ']'), agent);
+                executors[id] = new AccordCommandStoreExecutor(CommandStore.class.getSimpleName() + '[' + id + ']', metrics, agent);
             }
 
             return new AccordCommandStores(time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory, journal, executors);

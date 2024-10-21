@@ -428,7 +428,7 @@ public class AccordTestUtils
                                                            }),
                                                            holder,
                                                            journal,
-                                                           new AccordCommandStoreExecutor(new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, executorFactory().sequential(CommandStore.class.getSimpleName() + '[' + 0 + ']'), agent));
+                                                           new AccordCommandStoreExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, agent));
         holder.set(result);
 
         // TODO: CompactionAccordIteratorsTest relies on this
