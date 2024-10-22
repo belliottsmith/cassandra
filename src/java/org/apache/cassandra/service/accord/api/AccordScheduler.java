@@ -93,7 +93,7 @@ public class AccordScheduler implements Scheduler, Shutdownable
     @Override
     public void shutdown()
     {
-        scheduledExecutor.shutdown();
+        scheduledExecutor.shutdownNow();
     }
 
     @Override

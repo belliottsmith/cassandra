@@ -142,16 +142,17 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         FINISHED(RUNNING, COMPLETING, WAITING_TO_FINISH),
         FAILED(WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING);
 
-        final EnumSet<State> permittedFrom;
+        private final State[] permittedFroms;
+        private EnumSet<State> permittedFrom;
 
         State()
         {
-            this.permittedFrom = EnumSet.noneOf(State.class);
+            this.permittedFroms = new State[0];
         }
 
-        State(State permittedFrom, State ... permittedFroms)
+        State(State ... permittedFroms)
         {
-            this.permittedFrom = EnumSet.of(permittedFrom, permittedFroms);
+            this.permittedFroms = permittedFroms;
         }
 
         boolean isComplete()
@@ -472,15 +473,11 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         return loading != null;
     }
 
-    // return true iff ready to run
-    protected boolean runInternal()
+    protected void runInternal()
     {
         switch (state)
         {
             default: throw new IllegalStateException("Unexpected state " + state);
-            case WAITING_TO_RUN:
-                state(RUNNING);
-
             case RUNNING:
                 if (commands != null)
                     commands.values().forEach(AccordSafeState::preExecute);
@@ -524,7 +521,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 commandStore.completeOperation(safeStore);
                 synchronizedState(RUNNING, COMPLETING);
                 if (flushed)
-                    return false;
+                    return;
 
             case COMPLETING:
                 finish(result, null);
@@ -532,8 +529,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             case FAILED:
                 break;
         }
-
-        return false;
     }
 
     private void finish(R result, Throwable failure)
@@ -644,11 +639,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             try
             {
                 runInternal();
-            }
-            catch (Throwable t)
-            {
-                logger.error("Operation {} failed", this, t);
-                fail(t);
             }
             finally
             {

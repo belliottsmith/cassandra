@@ -51,6 +51,7 @@ import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFac
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
+import static org.apache.cassandra.concurrent.Interruptible.State.NORMAL;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
 import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -120,13 +121,16 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     if (op != null)
                     {
                         --tasks;
-                        try { op.run(); }
+                        try { op.preRunExclusive(); op.run(); }
                         catch (Throwable t) { op.fail(t); }
                         finally { op.cleanupExclusive(); }
                     }
                     else
                     {
                         running = 0;
+                        if (state != NORMAL)
+                            return;
+
                         hasWork.await();
                     }
                 }
@@ -160,10 +164,13 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         op = waitingToRun.poll();
                         if (op != null)
                             break;
+                        if (state != NORMAL)
+                            return;
                         hasWork.await();
                     }
                     --tasks;
                     ++running;
+                    op.preRunExclusive();
                 }
                 finally
                 {
@@ -263,7 +270,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         return;
 
                     --tasks;
-                    try { op.run(); }
+                    try { op.preRunExclusive(); op.run(); }
                     catch (Throwable t) { op.fail(t); }
                     finally { op.cleanupExclusive(); }
                 }
@@ -690,6 +697,10 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             {
                 agent.onUncaughtException(t);
             }
+            finally
+            {
+                op.cleanupExclusive();
+            }
         }
         else if (op.state() != FAILED)
         {
@@ -728,6 +739,10 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     catch (Throwable t)
                     {
                         agent.onUncaughtException(t);
+                    }
+                    finally
+                    {
+                        op.cleanupExclusive();
                     }
 
                     removeFromQueue(queue, op);
