@@ -684,7 +684,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         agent.onUncaughtException(t);
                     }
 
-                    queue.remove(op);
+                    removeFromQueue(queue, op);
                     --tasks;
                 }
                 cache().failedToLoad(loaded);
