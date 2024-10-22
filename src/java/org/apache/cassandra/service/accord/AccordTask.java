@@ -20,6 +20,7 @@ package org.apache.cassandra.service.accord;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,6 +56,7 @@ import accord.utils.async.Cancellable;
 import org.agrona.collections.Object2ObjectHashMap;
 import org.agrona.collections.ObjectHashSet;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
+import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -130,12 +132,27 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     public enum State
     {
-        INITIALIZED,
-        WAITING_TO_LOAD, LOADING,
-        WAITING_TO_RUN, RUNNING,
-        COMPLETING,
-        WAITING_TO_FINISH, FINISHED,
-        FAILED;
+        INITIALIZED(),
+        WAITING_TO_LOAD(INITIALIZED),
+        LOADING(INITIALIZED, WAITING_TO_LOAD),
+        WAITING_TO_RUN(INITIALIZED, WAITING_TO_LOAD, LOADING),
+        RUNNING(WAITING_TO_RUN),
+        COMPLETING(RUNNING),
+        WAITING_TO_FINISH(RUNNING),
+        FINISHED(RUNNING, COMPLETING, WAITING_TO_FINISH),
+        FAILED(WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING);
+
+        final EnumSet<State> permittedFrom;
+
+        State()
+        {
+            this.permittedFrom = EnumSet.noneOf(State.class);
+        }
+
+        State(State permittedFrom, State ... permittedFroms)
+        {
+            this.permittedFrom = EnumSet.of(permittedFrom, permittedFroms);
+        }
 
         boolean isComplete()
         {
@@ -155,6 +172,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     // TODO (expected): collection supporting faster deletes but still fast poll (e.g. some ordered collection)
     @Nullable ArrayDeque<AccordCachingState<?, ?>> waitingToLoad;
     @Nullable RangeLoader rangeLoader;
+    @Nullable CommandsForRanges commandsForRanges;
 
     private BiConsumer<? super R, Throwable> callback;
     private R result;
@@ -233,17 +251,16 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         };
     }
 
-    // expects to hold executor lock
-    public void setup()
+    public void setupExclusive()
     {
-        setupInternal();
+        setupInternal(commandStore.cachesExclusive());
         state(loading == null && rangeLoader == null ? WAITING_TO_RUN : waitingToLoad == null ? LOADING : WAITING_TO_LOAD);
     }
 
-    private void setupInternal()
+    private void setupInternal(Caches caches)
     {
         for (TxnId txnId : preLoadContext.txnIds())
-            setup(txnId, AccordTask::ensureCommands, commandStore.commandCache());
+            setupExclusive(txnId, AccordTask::ensureCommands, caches.commands());
 
         if (preLoadContext.keys().isEmpty())
             return;
@@ -260,7 +277,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
                     case TIMESTAMPS:
                         for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
-                            setup(key, AccordTask::ensureTimestampsForKey, commandStore.timestampsForKeyCache());
+                            setupExclusive(key, AccordTask::ensureTimestampsForKey, caches.timestampsForKeys());
                         break;
 
                     case ASYNC:
@@ -268,7 +285,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                     case INCR:
                     case SYNC:
                         for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
-                            setup(key, AccordTask::ensureCommandsForKey, commandStore.commandsForKeyCache());
+                            setupExclusive(key, AccordTask::ensureCommandsForKey, caches.commandsForKeys());
                         break;
                 }
                 break;
@@ -287,14 +304,14 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                     case RECOVER:
                     case INCR:
                     case SYNC:
-                        rangeLoader = new RangeLoader();
+                        rangeLoader = new RangeLoader(caches.commandsForKeys());
                 }
                 break;
         }
     }
 
     // expects to hold lock
-    private <K, V, S extends AccordSafeState<K, V>> void setup(K k, Function<AccordTask<?>, Map<? super K, ? super S>> loaded, AccordStateCache.Instance<K, V, S> cache)
+    private <K, V, S extends AccordSafeState<K, V>> void setupExclusive(K k, Function<AccordTask<?>, Map<? super K, ? super S>> loaded, AccordStateCache.Instance<K, V, S> cache)
     {
         S safeRef = cache.acquire(k);
         Status status = safeRef.global().status();
@@ -465,13 +482,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 state(RUNNING);
 
             case RUNNING:
-                CommandsForRanges commandsForRanges = null;
-                if (rangeLoader != null)
-                {
-                    commandsForRanges = rangeLoader.finish();
-                    rangeLoader = null;
-                }
-
                 if (commands != null)
                     commands.values().forEach(AccordSafeState::preExecute);
                 if (commandsForKey != null)
@@ -540,12 +550,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     }
 
     // expects to hold cache lock
-    protected void cleanup()
-    {
-        releaseResources(commandStore);
-    }
-
-    // expects to hold cache lock
     public void fail(Throwable throwable)
     {
         commandStore.agent().onUncaughtException(throwable);
@@ -567,7 +571,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 case WAITING_TO_RUN:
                 case LOADING:
                 case WAITING_TO_LOAD:
-                    releaseResources(commandStore);
                 case INITIALIZED:
                     break; // nothing to clean up, call callback
             }
@@ -581,6 +584,11 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
 
         finish(null, throwable);
+    }
+
+    protected void cleanupExclusive()
+    {
+        releaseResources(commandStore.cachesExclusive());
     }
 
     private void maybeSanityCheck(AccordSafeCommand safeCommand)
@@ -610,6 +618,17 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         else
         {
             this.commandStore.appendCommands(diffs, onFlush);
+        }
+    }
+
+    @Override
+    protected void preRunExclusive()
+    {
+        state(RUNNING);
+        if (rangeLoader != null)
+        {
+            commandsForRanges = rangeLoader.finish(commandStore.cachesExclusive());
+            rangeLoader = null;
         }
     }
 
@@ -659,11 +678,11 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         commandStore.executor().cancel(this);
     }
 
-    public void realCancel()
+    public void cancelExclusive()
     {
         Invariants.checkState(state.compareTo(RUNNING) < 0);
         state = FAILED;
-        releaseResources(commandStore);
+        releaseResources(commandStore.cachesExclusive());
     }
 
     public State state()
@@ -671,30 +690,30 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         return state;
     }
 
-    void releaseResources(AccordCommandStore commandStore)
+    void releaseResources(Caches caches)
     {
         // TODO (expected): we should destructively iterate to avoid invoking second time in fail; or else read and set to null
         if (commands != null)
         {
-            commands.forEach((k, v) -> commandStore.commandCache().release(v, this));
+            commands.forEach((k, v) -> caches.commands().release(v, this));
             commands.clear();
             commands = null;
         }
         if (timestampsForKey != null)
         {
-            timestampsForKey.forEach((k, v) -> commandStore.timestampsForKeyCache().release(v, this));
+            timestampsForKey.forEach((k, v) -> caches.timestampsForKeys().release(v, this));
             timestampsForKey.clear();
             timestampsForKey = null;
         }
         if (commandsForKey != null)
         {
-            commandsForKey.forEach((k, v) -> commandStore.commandsForKeyCache().release(v, this));
+            commandsForKey.forEach((k, v) -> caches.commandsForKeys().release(v, this));
             commandsForKey.clear();
             commandsForKey = null;
         }
         if (loading != null)
         {
-            loading.forEach((k, v) -> commandStore.cache().release(v, this));
+            loading.forEach((k, v) -> caches.global().release(v, this));
             loading.clear();
             loading = null;
         }
@@ -740,6 +759,12 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         final KeyWatcher keyWatcher = new KeyWatcher();
         final CommandWatcher commandWatcher = new CommandWatcher();
         final Ranges ranges = ((AbstractRanges) preLoadContext.keys()).toRanges();
+        final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache;
+
+        public RangeLoader(AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache)
+        {
+            this.commandsForKeyCache = commandsForKeyCache;
+        }
 
         CommandsForRangesLoader.Loader summaryLoader;
         boolean started, scanned;
@@ -783,7 +808,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 case LOADING:
                     if (loading != null && loading.containsKey(state.key()))
                         return;
-                    ensureLoading().put(state.key(), commandStore.commandsForKeyCache().acquire(state));
+                    ensureLoading().put(state.key(), commandsForKeyCache.acquire(state));
                     if (state.status() == Status.WAITING_TO_LOAD)
                         ensureWaitingToLoad().add(state);
                     state.loadingOrWaiting().add(AccordTask.this);
@@ -795,7 +820,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 case FAILED_TO_SAVE:
                     if (commandsForKey != null && commandsForKey.containsKey(state.key()))
                         return;
-                    ensureCommandsForKey().putIfAbsent(state.key(), commandStore.commandsForKeyCache().acquire(state));
+                    ensureCommandsForKey().putIfAbsent(state.key(), commandsForKeyCache.acquire(state));
             }
         }
 
@@ -806,19 +831,20 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
         public void start(Executor executor)
         {
+            Caches caches = commandStore.cachesExclusive();
             Invariants.checkState(!started);
             started = true;
 
-            for (RoutingKey key : commandStore.commandsForKeyCache().keySet())
+            for (RoutingKey key : caches.commandsForKeys().keySet())
             {
                 if (ranges.contains(key))
                     intersectingKeys.add((AccordRoutingKey.TokenKey) key);
             }
 
             summaryLoader = commandStore.diskCommandsForRanges().loader(preLoadContext.primaryTxnId(), preLoadContext.keyHistory(), ranges);
-            summaryLoader.forEachInCache(summary -> summaries.put(summary.txnId, summary));
-            commandStore.commandsForKeyCache().register(keyWatcher);
-            commandStore.commandCache().register(commandWatcher);
+            summaryLoader.forEachInCache(summary -> summaries.put(summary.txnId, summary), caches);
+            caches.commandsForKeys().register(keyWatcher);
+            caches.commands().register(commandWatcher);
             executor.execute(this);
         }
 
@@ -832,10 +858,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 state(LOADING);
         }
 
-        CommandsForRanges finish()
+        CommandsForRanges finish(Caches caches)
         {
-            commandStore.commandsForKeyCache().unregister(keyWatcher);
-            commandStore.commandCache().unregister(commandWatcher);
+            caches.commandsForKeys().unregister(keyWatcher);
+            caches.commands().unregister(commandWatcher);
             return CommandsForRanges.create(ranges, new TreeMap<>(summaries));
         }
     }

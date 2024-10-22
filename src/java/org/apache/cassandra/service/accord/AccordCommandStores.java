@@ -44,7 +44,7 @@ import org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExec
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
-import static org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExecutor.Mode.RUN_WITH_LOCK;
+import static org.apache.cassandra.service.accord.AccordExecutor.LockLoopAccordExecutor.Mode.RUN_WITH_LOCK;
 
 public class AccordCommandStores extends CommandStores implements CacheSize
 {

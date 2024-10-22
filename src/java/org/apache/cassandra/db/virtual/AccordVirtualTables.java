@@ -58,6 +58,7 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordCommandStore;
+import org.apache.cassandra.service.accord.AccordCommandStore.ExclusiveCaches;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordStateCache;
@@ -112,9 +113,13 @@ public class AccordVirtualTables
             AsyncChain<List<Map<String, AccordStateCache.ImmutableStats>>> statsByStoreChain = stores.map(store -> {
                 Map<String, AccordStateCache.ImmutableStats> snapshots = new HashMap<>(3);
                 AccordCommandStore accordStore = (AccordCommandStore) store.commandStore();
-                snapshots.put(AccordKeyspace.COMMANDS, accordStore.commandCache().statsSnapshot());
-                snapshots.put(AccordKeyspace.COMMANDS_FOR_KEY, accordStore.commandsForKeyCache().statsSnapshot());
-                snapshots.put(AccordKeyspace.TIMESTAMPS_FOR_KEY, accordStore.timestampsForKeyCache().statsSnapshot());
+                try (ExclusiveCaches caches = accordStore.lockCaches())
+                {
+                    snapshots.put(AccordKeyspace.COMMANDS, caches.commands().statsSnapshot());
+                    snapshots.put(AccordKeyspace.COMMANDS_FOR_KEY, caches.commandsForKeys().statsSnapshot());
+                    snapshots.put(AccordKeyspace.TIMESTAMPS_FOR_KEY, caches.timestampsForKeys().statsSnapshot());
+
+                }
                 return snapshots;
             });
 

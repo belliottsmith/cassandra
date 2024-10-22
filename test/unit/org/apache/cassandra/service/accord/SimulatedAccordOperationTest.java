@@ -138,7 +138,7 @@ public class SimulatedAccordOperationTest extends SimulatedAccordCommandStoreTes
             }
             instance.processAll();
             Assertions.assertThat(counter.counter).isEqualTo(numSamples);
-            instance.store.cache().stream().forEach(e -> {
+            instance.commandStore.executor().cacheUnsafe().stream().forEach(e -> {
                 Assertions.assertThat(e.referenceCount()).isEqualTo(0);
             });
         }
@@ -175,7 +175,7 @@ public class SimulatedAccordOperationTest extends SimulatedAccordCommandStoreTes
 
     private static AccordTask<Void> operation(SimulatedAccordCommandStore instance, PreLoadContext ctx, Action action, BooleanSupplier delay)
     {
-        return new SimulatedOperation(instance.store, ctx, action == Action.FAILURE ? SimulatedOperation.Action.FAILURE : SimulatedOperation.Action.SUCCESS);
+        return new SimulatedOperation(instance.commandStore, ctx, action == Action.FAILURE ? SimulatedOperation.Action.FAILURE : SimulatedOperation.Action.SUCCESS);
     }
 
     private static class Counter implements BiConsumer<Object, Throwable>

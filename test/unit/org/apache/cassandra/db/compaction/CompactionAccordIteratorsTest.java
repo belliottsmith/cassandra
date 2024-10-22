@@ -439,10 +439,13 @@ public class CompactionAccordIteratorsTest
     {
         commandStore.executeBlocking(() -> {
             // clear cache and wait for post-eviction writes to complete
-            long cacheSize = commandStore.cache().capacity();
-            commandStore.cache().setCapacity(0);
-            commandStore.cache().setCapacity(cacheSize);
-            commandStore.cache().awaitSaveResults();
+            try (AccordExecutor.ExclusiveStateCache cache = commandStore.executor().lockCache();)
+            {
+                long cacheSize = cache.get().capacity();
+                cache.get().setCapacity(0);
+                cache.get().setCapacity(cacheSize);
+                cache.get().awaitSaveResults();
+            }
         });
         commands.forceBlockingFlush(FlushReason.UNIT_TESTS);
         timestampsForKey.forceBlockingFlush(FlushReason.UNIT_TESTS);

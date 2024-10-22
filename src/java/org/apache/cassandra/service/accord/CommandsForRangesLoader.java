@@ -45,6 +45,8 @@ import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import org.agrona.collections.ObjectHashSet;
 import org.apache.cassandra.index.accord.RoutesSearcher;
+import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
+import org.apache.cassandra.service.accord.AccordCommandStore.ExclusiveCaches;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 
 import static accord.primitives.Txn.Kind.ExclusiveSyncPoint;
@@ -59,7 +61,10 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
     public CommandsForRangesLoader(AccordCommandStore commandStore)
     {
         this.commandStore = commandStore;
-        commandStore.commandCache().register(this);
+        try (ExclusiveCaches caches = commandStore.lockCaches())
+        {
+            caches.commands().register(this);
+        }
     }
 
     @Override
@@ -181,11 +186,11 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
             return txnIds;
         }
 
-        public void forEachInCache(Consumer<Summary> forEach)
+        public void forEachInCache(Consumer<Summary> forEach, Caches caches)
         {
             for (TxnId txnId : cachedRangeTxns)
             {
-                AccordCachingState<TxnId, Command> state = commandStore.commandCache().getUnsafe(txnId);
+                AccordCachingState<TxnId, Command> state = caches.commands().getUnsafe(txnId);
                 Summary summary = from(state);
                 if (summary != null)
                     forEach.accept(summary);

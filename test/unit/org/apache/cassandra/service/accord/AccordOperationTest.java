@@ -71,6 +71,8 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.service.accord.AccordCommandStore.ExclusiveCaches;
+import org.apache.cassandra.service.accord.AccordExecutor.ExclusiveStateCache;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.AssertionUtils;
@@ -211,10 +213,13 @@ public class AccordOperationTest
 
             // clear cache
             commandStore.executeBlocking(() -> {
-                long cacheSize = commandStore.cache().capacity();
-                commandStore.cache().setCapacity(0);
-                commandStore.cache().setCapacity(cacheSize);
-                commandStore.cache().awaitSaveResults();
+                try (ExclusiveStateCache cache = commandStore.executor().lockCache();)
+                {
+                    long cacheSize = cache.get().capacity();
+                    cache.get().setCapacity(0);
+                    cache.get().setCapacity(cacheSize);
+                    cache.get().awaitSaveResults();
+                }
             });
 
             return command;
@@ -260,10 +265,13 @@ public class AccordOperationTest
 
             // clear cache
             commandStore.executeBlocking(() -> {
-                long cacheSize = commandStore.cache().capacity();
-                commandStore.cache().setCapacity(0);
-                commandStore.cache().setCapacity(cacheSize);
-                commandStore.cache().awaitSaveResults();
+                try (ExclusiveStateCache cache = commandStore.executor().lockCache();)
+                {
+                    long cacheSize = cache.get().capacity();
+                    cache.get().setCapacity(0);
+                    cache.get().setCapacity(cacheSize);
+                    cache.get().awaitSaveResults();
+                }
             });
 
             return command;
@@ -281,7 +289,7 @@ public class AccordOperationTest
         // all txn use the same key; 0
         Keys keys = keys(Schema.instance.getTableMetadata("ks", "tbl"), 0);
         AccordCommandStore commandStore = createAccordCommandStore(clock::incrementAndGet, "ks", "tbl");
-        commandStore.executeBlocking(() -> commandStore.cache().setCapacity(0));
+        commandStore.executeBlocking(() -> commandStore.executor().cacheUnsafe().setCapacity(0));
         Gen<TxnId> txnIdGen = rs -> txnId(1, clock.incrementAndGet(), 1);
 
         qt().withPure(false)
@@ -300,13 +308,16 @@ public class AccordOperationTest
             Consumer<SafeCommandStore> consumer = Mockito.mock(Consumer.class);
 
             Map<TxnId, Boolean> failed = selectFailedTxn(rs, ids);
-            commandStore.commandCache().unsafeSetLoadFunction(txnId ->
+            try (ExclusiveCaches caches = commandStore.lockCaches())
             {
-                logger.info("Attempting to load {}; expected to fail? {}", txnId, failed.get(txnId));
-                if (!failed.get(txnId))
-                    return commandStore.loadCommand(txnId);
-                throw new NullPointerException("txn_id " + txnId);
-            });
+                caches.commands().unsafeSetLoadFunction(txnId ->
+                {
+                    logger.info("Attempting to load {}; expected to fail? {}", txnId, failed.get(txnId));
+                    if (!failed.get(txnId))
+                        return commandStore.loadCommand(txnId);
+                    throw new NullPointerException("txn_id " + txnId);
+                });
+            }
             AccordTask<Void> o1 = new AccordTask.ForConsumer(commandStore, ctx, consumer);
 
             AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(o1.chain()))
@@ -322,10 +333,13 @@ public class AccordOperationTest
             awaitDone(commandStore, ids, participants);
 
             // can we recover?
-            commandStore.commandCache().unsafeSetLoadFunction(txnId -> {
-                Command cmd = commandStore.loadCommand(txnId);
-                return cmd;
-            });
+            try (ExclusiveCaches caches = commandStore.lockCaches())
+            {
+                caches.commands().unsafeSetLoadFunction(txnId -> {
+                    Command cmd = commandStore.loadCommand(txnId);
+                    return cmd;
+                });
+            }
             AccordTask.ForConsumer o2 = new AccordTask.ForConsumer(commandStore, ctx, store -> {
                 ids.forEach(id -> {
                     store.ifInitialised(id).readyToExecute(store);
@@ -408,7 +422,7 @@ public class AccordOperationTest
         AssertionError error = null;
         try
         {
-            assertNoReferences(commandStore.commandCache(), ids);
+            assertNoReferences(commandStore.cachesUnsafe().commands(), ids);
         }
         catch (AssertionError e)
         {
@@ -416,7 +430,7 @@ public class AccordOperationTest
         }
         try
         {
-            assertNoReferences(commandStore.commandsForKeyCache(), keys);
+            assertNoReferences(commandStore.cachesUnsafe().commandsForKeys(), keys);
         }
         catch (AssertionError e)
         {
@@ -456,8 +470,8 @@ public class AccordOperationTest
 
     private static void awaitDone(AccordCommandStore commandStore, List<TxnId> ids, Participants<RoutingKey> keys)
     {
-        awaitDone(commandStore.commandCache(), ids);
-        awaitDone(commandStore.commandsForKeyCache(), keys);
+        awaitDone(commandStore.cachesUnsafe().commands(), ids);
+        awaitDone(commandStore.cachesUnsafe().commandsForKeys(), keys);
     }
 
     private static <T> void awaitDone(AccordStateCache.Instance<T, ?, ?> cache, Iterable<T> keys)

@@ -98,7 +98,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
     private final BooleanSupplier shouldEvict, shouldFlush, shouldCompact;
 
     public final NodeCommandStoreService storeService;
-    public final AccordCommandStore store;
+    public final AccordCommandStore commandStore;
     public final Node.Id nodeId;
     public final Topology topology;
     public final Topologies topologies;
@@ -196,23 +196,23 @@ public class SimulatedAccordCommandStore implements AutoCloseable
                 super.onUncaughtException(t);
             }
         };
-        this.store = new AccordCommandStore(0,
-                                            storeService,
-                                            agent,
-                                            null,
+        this.commandStore = new AccordCommandStore(0,
+                                                   storeService,
+                                                   agent,
+                                                   null,
                                             ignore -> new ProgressLog.NoOpProgressLog(),
                                             cs -> new DefaultLocalListeners(new RemoteListeners.NoOpRemoteListeners(), new DefaultLocalListeners.NotifySink()
                                             {
                                                 @Override public void notify(SafeCommandStore safeStore, SafeCommand safeCommand, TxnId listener) {}
                                                 @Override public boolean notify(SafeCommandStore safeStore, SafeCommand safeCommand, LocalListeners.ComplexListener listener) { return false; }
                                             }),
-                                            updateHolder,
-                                            journal,
-                                            new TestAccordExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), agent));
+                                                   updateHolder,
+                                                   journal,
+                                                   new TestAccordExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), agent));
 
         this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);
-        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), store);
+        var rangesForEpoch = new CommandStores.RangesForEpoch(topology.epoch(), topology.ranges(), commandStore);
         //store.unsafeSetRangesForEpoch(rangesForEpoch);
         updateHolder.add(topology.epoch(), rangesForEpoch, topology.ranges());
         updateHolder.updateGlobal(topology.ranges());
@@ -221,7 +221,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         shouldFlush = boolSource(rs.fork());
         shouldCompact = boolSource(rs.fork());
 
-        store.cache().instances().forEach(i -> {
+        commandStore.executor().cacheUnsafe().instances().forEach(i -> {
             updateLoadFunction(i, loadFunctionWrapper);
             updateSaveFunction(i, saveFunctionWrapper);
             i.register(new AccordStateCache.Listener()
@@ -283,7 +283,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
 
     public void maybeCacheEvict(Unseekables<RoutingKey> keys, Ranges ranges)
     {
-        AccordStateCache cache = store.cache();
+        AccordStateCache cache = commandStore.executor().cacheUnsafe();
         cache.forEach(state -> {
             Class<?> keyType = state.key().getClass();
             if (TxnId.class.equals(keyType))
@@ -387,7 +387,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
 
     public <T extends Reply> AsyncResult<T> processAsync(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
-        return store.submit(loadCtx, function).beginAsResult();
+        return commandStore.submit(loadCtx, function).beginAsResult();
     }
 
     public Pair<TxnId, AsyncResult<PreAccept.PreAcceptOk>> enqueuePreAccept(Txn txn, FullRoute<?> route)
@@ -431,6 +431,6 @@ public class SimulatedAccordCommandStore implements AutoCloseable
     @Override
     public void close() throws Exception
     {
-        store.shutdown();
+        commandStore.shutdown();
     }
 }

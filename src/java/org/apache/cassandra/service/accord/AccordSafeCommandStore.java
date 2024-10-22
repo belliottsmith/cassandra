@@ -173,15 +173,17 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected void addCommandInternal(AccordSafeCommand command)
     {
+        command.preExecute();
         operation.ensureCommands().put(command.txnId(), command);
     }
 
     @Override
     protected AccordSafeCommand getIfLoaded(TxnId txnId)
     {
-        AccordSafeCommand command = commandStore.commandCache().acquireIfLoaded(txnId);
-        if (command != null) command.preExecute();
-        return command;
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        {
+            return caches.commands().acquireIfLoaded(txnId);
+        }
     }
 
     @Override
@@ -204,7 +206,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeCommandsForKey getCommandsForKeyIfLoaded(RoutingKey key)
     {
-        return commandStore.commandsForKeyCache().acquireIfLoaded(key);
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        {
+            return caches.commandsForKeys().acquireIfLoaded(key);
+        }
     }
 
     @Override
@@ -227,7 +232,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeTimestampsForKey getTimestampsForKeyIfLoaded(RoutingKey key)
     {
-        return commandStore.timestampsForKeyCache().acquireIfLoaded(key);
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        {
+            return caches.timestampsForKeys().acquireIfLoaded(key);
+        }
     }
 
     @Override

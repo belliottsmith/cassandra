@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -68,6 +69,7 @@ import accord.utils.async.AsyncResults;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.service.accord.AccordExecutor.ExclusiveStateCache;
 import org.apache.cassandra.service.accord.SavedCommand.MinimalCommand;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.accord.events.CacheEvents;
@@ -88,83 +90,69 @@ public class AccordCommandStore extends CommandStore
     private static final Logger logger = LoggerFactory.getLogger(AccordCommandStore.class);
     private static final boolean CHECK_THREADS = CassandraRelevantProperties.TEST_ACCORD_STORE_THREAD_CHECKS_ENABLED.getBoolean();
 
+    public static class Caches
+    {
+        private final AccordStateCache global;
+        private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands;
+        private final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeys;
+        private final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeys;
+
+        Caches(AccordStateCache global, AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache, AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache, AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache)
+        {
+            this.global = global;
+            this.commands = commandCache;
+            this.timestampsForKeys = timestampsForKeyCache;
+            this.commandsForKeys = commandsForKeyCache;
+        }
+
+        public final AccordStateCache global()
+        {
+            return global;
+        }
+
+        public final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands()
+        {
+            return commands;
+        }
+
+        public final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeys()
+        {
+            return timestampsForKeys;
+        }
+
+        public final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeys()
+        {
+            return commandsForKeys;
+        }
+    }
+
+    public static final class ExclusiveCaches extends Caches implements AutoCloseable
+    {
+        private final ReentrantLock lock;
+
+        public ExclusiveCaches(ReentrantLock lock, AccordStateCache global, AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands, AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeys, AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeys)
+        {
+            super(global, commands, timestampsForKeys, commandsForKeys);
+            this.lock = lock;
+        }
+
+        @Override
+        public void close()
+        {
+            lock.unlock();
+        }
+    }
+
     public final String loggingId;
     private final IJournal journal;
     private final AccordExecutor executor;
-    private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
-    private final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache;
-    private final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache;
+    private final ExclusiveCaches guardedCaches;
+    private final Caches unguardedCaches;
     private AccordTask<?> currentOperation = null;
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
     private final CommandsForRangesLoader commandsForRangesLoader;
 
-    private static <K, V> void registerJfrListener(int id, AccordStateCache.Instance<K, V, ?> instance, String name)
-    {
-        if (!DatabaseDescriptor.getAccordStateCacheListenerJFREnabled())
-            return;
-        instance.register(new AccordStateCache.Listener<>() {
-            private final IdentityHashMap<AccordCachingState<?, ?>, CacheEvents.Evict> pendingEvicts = new IdentityHashMap<>();
-
-            @Override
-            public void onAdd(AccordCachingState<K, V> state)
-            {
-                CacheEvents.Add add = new CacheEvents.Add();
-                CacheEvents.Evict evict = new CacheEvents.Evict();
-                if (!add.isEnabled())
-                    return;
-                add.begin();
-                evict.begin();
-                add.store = evict.store = id;
-                add.instance = evict.instance = name;
-                add.key = evict.key = state.key().toString();
-                updateMutable(instance, state, add);
-                add.commit();
-                pendingEvicts.put(state, evict);
-            }
-
-            @Override
-            public void onRelease(AccordCachingState<K, V> state)
-            {
-
-            }
-
-            @Override
-            public void onEvict(AccordCachingState<K, V> state)
-            {
-                CacheEvents.Evict event = pendingEvicts.remove(state);
-                if (event == null) return;
-                updateMutable(instance, state, event);
-                event.commit();
-            }
-        });
-    }
-
-    private static void updateMutable(AccordStateCache.Instance<?, ?, ?> instance, AccordCachingState<?, ?> state, CacheEvents event)
-    {
-        event.status = state.state().status().name();
-
-        event.lastQueriedEstimatedSizeOnHeap = state.lastQueriedEstimatedSizeOnHeap();
-
-        event.instanceAllocated = instance.weightedSize();
-        AccordStateCache.Stats stats = instance.stats();
-        event.instanceStatsQueries = stats.queries;
-        event.instanceStatsHits = stats.hits;
-        event.instanceStatsMisses = stats.misses;
-
-        event.globalSize = instance.size();
-        event.globalReferenced = instance.globalReferencedEntries();
-        event.globalUnreferenced = instance.globalUnreferencedEntries();
-        event.globalCapacity = instance.capacity();
-        event.globalAllocated = instance.globalAllocated();
-
-        stats = instance.globalStats();
-        event.globalStatsQueries = stats.queries;
-        event.globalStatsHits = stats.hits;
-        event.globalStatsMisses = stats.misses;
-
-        event.update();
-    }
 
     public AccordCommandStore(int id,
                               NodeCommandStoreService node,
@@ -180,37 +168,44 @@ public class AccordCommandStore extends CommandStore
         this.journal = journal;
         loggingId = String.format("[%s]", id);
         executor = commandStoreExecutor;
-        AccordStateCache stateCache = executor.stateCache;
-        commandCache =
-            stateCache.instance(TxnId.class,
-                                AccordSafeCommand.class,
-                                AccordSafeCommand.safeRefFactory(),
-                                this::loadCommand,
-                                this::appendToKeyspace,
-                                this::validateCommand,
-                                // TODO (expected): size diff method, so we only revisit portions that have changed
-                                AccordObjectSizes::command);
-        registerJfrListener(id, commandCache, "Command");
-        timestampsForKeyCache =
-            stateCache.instance(RoutingKey.class,
-                                AccordSafeTimestampsForKey.class,
-                                AccordSafeTimestampsForKey::new,
-                                this::loadTimestampsForKey,
-                                this::saveTimestampsForKey,
-                                this::validateTimestampsForKey,
-                                AccordObjectSizes::timestampsForKey);
-        registerJfrListener(id, timestampsForKeyCache, "TimestampsForKey");
-        commandsForKeyCache =
-            stateCache.instance(RoutingKey.class,
-                                AccordSafeCommandsForKey.class,
-                                AccordSafeCommandsForKey::new,
-                                this::loadCommandsForKey,
-                                this::saveCommandsForKey,
-                                this::validateCommandsForKey,
-                                AccordObjectSizes::commandsForKey,
-                                AccordCachingState::new);
-        registerJfrListener(id, commandsForKeyCache, "CommandsForKey");
+        final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands;
+        final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKey;
+        final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKey;
+        try (ExclusiveStateCache cache = executor.lockCache())
+        {
+            commands =
+                cache.get().instance(TxnId.class,
+                                     AccordSafeCommand.class,
+                                     AccordSafeCommand.safeRefFactory(),
+                                     this::loadCommand,
+                                     this::appendToKeyspace,
+                                     this::validateCommand,
+                                     // TODO (expected): size diff method, so we only revisit portions that have changed
+                                     AccordObjectSizes::command);
+            registerJfrListener(id, commands, "Command");
+            timestampsForKey =
+                cache.get().instance(RoutingKey.class,
+                                     AccordSafeTimestampsForKey.class,
+                                     AccordSafeTimestampsForKey::new,
+                                     this::loadTimestampsForKey,
+                                     this::saveTimestampsForKey,
+                                     this::validateTimestampsForKey,
+                                     AccordObjectSizes::timestampsForKey);
+            registerJfrListener(id, timestampsForKey, "TimestampsForKey");
+            commandsForKey =
+                cache.get().instance(RoutingKey.class,
+                                     AccordSafeCommandsForKey.class,
+                                     AccordSafeCommandsForKey::new,
+                                     this::loadCommandsForKey,
+                                     this::saveCommandsForKey,
+                                     this::validateCommandsForKey,
+                                     AccordObjectSizes::commandsForKey,
+                                     AccordCachingState::new);
+            registerJfrListener(id, commandsForKey, "CommandsForKey");
 
+            this.guardedCaches = new ExclusiveCaches(executor.lock, cache.get(), commands, timestampsForKey, commandsForKey);
+            this.unguardedCaches = new ExclusiveCaches(null, cache.get(), commands, timestampsForKey, commandsForKey);
+        }
         this.commandsForRangesLoader = new CommandsForRangesLoader(this);
 
         loadRedundantBefore(journal.loadRedundantBefore(id()));
@@ -262,27 +257,22 @@ public class AccordCommandStore extends CommandStore
         return executor;
     }
 
-    /**
-     * Note that this cache is shared with other commandStores!
-     */
-    public AccordStateCache cache()
+    public ExclusiveCaches lockCaches()
     {
-        return executor.cache();
+        //noinspection LockAcquiredButNotSafelyReleased
+        guardedCaches.lock.lock();
+        return guardedCaches;
     }
 
-    public AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache()
+    public Caches cachesExclusive()
     {
-        return commandCache;
+        Invariants.checkState(executor.lock.isHeldByCurrentThread());
+        return unguardedCaches;
     }
 
-    public AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache()
+    public Caches cachesUnsafe()
     {
-        return timestampsForKeyCache;
-    }
-
-    public AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache()
-    {
-        return commandsForKeyCache;
+        return unguardedCaches;
     }
 
     @Nullable
@@ -490,28 +480,31 @@ public class AccordCommandStore extends CommandStore
         Ranges allRanges = safeStore.ranges().all();
         Ranges coordinateRanges = Ranges.EMPTY;
         long coordinateEpoch = -1;
-        for (int i = 0; i < rangeDeps.txnIdCount(); i++)
+        try (ExclusiveCaches caches = lockCaches())
         {
-            TxnId txnId = rangeDeps.txnId(i);
-            AccordCachingState<TxnId, Command> state = commandCache.getUnsafe(txnId);
-            if (state != null && state.isLoaded() && state.get() != null && state.get().known().isDefinitionKnown())
-                continue;
-
-            Ranges addRanges = rangeDeps.ranges(i).slice(allRanges);
-            if (addRanges.isEmpty()) continue;
-
-            if (coordinateEpoch != txnId.epoch())
+            for (int i = 0; i < rangeDeps.txnIdCount(); i++)
             {
-                coordinateEpoch = txnId.epoch();
-                coordinateRanges = ranges.allAt(txnId.epoch());
-            }
-            if (addRanges.intersects(coordinateRanges)) continue;
-            addRanges = redundantBefore.removeShardRedundant(txnId, txnId, addRanges);
-            if (addRanges.isEmpty()) continue;
-            diskCommandsForRanges().mergeTransitive(txnId, addRanges, Ranges::with);
-        }
+                TxnId txnId = rangeDeps.txnId(i);
+                AccordCachingState<TxnId, Command> state = caches.commands().getUnsafe(txnId);
+                if (state != null && state.isLoaded() && state.get() != null && state.get().known().isDefinitionKnown())
+                    continue;
 
-        return AsyncResults.success(null);
+                Ranges addRanges = rangeDeps.ranges(i).slice(allRanges);
+                if (addRanges.isEmpty()) continue;
+
+                if (coordinateEpoch != txnId.epoch())
+                {
+                    coordinateEpoch = txnId.epoch();
+                    coordinateRanges = ranges.allAt(txnId.epoch());
+                }
+                if (addRanges.intersects(coordinateRanges)) continue;
+                addRanges = redundantBefore.removeShardRedundant(txnId, txnId, addRanges);
+                if (addRanges.isEmpty()) continue;
+                diskCommandsForRanges().mergeTransitive(txnId, addRanges, Ranges::with);
+            }
+
+            return AsyncResults.success(null);
+        }
     }
 
     public void appendCommands(List<SavedCommand.DiffWriter> diffs, Runnable onFlush)
@@ -646,4 +639,72 @@ public class AccordCommandStore extends CommandStore
         if (rangesForEpoch != null)
             unsafeSetRangesForEpoch(new CommandStores.RangesForEpoch(rangesForEpoch.epochs, rangesForEpoch.ranges, this));
     }
+
+    private static <K, V> void registerJfrListener(int id, AccordStateCache.Instance<K, V, ?> instance, String name)
+    {
+        if (!DatabaseDescriptor.getAccordStateCacheListenerJFREnabled())
+            return;
+        instance.register(new AccordStateCache.Listener<>() {
+            private final IdentityHashMap<AccordCachingState<?, ?>, CacheEvents.Evict> pendingEvicts = new IdentityHashMap<>();
+
+            @Override
+            public void onAdd(AccordCachingState<K, V> state)
+            {
+                CacheEvents.Add add = new CacheEvents.Add();
+                CacheEvents.Evict evict = new CacheEvents.Evict();
+                if (!add.isEnabled())
+                    return;
+                add.begin();
+                evict.begin();
+                add.store = evict.store = id;
+                add.instance = evict.instance = name;
+                add.key = evict.key = state.key().toString();
+                updateMutable(instance, state, add);
+                add.commit();
+                pendingEvicts.put(state, evict);
+            }
+
+            @Override
+            public void onRelease(AccordCachingState<K, V> state)
+            {
+
+            }
+
+            @Override
+            public void onEvict(AccordCachingState<K, V> state)
+            {
+                CacheEvents.Evict event = pendingEvicts.remove(state);
+                if (event == null) return;
+                updateMutable(instance, state, event);
+                event.commit();
+            }
+        });
+    }
+
+    private static void updateMutable(AccordStateCache.Instance<?, ?, ?> instance, AccordCachingState<?, ?> state, CacheEvents event)
+    {
+        event.status = state.state().status().name();
+
+        event.lastQueriedEstimatedSizeOnHeap = state.lastQueriedEstimatedSizeOnHeap();
+
+        event.instanceAllocated = instance.weightedSize();
+        AccordStateCache.Stats stats = instance.stats();
+        event.instanceStatsQueries = stats.queries;
+        event.instanceStatsHits = stats.hits;
+        event.instanceStatsMisses = stats.misses;
+
+        event.globalSize = instance.size();
+        event.globalReferenced = instance.globalReferencedEntries();
+        event.globalUnreferenced = instance.globalUnreferencedEntries();
+        event.globalCapacity = instance.capacity();
+        event.globalAllocated = instance.globalAllocated();
+
+        stats = instance.globalStats();
+        event.globalStatsQueries = stats.queries;
+        event.globalStatsHits = stats.hits;
+        event.globalStatsMisses = stats.misses;
+
+        event.update();
+    }
+
 }
