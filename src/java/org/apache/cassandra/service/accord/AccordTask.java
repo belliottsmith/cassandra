@@ -534,6 +534,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
+    protected void cleanup()
+    {
+    }
+
     // expects to hold lock
     public void fail(Throwable throwable)
     {
