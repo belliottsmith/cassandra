@@ -40,7 +40,6 @@ import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheAccessMetrics;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
-import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.concurrent.Future;
 
 import static accord.utils.Invariants.checkState;
@@ -222,7 +221,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
         node.evicted();
     }
 
-    <K, V> Collection<AsyncOperation<?>> load(Function<Runnable, Future<?>> loadExecutor, AccordCachingState<K, V> node, AccordCachingState.OnLoaded onLoaded)
+    <K, V> Collection<AccordTask<?>> load(Function<Runnable, Future<?>> loadExecutor, AccordCachingState<K, V> node, AccordCachingState.OnLoaded onLoaded)
     {
         Instance<K, V, ?> instance = instanceFor(node);
         return node.load(loadExecutor, instance.loadFunction, onLoaded).waiters();
@@ -258,7 +257,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             this.addToEvictionQueue(node, false);
     }
 
-    public <K, V, S extends AccordSafeState<K, V>> void release(S safeRef, AsyncOperation<?> owner)
+    public <K, V, S extends AccordSafeState<K, V>> void release(S safeRef, AccordTask<?> owner)
     {
         instanceFor(safeRef).release(safeRef, owner);
     }
@@ -469,7 +468,7 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             return node;
         }
 
-        public void release(S safeRef, AsyncOperation<?> owner)
+        public void release(S safeRef, AccordTask<?> owner)
         {
             K key = safeRef.global().key();
             logger.trace("Releasing resources for {}: {}", key, safeRef);

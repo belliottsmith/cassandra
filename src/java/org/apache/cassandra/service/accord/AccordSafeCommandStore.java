@@ -54,19 +54,18 @@ import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.primitives.Unseekables;
 import accord.utils.Invariants;
-import org.apache.cassandra.service.accord.async.AsyncOperation;
 
 import static accord.local.KeyHistory.TIMESTAMPS;
 
 public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeCommand, AccordSafeTimestampsForKey, AccordSafeCommandsForKey>
 {
-    private final AsyncOperation<?> operation;
+    private final AccordTask<?> operation;
     private final @Nullable CommandsForRanges commandsForRanges;
     private final AccordCommandStore commandStore;
     private RangesForEpoch ranges;
     private FieldUpdates fieldUpdates;
 
-    private AccordSafeCommandStore(AsyncOperation<?> operation,
+    private AccordSafeCommandStore(AccordTask<?> operation,
                                    @Nullable CommandsForRanges commandsForRanges,
                                    AccordCommandStore commandStore)
     {
@@ -79,7 +78,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
             this.ranges = Invariants.nonNull(commandStore.unsafeRangesForEpoch());
     }
 
-    public static AccordSafeCommandStore create(AsyncOperation<?> operation,
+    public static AccordSafeCommandStore create(AccordTask<?> operation,
                                                 @Nullable CommandsForRanges commandsForRanges,
                                                 AccordCommandStore commandStore)
     {

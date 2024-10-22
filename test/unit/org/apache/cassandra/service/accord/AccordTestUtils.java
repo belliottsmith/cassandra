@@ -107,7 +107,6 @@ import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import static accord.primitives.Routable.Domain.Key;
 import static accord.utils.async.AsyncChains.getUninterruptibly;
 import static java.lang.String.format;
-import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 
 public class AccordTestUtils
 {
@@ -428,7 +427,7 @@ public class AccordTestUtils
                                                            }),
                                                            holder,
                                                            journal,
-                                                           new AccordCommandStoreExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, agent));
+                                                           new AccordExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, agent));
         holder.set(result);
 
         // TODO: CompactionAccordIteratorsTest relies on this

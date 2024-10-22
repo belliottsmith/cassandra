@@ -44,12 +44,10 @@ import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.Interruptible;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
-import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.ConcurrentLinkedStack;
 import org.apache.cassandra.utils.concurrent.Future;
 
-import static accord.utils.Invariants.illegalState;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
@@ -57,7 +55,7 @@ import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.SimulatorSafe
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
-public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Executor
+public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Executor
 {
     private static final int MAX_QUEUED_LOADS_PER_EXECUTOR = 64;
     private static final int MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR = 8;
@@ -70,36 +68,35 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
     final AccordStateCache stateCache;
     private final Function<Runnable, Future<?>> loadExecutor;
     private final Executor rangeLoadExecutor;
-    private int counter;
 
     private final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
 
-    private final OperationPriorityHeap<AsyncOperation> scanningRanges = new OperationPriorityHeap<>(); // never queried, just parked here while scanning
-    private final OperationPriorityHeap<AsyncOperation> loading = new OperationPriorityHeap<>(); // never queried, just parked here while loading
+    private final TaskPriorityHeap<AccordTask<?>> scanningRanges = new TaskPriorityHeap<>(); // never queried, just parked here while scanning
+    private final TaskPriorityHeap<AccordTask<?>> loading = new TaskPriorityHeap<>(); // never queried, just parked here while loading
 
-    private @Nullable OperationPriorityHeap<AsyncOperation> waitingToLoadRangeTxns; // this is kept null whenever the queue is empty (i.e. normally)
-    private final OperationPriorityHeap<AsyncOperation> waitingToLoadRangeTxnsCollection = new OperationPriorityHeap<>();
+    private @Nullable TaskPriorityHeap<AccordTask<?>> waitingToLoadRangeTxns; // this is kept null whenever the queue is empty (i.e. normally)
+    private final TaskPriorityHeap<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskPriorityHeap<>();
 
-    private final OperationPriorityHeap<AsyncOperation> waitingToLoad = new OperationPriorityHeap<>();
-    private final OperationPriorityHeap waitingToRun = new OperationPriorityHeap<>();
+    private final TaskPriorityHeap<AccordTask<?>> waitingToLoad = new TaskPriorityHeap<>();
+    private final TaskPriorityHeap<Task> waitingToRun = new TaskPriorityHeap<>();
     private final AccordCachingState.OnLoaded onRangeLoaded = this::onRangeLoaded;
 
     private int nextPosition;
     private int activeLoads, activeRangeLoads;
     private int tasks;
-    private boolean running;
+    private int running;
 
-    AccordCommandStoreExecutor(String name, AccordStateCacheMetrics metrics, Agent agent)
+    AccordExecutor(String name, AccordStateCacheMetrics metrics, Agent agent)
     {
         this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
     }
 
-    AccordCommandStoreExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+    AccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
     {
         this(name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
     }
 
-    AccordCommandStoreExecutor(String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+    AccordExecutor(String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
     {
         this.stateCache = new AccordStateCache(saveExecutor, this, 8 << 20, metrics);
         this.loadExecutor = loadExecutor;
@@ -122,8 +119,8 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
     {
         outer: while (true)
         {
-            OperationPriorityHeap<AsyncOperation> queue = waitingToLoadRangeTxns == null || activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR ? waitingToLoad : waitingToLoadRangeTxns;
-            AsyncOperation<?> next = queue.peek();
+            TaskPriorityHeap<AccordTask<?>> queue = waitingToLoadRangeTxns == null || activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR ? waitingToLoad : waitingToLoadRangeTxns;
+            AccordTask<?> next = queue.peek();
             if (next == null)
             {
                 Invariants.checkState(waitingToLoad.isEmpty());
@@ -139,7 +136,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
                     if (next.rangeLoader().hasStarted())
                     {
                         // if we haven't submitted our range scan yet, this goes first
-                        for (AsyncOperation<?> op : load.loadingOrWaiting().waiters())
+                        for (AccordTask<?> op : load.loadingOrWaiting().waiters())
                         {
                             if (!op.hasRanges())
                             {
@@ -181,7 +178,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
                     onLoaded = onRangeLoaded;
                 }
 
-                for (AsyncOperation<?> op : stateCache.load(loadExecutor, load, onLoaded))
+                for (AccordTask<?> op : stateCache.load(loadExecutor, load, onLoaded))
                 {
                     if (op == next) continue;
                     if (!op.onLoading(load))
@@ -200,7 +197,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
-    private OperationPriorityHeap waitingToLoadQueue(AsyncOperation<?> op)
+    private TaskPriorityHeap<?> waitingToLoadQueue(AccordTask<?> op)
     {
         if (op.rangeLoader() == null)
             return waitingToLoad;
@@ -217,10 +214,10 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
     {
         try
         {
-            if (object instanceof AsyncOperation<?>)
-                loadUnsafe((AsyncOperation<?>) object);
+            if (object instanceof AccordTask<?>)
+                loadUnsafe((AccordTask<?>) object);
             else
-                ((Deferred) object).acceptUnsafe(this);
+                ((SubmitAsync) object).acceptUnsafe(this);
         }
         catch (Throwable t)
         {
@@ -228,20 +225,20 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
-    private void updateQueue(OperationPriorityHeap removeFrom, AsyncOperation<?> op)
+    private void updateQueue(TaskPriorityHeap<?> removeFrom, AccordTask<?> op)
     {
         removeFromQueue(removeFrom, op);
         updateQueue(op);
     }
 
-    private void removeFromQueue(OperationPriorityHeap removeFrom, AsyncOperation<?> op)
+    private void removeFromQueue(TaskPriorityHeap removeFrom, AccordTask<?> op)
     {
         removeFrom.remove(op);
         if (removeFrom == waitingToLoadRangeTxns && waitingToLoadRangeTxns.isEmpty())
             waitingToLoadRangeTxns = null;
     }
 
-    private void updateQueue(AsyncOperation<?> op)
+    private void updateQueue(AccordTask<?> op)
     {
         switch (op.state())
         {
@@ -262,7 +259,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
-    private OperationPriorityHeap<?> queue(AsyncOperation<?> op)
+    private TaskPriorityHeap<?> queue(AccordTask<?> op)
     {
         switch (op.state())
         {
@@ -276,58 +273,58 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
-    public <R> void submit(AsyncOperation<R> operation)
+    public <R> void submit(AccordTask<R> operation)
     {
-        onEvent(AccordCommandStoreExecutor::loadUnsafe, Function.identity(), operation);
+        onEvent(AccordExecutor::loadUnsafe, Function.identity(), operation);
     }
 
-    public <R> void cancel(AsyncOperation<R> operation)
+    public <R> void cancel(AccordTask<R> operation)
     {
-        onEvent(AccordCommandStoreExecutor::cancelUnsafe, OnCancel::new, operation);
+        onEvent(AccordExecutor::cancelUnsafe, OnCancel::new, operation);
     }
 
-    public void onScannedRanges(AsyncOperation<?> op, Throwable fail)
+    public void onScannedRanges(AccordTask<?> op, Throwable fail)
     {
-        onEvent(AccordCommandStoreExecutor::onScannedRangesUnsafe, OnScannedRanges::new, op, fail);
+        onEvent(AccordExecutor::onScannedRangesUnsafe, OnScannedRanges::new, op, fail);
     }
 
     public <K, V> void onSaved(AccordCachingState<K, V> saved, Object identity, Throwable fail)
     {
-        onEvent(AccordCommandStoreExecutor::onSavedUnsafe, OnSaved::new, saved, identity, fail);
+        onEvent(AccordExecutor::onSavedUnsafe, OnSaved::new, saved, identity, fail);
     }
 
     @Override
     public <K, V> void onLoaded(AccordCachingState<K, V> loaded, V value, Throwable fail)
     {
-        onEvent(AccordCommandStoreExecutor::onLoadedUnsafe, OnLoaded::new, loaded, value, fail, false);
+        onEvent(AccordExecutor::onLoadedUnsafe, OnLoaded::new, loaded, value, fail, false);
     }
 
     public <K, V> void onRangeLoaded(AccordCachingState<K, V> loaded, V value, Throwable fail)
     {
-        onEvent(AccordCommandStoreExecutor::onLoadedUnsafe, OnLoaded::new, loaded, value, fail, true);
+        onEvent(AccordExecutor::onLoadedUnsafe, OnLoaded::new, loaded, value, fail, true);
     }
 
-    private <P1> void onEvent(BiConsumer<AccordCommandStoreExecutor, P1> sync, Function<P1, ?> async, P1 p1)
+    private <P1> void onEvent(BiConsumer<AccordExecutor, P1> sync, Function<P1, ?> async, P1 p1)
     {
         onEvent((e, c, p1a, p2a, p3) -> c.accept(e, p1a), (f, p1a, p2a, p3) -> f.apply(p1a), sync, async, p1, null, null);
     }
 
-    private <P1, P2> void onEvent(TriConsumer<AccordCommandStoreExecutor, P1, P2> sync, BiFunction<P1, P2, ?> async, P1 p1, P2 p2)
+    private <P1, P2> void onEvent(TriConsumer<AccordExecutor, P1, P2> sync, BiFunction<P1, P2, ?> async, P1 p1, P2 p2)
     {
         onEvent((e, c, p1a, p2a, p3) -> c.accept(e, p1a, p2a), (f, p1a, p2a, p3) -> f.apply(p1a, p2a), sync, async, p1, p2, null);
     }
 
-    private <P1, P2, P3> void onEvent(QuadConsumer<AccordCommandStoreExecutor, P1, P2, P3> sync, TriFunction<P1, P2, P3, ?> async, P1 p1, P2 p2, P3 p3)
+    private <P1, P2, P3> void onEvent(QuadConsumer<AccordExecutor, P1, P2, P3> sync, TriFunction<P1, P2, P3, ?> async, P1 p1, P2 p2, P3 p3)
     {
         onEvent((e, c, p1a, p2a, p3a) -> c.accept(e, p1a, p2a, p3a), TriFunction::apply, sync, async, p1, p2, p3);
     }
 
-    private <P1, P2, P3, P4> void onEvent(QuintConsumer<AccordCommandStoreExecutor, P1, P2, P3, P4> sync, QuadFunction<P1, P2, P3, P4, Object> async, P1 p1, P2 p2, P3 p3, P4 p4)
+    private <P1, P2, P3, P4> void onEvent(QuintConsumer<AccordExecutor, P1, P2, P3, P4> sync, QuadFunction<P1, P2, P3, P4, Object> async, P1 p1, P2 p2, P3 p3, P4 p4)
     {
         onEvent(sync, async, p1, p1, p2, p3, p4);
     }
 
-    private <P1s, P1a, P2, P3, P4> void onEvent(QuintConsumer<AccordCommandStoreExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
+    private <P1s, P1a, P2, P3, P4> void onEvent(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
     {
         boolean applySync = true;
         if (!lock.tryLock())
@@ -365,7 +362,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
 
     private void drainSubmittedUnsafe()
     {
-        submitted.drain(AccordCommandStoreExecutor::consumeUnsafe, this, true);
+        submitted.drain(AccordExecutor::consumeUnsafe, this, true);
     }
 
     private void postUnlock()
@@ -393,15 +390,15 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         if (signal) hasWork.signal();
     }
 
-    private <R> void loadUnsafe(AsyncOperation<R> op)
+    private void loadUnsafe(AccordTask<?> op)
     {
         ++tasks;
-        ((Operation)op).queuePosition = ++nextPosition;
+        op.queuePosition = ++nextPosition;
         op.setup();
         updateQueue(op);
     }
 
-    private void cancelUnsafe(AsyncOperation<?> op)
+    private void cancelUnsafe(AccordTask<?> op)
     {
         // TODO (required): loading cache entries are now eligible for eviction; make sure we handle correctly
         switch (op.state())
@@ -432,7 +429,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         op.realCancel();
     }
 
-    private void onScannedRangesUnsafe(AsyncOperation<?> op, Throwable fail)
+    private void onScannedRangesUnsafe(AccordTask<?> op, Throwable fail)
     {
         --activeLoads;
         --activeRangeLoads;
@@ -465,13 +462,13 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         if (loaded.status() == EVICTED)
             return;
 
-        try (BufferList<AsyncOperation<?>> ops = loaded.loading().copyWaiters())
+        try (BufferList<AccordTask<?>> ops = loaded.loading().copyWaiters())
         {
             if (fail != null)
             {
-                for (AsyncOperation<?> op : ops)
+                for (AccordTask<?> op : ops)
                 {
-                    OperationPriorityHeap queue = queue(op);
+                    TaskPriorityHeap queue = queue(op);
                     try
                     {
                         op.fail(fail);
@@ -489,7 +486,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
             else
             {
                 boolean enqueueWork = false;
-                for (AsyncOperation<?> op : ops)
+                for (AccordTask<?> op : ops)
                 {
                     op.onLoad(loaded);
                     if (!op.isLoading())
@@ -515,7 +512,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
             while (true)
             {
                 drainSubmittedUnsafe();
-                Operation op = waitingToRun.poll();
+                Task op = waitingToRun.poll();
 
                 if (op != null)
                 {
@@ -544,6 +541,83 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
+    protected void runWithLock(Interruptible.State state) throws InterruptedException
+    {
+        lock.lock();
+        try
+        {
+            running = 1;
+            while (true)
+            {
+                drainSubmittedUnsafe();
+                Task op = waitingToRun.poll();
+
+                if (op != null)
+                {
+                    --tasks;
+                    try { op.run(); }
+                    catch (Throwable t) { op.fail(t); }
+                    finally { op.cleanup(); }
+                }
+                else
+                {
+                    running = 0;
+                    hasWork.await();
+                }
+            }
+        }
+        catch (Throwable t)
+        {
+            running = 0;
+            throw t;
+        }
+        finally
+        {
+            lock.unlock();
+            postUnlock();
+        }
+    }
+
+    protected void runWithoutLock(Interruptible.State state) throws InterruptedException
+    {
+        Task op = null;
+        while (true)
+        {
+            lock.lock();
+            try
+            {
+                if (op != null)
+                    op.cleanup();
+
+                while (true)
+                {
+                    drainSubmittedUnsafe();
+                    op = waitingToRun.poll();
+                    if (op != null)
+                        break;
+                    hasWork.await();
+                }
+                --tasks;
+                ++running;
+            }
+            finally
+            {
+                lock.unlock();
+            }
+
+            try { op.run(); }
+            catch (Throwable t)
+            {
+                try { op.fail(t); }
+                catch (Throwable t2)
+                {
+                    t2.addSuppressed(t);
+                    agent.onUncaughtException(t2);
+                }
+            }
+        }
+    }
+
     public boolean isInThread()
     {
         return lock.isHeldByCurrentThread();
@@ -562,7 +636,7 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
     public Future<?> submit(Runnable run)
     {
         AsyncPromise<Void> result = new AsyncPromise<>();
-        onEvent(AccordCommandStoreExecutor::submitUnsafe, SubmitPlainRunnable::new, result, run);
+        onEvent(AccordExecutor::submitUnsafe, SubmitPlainRunnable::new, result, run);
         return result;
     }
 
@@ -602,15 +676,16 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         return stateCache.weightedSize();
     }
 
-    public static abstract class Operation extends IntrusivePriorityHeap.Node
+    public static abstract class Task extends IntrusivePriorityHeap.Node
     {
         int queuePosition;
 
         abstract protected void run();
         abstract protected void fail(Throwable fail);
+        abstract protected void cleanup();
     }
 
-    public class PlainRunnable extends Operation
+    public class PlainRunnable extends Task
     {
         final AsyncPromise<Void> result;
         final Runnable run;
@@ -634,47 +709,47 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
     }
 
-    static final class OperationPriorityHeap<O extends Operation> extends IntrusivePriorityHeap<O>
+    static final class TaskPriorityHeap<T extends Task> extends IntrusivePriorityHeap<T>
     {
         @Override
-        public int compare(O o1, O o2)
+        public int compare(T o1, T o2)
         {
             return Integer.compare(o1.queuePosition, o2.queuePosition);
         }
-        public void append(O op)
+        public void append(T op)
         {
             super.append(op);
         }
 
-        public O poll()
+        public T poll()
         {
             ensureHeapified();
             return pollNode();
         }
 
-        public O peek()
+        public T peek()
         {
             ensureHeapified();
             return peekNode();
         }
 
-        public void remove(O remove)
+        public void remove(T remove)
         {
             super.remove(remove);
         }
 
-        public boolean contains(O contains)
+        public boolean contains(T contains)
         {
             return super.contains(contains);
         }
     }
 
-    private abstract static class Deferred
+    private abstract static class SubmitAsync
     {
-        abstract void acceptUnsafe(AccordCommandStoreExecutor executor);
+        abstract void acceptUnsafe(AccordExecutor executor);
     }
 
-    private static class SubmitPlainRunnable extends Deferred
+    private static class SubmitPlainRunnable extends SubmitAsync
     {
         final AsyncPromise<Void> result;
         final Runnable run;
@@ -686,13 +761,13 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
 
         @Override
-        void acceptUnsafe(AccordCommandStoreExecutor executor)
+        void acceptUnsafe(AccordExecutor executor)
         {
             executor.submit(run);
         }
     }
 
-    private static class OnLoaded<K, V> extends Deferred
+    private static class OnLoaded<K, V> extends SubmitAsync
     {
         static final int FAIL = 1;
         static final int RANGE = 2;
@@ -732,31 +807,31 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
 
         @Override
-        void acceptUnsafe(AccordCommandStoreExecutor executor)
+        void acceptUnsafe(AccordExecutor executor)
         {
             executor.onLoadedUnsafe(loaded, success(), fail(), isForRange());
         }
     }
 
-    private static class OnScannedRanges extends Deferred
+    private static class OnScannedRanges extends SubmitAsync
     {
-        final AsyncOperation<?> scanned;
+        final AccordTask<?> scanned;
         final Throwable fail;
 
-        private OnScannedRanges(AsyncOperation<?> scanned, Throwable fail)
+        private OnScannedRanges(AccordTask<?> scanned, Throwable fail)
         {
             this.scanned = scanned;
             this.fail = fail;
         }
 
         @Override
-        void acceptUnsafe(AccordCommandStoreExecutor executor)
+        void acceptUnsafe(AccordExecutor executor)
         {
             executor.onScannedRangesUnsafe(scanned, fail);
         }
     }
 
-    private static class OnSaved<K, V> extends Deferred
+    private static class OnSaved<K, V> extends SubmitAsync
     {
         final AccordCachingState<K, V> state;
         final Object identity;
@@ -770,23 +845,23 @@ public class AccordCommandStoreExecutor implements CacheSize, AccordCachingState
         }
 
         @Override
-        void acceptUnsafe(AccordCommandStoreExecutor executor)
+        void acceptUnsafe(AccordExecutor executor)
         {
             executor.onSavedUnsafe(state, identity, fail);
         }
     }
 
-    private static class OnCancel<R> extends Deferred
+    private static class OnCancel<R> extends SubmitAsync
     {
-        final AsyncOperation<R> cancel;
+        final AccordTask<R> cancel;
 
-        private OnCancel(AsyncOperation<R> cancel)
+        private OnCancel(AccordTask<R> cancel)
         {
             this.cancel = cancel;
         }
 
         @Override
-        void acceptUnsafe(AccordCommandStoreExecutor executor)
+        void acceptUnsafe(AccordExecutor executor)
         {
             executor.cancelUnsafe(cancel);
         }

@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.service.accord.async;
+package org.apache.cassandra.service.accord;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -54,48 +54,35 @@ import accord.utils.async.AsyncChains;
 import accord.utils.async.Cancellable;
 import org.agrona.collections.Object2ObjectHashMap;
 import org.agrona.collections.ObjectHashSet;
-import org.apache.cassandra.service.accord.AccordCachingState;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
-import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordCommandStoreExecutor;
-import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordSafeCommand;
-import org.apache.cassandra.service.accord.AccordSafeCommandStore;
-import org.apache.cassandra.service.accord.AccordSafeCommandsForKey;
-import org.apache.cassandra.service.accord.AccordSafeState;
-import org.apache.cassandra.service.accord.AccordSafeTimestampsForKey;
-import org.apache.cassandra.service.accord.AccordStateCache;
-import org.apache.cassandra.service.accord.CommandsForRanges;
-import org.apache.cassandra.service.accord.CommandsForRangesLoader;
-import org.apache.cassandra.service.accord.SavedCommand;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.COMPLETING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FAILED;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.FINISHED;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.INITIALIZED;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.LOADING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.RUNNING;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_LOAD;
-import static org.apache.cassandra.service.accord.async.AsyncOperation.State.WAITING_TO_RUN;
+import static org.apache.cassandra.service.accord.AccordTask.State.COMPLETING;
+import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
+import static org.apache.cassandra.service.accord.AccordTask.State.FINISHED;
+import static org.apache.cassandra.service.accord.AccordTask.State.INITIALIZED;
+import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
+import static org.apache.cassandra.service.accord.AccordTask.State.RUNNING;
+import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
+import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_RUN;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
-public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Operation implements Runnable, Function<SafeCommandStore, R>, Cancellable
+public abstract class AccordTask<R> extends AccordExecutor.Task implements Runnable, Function<SafeCommandStore, R>, Cancellable
 {
-    private static final Logger logger = LoggerFactory.getLogger(AsyncOperation.class);
+    private static final Logger logger = LoggerFactory.getLogger(AccordTask.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
     private static final boolean SANITY_CHECK = DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED.getBoolean();
 
     private static class LoggingProps
     {
         private static final String COMMAND_STORE = "command_store";
-        private static final String ASYNC_OPERATION = "async_op";
+        private static final String ACCORD_TASK = "accord_task";
     }
 
-    static class ForFunction<R> extends AsyncOperation<R>
+    static class ForFunction<R> extends AccordTask<R>
     {
         private final Function<? super SafeCommandStore, R> function;
 
@@ -113,7 +100,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
     }
 
     // TODO (desired): these anonymous ops are somewhat tricky to debug. We may want to at least give them names.
-    static class ForConsumer extends AsyncOperation<Void>
+    static class ForConsumer extends AccordTask<Void>
     {
         private final Consumer<? super SafeCommandStore> consumer;
 
@@ -131,12 +118,12 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
         }
     }
 
-    public static <T> AsyncOperation<T> create(CommandStore commandStore, PreLoadContext ctx, Function<? super SafeCommandStore, T> function)
+    public static <T> AccordTask<T> create(CommandStore commandStore, PreLoadContext ctx, Function<? super SafeCommandStore, T> function)
     {
         return new ForFunction<>((AccordCommandStore) commandStore, ctx, function);
     }
 
-    public static AsyncOperation<Void> create(CommandStore commandStore, PreLoadContext ctx, Consumer<? super SafeCommandStore> consumer)
+    public static AccordTask<Void> create(CommandStore commandStore, PreLoadContext ctx, Consumer<? super SafeCommandStore> consumer)
     {
         return new ForConsumer((AccordCommandStore) commandStore, ctx, consumer);
     }
@@ -177,16 +164,16 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
     private void setLoggingIds()
     {
         MDC.put(LoggingProps.COMMAND_STORE, commandStore.loggingId);
-        MDC.put(LoggingProps.ASYNC_OPERATION, loggingId);
+        MDC.put(LoggingProps.ACCORD_TASK, loggingId);
     }
 
     private void clearLoggingIds()
     {
         MDC.remove(LoggingProps.COMMAND_STORE);
-        MDC.remove(LoggingProps.ASYNC_OPERATION);
+        MDC.remove(LoggingProps.ACCORD_TASK);
     }
 
-    public AsyncOperation(AccordCommandStore commandStore, PreLoadContext preLoadContext)
+    public AccordTask(AccordCommandStore commandStore, PreLoadContext preLoadContext)
     {
         this.loggingId = "0x" + Integer.toHexString(System.identityHashCode(this));
         this.commandStore = commandStore;
@@ -232,10 +219,10 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
             @Override
             protected Cancellable start(BiConsumer<? super R, Throwable> callback)
             {
-                Invariants.checkState(AsyncOperation.this.callback == null);
-                AsyncOperation.this.callback = callback;
-                commandStore.executor().submit(AsyncOperation.this);
-                return AsyncOperation.this;
+                Invariants.checkState(AccordTask.this.callback == null);
+                AccordTask.this.callback = callback;
+                commandStore.executor().submit(AccordTask.this);
+                return AccordTask.this;
             }
         };
     }
@@ -250,7 +237,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
     private void setupInternal()
     {
         for (TxnId txnId : preLoadContext.txnIds())
-            setup(txnId, AsyncOperation::ensureCommands, commandStore.commandCache());
+            setup(txnId, AccordTask::ensureCommands, commandStore.commandCache());
 
         if (preLoadContext.keys().isEmpty())
             return;
@@ -267,7 +254,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
 
                     case TIMESTAMPS:
                         for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
-                            setup(key, AsyncOperation::ensureTimestampsForKey, commandStore.timestampsForKeyCache());
+                            setup(key, AccordTask::ensureTimestampsForKey, commandStore.timestampsForKeyCache());
                         break;
 
                     case ASYNC:
@@ -275,7 +262,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
                     case INCR:
                     case SYNC:
                         for (RoutingKey key : (AbstractUnseekableKeys)preLoadContext.keys())
-                            setup(key, AsyncOperation::ensureCommandsForKey, commandStore.commandsForKeyCache());
+                            setup(key, AccordTask::ensureCommandsForKey, commandStore.commandsForKeyCache());
                         break;
                 }
                 break;
@@ -301,7 +288,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
     }
 
     // expects to hold lock
-    private <K, V, S extends AccordSafeState<K, V>> void setup(K k, Function<AsyncOperation<?>, Map<? super K, ? super S>> loaded, AccordStateCache.Instance<K, V, S> cache)
+    private <K, V, S extends AccordSafeState<K, V>> void setup(K k, Function<AccordTask<?>, Map<? super K, ? super S>> loaded, AccordStateCache.Instance<K, V, S> cache)
     {
         S safeRef = cache.acquire(k);
         Status status = safeRef.global().status();
@@ -770,10 +757,10 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
             }
             catch (Throwable t)
             {
-                commandStore.executor().onScannedRanges(AsyncOperation.this, t);
+                commandStore.executor().onScannedRanges(AccordTask.this, t);
                 throw t;
             }
-            commandStore.executor().onScannedRanges(AsyncOperation.this, null);
+            commandStore.executor().onScannedRanges(AccordTask.this, null);
         }
 
         private void reference(AccordCachingState<RoutingKey, CommandsForKey> state)
@@ -788,7 +775,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
                     ensureLoading().put(state.key(), commandStore.commandsForKeyCache().acquire(state));
                     if (state.status() == Status.WAITING_TO_LOAD)
                         ensureWaitingToLoad().add(state);
-                    state.loadingOrWaiting().add(AsyncOperation.this);
+                    state.loadingOrWaiting().add(AccordTask.this);
                     return;
 
                 case MODIFIED:

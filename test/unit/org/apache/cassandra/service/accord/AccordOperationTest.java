@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.service.accord.async;
+package org.apache.cassandra.service.accord;
 
 import java.time.Duration;
 import java.util.List;
@@ -71,13 +71,6 @@ import org.apache.cassandra.schema.KeyspaceParams;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.service.accord.AccordCachingState;
-import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.AccordSafeCommand;
-import org.apache.cassandra.service.accord.AccordSafeCommandStore;
-import org.apache.cassandra.service.accord.AccordStateCache;
-import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.utils.AssertionUtils;
@@ -98,9 +91,9 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.keys;
 import static org.apache.cassandra.service.accord.AccordTestUtils.loaded;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
-public class AsyncOperationTest
+public class AccordOperationTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(AsyncOperationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(AccordOperationTest.class);
     private static final AtomicLong clock = new AtomicLong(0);
 
     @BeforeClass
@@ -314,7 +307,7 @@ public class AsyncOperationTest
                     return commandStore.loadCommand(txnId);
                 throw new NullPointerException("txn_id " + txnId);
             });
-            AsyncOperation<Void> o1 = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
+            AccordTask<Void> o1 = new AccordTask.ForConsumer(commandStore, ctx, consumer);
 
             AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(o1.chain()))
                       .hasRootCause()
@@ -333,7 +326,7 @@ public class AsyncOperationTest
                 Command cmd = commandStore.loadCommand(txnId);
                 return cmd;
             });
-            AsyncOperation.ForConsumer o2 = new AsyncOperation.ForConsumer(commandStore, ctx, store -> {
+            AccordTask.ForConsumer o2 = new AccordTask.ForConsumer(commandStore, ctx, store -> {
                 ids.forEach(id -> {
                     store.ifInitialised(id).readyToExecute(store);
                 });
@@ -369,7 +362,7 @@ public class AsyncOperationTest
             String errorMsg = "txn_ids " + ids;
             Mockito.doThrow(new NullPointerException(errorMsg)).when(consumer).accept(Mockito.any());
 
-            AsyncOperation<Void> operation = new AsyncOperation.ForConsumer(commandStore, ctx, consumer);
+            AccordTask<Void> operation = new AccordTask.ForConsumer(commandStore, ctx, consumer);
 
             AssertionUtils.assertThatThrownBy(() -> getUninterruptibly(operation.chain()))
                           .hasRootCause()

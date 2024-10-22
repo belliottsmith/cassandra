@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.service.accord.async;
+package org.apache.cassandra.service.accord;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -48,19 +48,14 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
-import org.apache.cassandra.service.accord.AccordCommandStore;
-import org.apache.cassandra.service.accord.AccordKeyspace;
-import org.apache.cassandra.service.accord.SimulatedAccordCommandStore;
 import org.apache.cassandra.service.accord.SimulatedAccordCommandStore.FunctionWrapper;
-import org.apache.cassandra.service.accord.SimulatedAccordCommandStoreTestBase;
-import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.utils.Pair;
 import org.assertj.core.api.Assertions;
 
 import static accord.utils.Property.qt;
 
-public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTestBase
+public class SimulatedAccordOperationTest extends SimulatedAccordCommandStoreTestBase
 {
     @Before
     public void precondition()
@@ -178,7 +173,7 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
 
     private enum Action { SUCCESS, FAILURE, LOAD_FAILURE }
 
-    private static AsyncOperation<Void> operation(SimulatedAccordCommandStore instance, PreLoadContext ctx, Action action, BooleanSupplier delay)
+    private static AccordTask<Void> operation(SimulatedAccordCommandStore instance, PreLoadContext ctx, Action action, BooleanSupplier delay)
     {
         return new SimulatedOperation(instance.store, ctx, action == Action.FAILURE ? SimulatedOperation.Action.FAILURE : SimulatedOperation.Action.SUCCESS);
     }
@@ -196,7 +191,7 @@ public class SimulatedAsyncOperationTest extends SimulatedAccordCommandStoreTest
         }
     }
 
-    private static class SimulatedOperation extends AsyncOperation<Void>
+    private static class SimulatedOperation extends AccordTask<Void>
     {
         enum Action { SUCCESS, FAILURE}
         private final Action action;

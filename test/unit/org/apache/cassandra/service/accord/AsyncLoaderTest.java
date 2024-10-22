@@ -16,7 +16,7 @@
 // * limitations under the License.
 // */
 //
-//package org.apache.cassandra.service.accord.async;
+//package org.apache.cassandra.service.accord;
 //
 //import java.util.Map;
 //import java.util.concurrent.TimeUnit;

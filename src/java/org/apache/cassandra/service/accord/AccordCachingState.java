@@ -29,7 +29,6 @@ import com.google.common.primitives.Ints;
 import accord.utils.ArrayBuffers.BufferList;
 import accord.utils.IntrusiveLinkedListNode;
 import accord.utils.Invariants;
-import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.concurrent.Future;
 
@@ -526,38 +525,38 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
 
     public static abstract class LoadingOrWaiting<K, V> implements State<K, V>
     {
-        Collection<AsyncOperation<?>> waiters;
+        Collection<AccordTask<?>> waiters;
 
         public LoadingOrWaiting()
         {
         }
 
-        public LoadingOrWaiting(Collection<AsyncOperation<?>> waiters)
+        public LoadingOrWaiting(Collection<AccordTask<?>> waiters)
         {
             this.waiters = waiters;
         }
 
-        public Collection<AsyncOperation<?>> waiters()
+        public Collection<AccordTask<?>> waiters()
         {
             return waiters != null ? waiters : Collections.emptyList();
         }
 
-        public BufferList<AsyncOperation<?>> copyWaiters()
+        public BufferList<AccordTask<?>> copyWaiters()
         {
-            BufferList<AsyncOperation<?>> list = new BufferList<>();
+            BufferList<AccordTask<?>> list = new BufferList<>();
             if (waiters != null)
                 list.addAll(waiters);
             return list;
         }
 
-        public void add(AsyncOperation<?> waiter)
+        public void add(AccordTask<?> waiter)
         {
             if (waiters == null)
                 waiters = new ArrayList<>();
             waiters.add(waiter);
         }
 
-        public void remove(AsyncOperation<?> waiter)
+        public void remove(AccordTask<?> waiter)
         {
             if (waiters != null)
             {
@@ -596,7 +595,7 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
         // TODO (expected): support cancellation
         public final Future<?> loading;
 
-        public Loading(Collection<AsyncOperation<?>> waiters, Future<?> loading)
+        public Loading(Collection<AccordTask<?>> waiters, Future<?> loading)
         {
             super(waiters);
             this.loading = loading;

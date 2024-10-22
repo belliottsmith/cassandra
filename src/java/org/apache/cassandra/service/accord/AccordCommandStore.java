@@ -20,7 +20,6 @@ package org.apache.cassandra.service.accord;
 
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -71,7 +70,6 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.service.accord.SavedCommand.MinimalCommand;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
-import org.apache.cassandra.service.accord.async.AsyncOperation;
 import org.apache.cassandra.service.accord.events.CacheEvents;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
@@ -92,11 +90,11 @@ public class AccordCommandStore extends CommandStore
 
     public final String loggingId;
     private final IJournal journal;
-    private final AccordCommandStoreExecutor executor;
+    private final AccordExecutor executor;
     private final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commandCache;
     private final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeyCache;
     private final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeyCache;
-    private AsyncOperation<?> currentOperation = null;
+    private AccordTask<?> currentOperation = null;
     private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
     private final CommandsForRangesLoader commandsForRangesLoader;
@@ -176,7 +174,7 @@ public class AccordCommandStore extends CommandStore
                               LocalListeners.Factory listenerFactory,
                               EpochUpdateHolder epochUpdateHolder,
                               IJournal journal,
-                              AccordCommandStoreExecutor commandStoreExecutor)
+                              AccordExecutor commandStoreExecutor)
     {
         super(id, node, agent, dataStore, progressLogFactory, listenerFactory, epochUpdateHolder);
         this.journal = journal;
@@ -223,7 +221,7 @@ public class AccordCommandStore extends CommandStore
         executor.execute(() -> CommandStore.register(this));
     }
 
-    static Factory factory(AccordJournal journal, IntFunction<AccordCommandStoreExecutor> executorFactory)
+    static Factory factory(AccordJournal journal, IntFunction<AccordExecutor> executorFactory)
     {
         return (id, node, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch) ->
                new AccordCommandStore(id, node, agent, dataStore, progressLogFactory, listenerFactory, rangesForEpoch, journal, executorFactory.apply(id));
@@ -259,7 +257,7 @@ public class AccordCommandStore extends CommandStore
         checkState(!inStore());
     }
 
-    public AccordCommandStoreExecutor executor()
+    public AccordExecutor executor()
     {
         return executor;
     }
@@ -372,19 +370,19 @@ public class AccordCommandStore extends CommandStore
         return null != mutation ? mutation::applyUnsafe : null;
     }
 
-    public void setCurrentOperation(AsyncOperation<?> operation)
+    public void setCurrentOperation(AccordTask<?> operation)
     {
         checkState(currentOperation == null);
         currentOperation = operation;
     }
 
-    public AsyncOperation<?> getContext()
+    public AccordTask<?> getContext()
     {
         checkState(currentOperation != null);
         return currentOperation;
     }
 
-    public void unsetCurrentOperation(AsyncOperation<?> operation)
+    public void unsetCurrentOperation(AccordTask<?> operation)
     {
         checkState(currentOperation == operation);
         currentOperation = null;
@@ -398,7 +396,7 @@ public class AccordCommandStore extends CommandStore
     @Override
     public <T> AsyncChain<T> submit(PreLoadContext loadCtx, Function<? super SafeCommandStore, T> function)
     {
-        return AsyncOperation.create(this, loadCtx, function).chain();
+        return AccordTask.create(this, loadCtx, function).chain();
     }
 
     @Override
@@ -425,7 +423,7 @@ public class AccordCommandStore extends CommandStore
     @Override
     public AsyncChain<Void> execute(PreLoadContext preLoadContext, Consumer<? super SafeCommandStore> consumer)
     {
-        return AsyncOperation.create(this, preLoadContext, consumer).chain();
+        return AccordTask.create(this, preLoadContext, consumer).chain();
     }
 
     public void executeBlocking(Runnable runnable)
@@ -444,7 +442,7 @@ public class AccordCommandStore extends CommandStore
         }
     }
 
-    public AccordSafeCommandStore beginOperation(AsyncOperation<?> operation,
+    public AccordSafeCommandStore beginOperation(AccordTask<?> operation,
                                                  @Nullable CommandsForRanges commandsForRanges)
     {
         checkState(current == null);
