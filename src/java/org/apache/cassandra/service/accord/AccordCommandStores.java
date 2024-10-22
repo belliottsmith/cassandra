@@ -40,8 +40,11 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheSizeMetrics;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExecutor;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
+
+import static org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExecutor.Mode.RUN_WITH_LOCK;
 
 public class AccordCommandStores extends CommandStores implements CacheSize
 {
@@ -69,7 +72,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
             for (int id = 0; id < executors.length; id++)
             {
                 AccordStateCacheMetrics metrics = new AccordStateCacheMetrics(ACCORD_STATE_CACHE);
-                executors[id] = new AccordExecutor(CommandStore.class.getSimpleName() + '[' + id + ']', metrics, agent);
+                executors[id] = new InfiniteLoopAccordExecutor(RUN_WITH_LOCK, CommandStore.class.getSimpleName() + '[' + id + ']', metrics, agent);
             }
 
             return new AccordCommandStores(time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory, journal, executors);

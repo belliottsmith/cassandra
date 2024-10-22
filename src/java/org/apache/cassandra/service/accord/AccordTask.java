@@ -202,6 +202,12 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     }
 
     // TODO (expected): avoid this in the common case, or use CAS to guard this final update
+    private synchronized void synchronizedState(State test, State state)
+    {
+        if (state == test)
+            state(state);
+    }
+
     private synchronized void synchronizedState(State state)
     {
         state(state);
@@ -506,7 +512,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 }
 
                 commandStore.completeOperation(safeStore);
-                synchronizedState(COMPLETING);
+                synchronizedState(RUNNING, COMPLETING);
                 if (flushed)
                     return false;
 
@@ -818,6 +824,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
         public void scanned()
         {
+            Invariants.checkState(state == LOADING || state == WAITING_TO_LOAD);
             scanned = true;
             if (loading == null)
                 state(WAITING_TO_RUN);

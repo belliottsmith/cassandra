@@ -42,6 +42,7 @@ import accord.utils.TriFunction;
 import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.Interruptible;
+import org.apache.cassandra.concurrent.Shutdownable;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
@@ -53,23 +54,250 @@ import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Daemon.NON_DA
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Interrupts.UNSYNCHRONIZED;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
+import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
-public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Executor
+public abstract class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Executor, Shutdownable
 {
+    static class InfiniteLoopAccordExecutor extends AccordExecutor
+    {
+        public enum Mode { RUN_WITH_LOCK, RUN_WITHOUT_LOCK }
+
+        private final Interruptible loop;
+        final Condition hasWork = lock.newCondition();
+
+        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, Agent agent)
+        {
+            this(mode, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
+        }
+
+        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            this(mode, name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
+        }
+
+        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+            this.loop = executorFactory().infiniteLoop(name, task(mode), SAFE, NON_DAEMON, UNSYNCHRONIZED);
+        }
+
+        @Override
+        void notifyWorkExclusive()
+        {
+            hasWork.signal();
+        }
+
+        @Override
+        void postUnlock()
+        {
+            if (!submitted.isEmpty() || !lock.tryLock())
+                return;
+
+            try
+            {
+                hasWork.signal();
+            }
+            finally
+            {
+                lock.unlock();
+            }
+        }
+
+        @Override public boolean isTerminated() { return loop.isTerminated(); }
+        @Override public void shutdown() { loop.shutdown(); }
+        @Override public Object shutdownNow() { return loop.shutdownNow(); }
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException
+        {
+            return loop.awaitTermination(timeout, unit);
+        }
+        Interruptible.Task task(Mode mode)
+        {
+            return mode == Mode.RUN_WITH_LOCK ? this::runWithLock : this::runWithoutLock;
+        }
+
+        protected void runWithLock(Interruptible.State state) throws InterruptedException
+        {
+            lock.lockInterruptibly();
+            try
+            {
+                running = 1;
+                while (true)
+                {
+                    drainSubmittedUnsafe();
+                    Task op = waitingToRun.poll();
+
+                    if (op != null)
+                    {
+                        --tasks;
+                        try { op.run(); }
+                        catch (Throwable t) { op.fail(t); }
+                        finally { op.cleanup(); }
+                    }
+                    else
+                    {
+                        running = 0;
+                        hasWork.await();
+                    }
+                }
+            }
+            catch (Throwable t)
+            {
+                running = 0;
+                throw t;
+            }
+            finally
+            {
+                lock.unlock();
+                postUnlock();
+            }
+        }
+
+        protected void runWithoutLock(Interruptible.State state) throws InterruptedException
+        {
+            Task op = null;
+            while (true)
+            {
+                lock.lock();
+                try
+                {
+                    if (op != null)
+                        op.cleanup();
+
+                    while (true)
+                    {
+                        drainSubmittedUnsafe();
+                        op = waitingToRun.poll();
+                        if (op != null)
+                            break;
+                        hasWork.await();
+                    }
+                    --tasks;
+                    ++running;
+                }
+                finally
+                {
+                    lock.unlock();
+                }
+
+                try { op.run(); }
+                catch (Throwable t)
+                {
+                    try { op.fail(t); }
+                    catch (Throwable t2)
+                    {
+                        t2.addSuppressed(t);
+                        agent.onUncaughtException(t2);
+                    }
+                }
+            }
+        }
+    }
+
+    static abstract class AbstractPooledAccordExecutor extends AccordExecutor
+    {
+        final ExecutorPlus executor;
+        public AbstractPooledAccordExecutor(ExecutorPlus executor, AccordStateCacheMetrics metrics, Agent agent)
+        {
+            this(executor, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
+        }
+
+        public AbstractPooledAccordExecutor(ExecutorPlus executor, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            this(executor, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
+        }
+
+        public AbstractPooledAccordExecutor(ExecutorPlus executor, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+            this.executor = executor;
+        }
+
+        @Override public boolean isTerminated() { return executor.isTerminated(); }
+        @Override public void shutdown() { executor.shutdown(); }
+        @Override public Object shutdownNow() { return executor.shutdownNow(); }
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit units) throws InterruptedException
+        {
+            return executor.awaitTermination(timeout, units);
+        }
+    }
+
+    // TODO (expected): move to test package
+    static class TestAccordExecutor extends AbstractPooledAccordExecutor
+    {
+        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, Agent agent)
+        {
+            this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
+        }
+
+        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            this(name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
+        }
+
+        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        {
+            super(executorFactory().sequential(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+        }
+
+        protected void run()
+        {
+            lock.lock();
+            try
+            {
+                running = 1;
+                while (true)
+                {
+                    drainSubmittedUnsafe();
+                    Task op = waitingToRun.poll();
+                    if (op == null)
+                        return;
+
+                    --tasks;
+                    try { op.run(); }
+                    catch (Throwable t) { op.fail(t); }
+                    finally { op.cleanup(); }
+                }
+            }
+            catch (Throwable t)
+            {
+                throw t;
+            }
+            finally
+            {
+                running = 0;
+                lock.unlock();
+                postUnlock();
+            }
+        }
+
+        @Override
+        void postUnlock()
+        {
+            if (!submitted.isEmpty() || !waitingToRun.isEmpty())
+                executor.execute(this::run);
+        }
+
+        @Override
+        void notifyWorkExclusive()
+        {
+            executor.execute(this::run);
+        }
+    }
+
     private static final int MAX_QUEUED_LOADS_PER_EXECUTOR = 64;
     private static final int MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR = 8;
 
-    private final Interruptible loop;
-    private final ReentrantLock lock = new ReentrantLock();
-    private final Condition hasWork = lock.newCondition();
+    final ReentrantLock lock = new ReentrantLock();
 
     final Agent agent;
     final AccordStateCache stateCache;
     private final Function<Runnable, Future<?>> loadExecutor;
     private final Executor rangeLoadExecutor;
 
-    private final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
+    final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
 
     private final TaskPriorityHeap<AccordTask<?>> scanningRanges = new TaskPriorityHeap<>(); // never queried, just parked here while scanning
     private final TaskPriorityHeap<AccordTask<?>> loading = new TaskPriorityHeap<>(); // never queried, just parked here while loading
@@ -78,30 +306,19 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
     private final TaskPriorityHeap<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskPriorityHeap<>();
 
     private final TaskPriorityHeap<AccordTask<?>> waitingToLoad = new TaskPriorityHeap<>();
-    private final TaskPriorityHeap<Task> waitingToRun = new TaskPriorityHeap<>();
+    final TaskPriorityHeap<Task> waitingToRun = new TaskPriorityHeap<>();
     private final AccordCachingState.OnLoaded onRangeLoaded = this::onRangeLoaded;
 
     private int nextPosition;
     private int activeLoads, activeRangeLoads;
-    private int tasks;
-    private int running;
+    int tasks;
+    int running;
 
-    AccordExecutor(String name, AccordStateCacheMetrics metrics, Agent agent)
-    {
-        this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
-    }
-
-    AccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
-    {
-        this(name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
-    }
-
-    AccordExecutor(String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+    AccordExecutor(AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
     {
         this.stateCache = new AccordStateCache(saveExecutor, this, 8 << 20, metrics);
         this.loadExecutor = loadExecutor;
         this.rangeLoadExecutor = rangeLoadExecutor;
-        this.loop = executorFactory().infiniteLoop(name, this::run, SAFE, NON_DAEMON, UNSYNCHRONIZED);
         this.agent = agent;
     }
 
@@ -110,10 +327,8 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         return !submitted.isEmpty() || tasks > 0 || running > 0;
     }
 
-    private void enqueueWorkExclusive()
-    {
-        hasWork.signal();
-    }
+    abstract void notifyWorkExclusive();
+    abstract void postUnlock();
 
     private void enqueueLoadsUnsafe()
     {
@@ -254,7 +469,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
                 op.runQueuedAt = nanoTime();
                 boolean signal = waitingToRun.isEmpty();
                 waitingToRun.append(op);
-                if (signal) enqueueWorkExclusive();
+                if (signal) notifyWorkExclusive();
                 break;
         }
     }
@@ -360,24 +575,9 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         }
     }
 
-    private void drainSubmittedUnsafe()
+    void drainSubmittedUnsafe()
     {
         submitted.drain(AccordExecutor::consumeUnsafe, this, true);
-    }
-
-    private void postUnlock()
-    {
-        if (submitted.isEmpty() || !lock.tryLock())
-            return;
-
-        try
-        {
-            hasWork.signal();
-        }
-        finally
-        {
-            lock.unlock();
-        }
     }
 
     private void submitUnsafe(AsyncPromise<Void> result, Runnable run)
@@ -387,7 +587,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         op.queuePosition = ++nextPosition;
         boolean signal = waitingToRun.isEmpty();
         waitingToRun.append(op);
-        if (signal) hasWork.signal();
+        if (signal) notifyWorkExclusive();
     }
 
     private void loadUnsafe(AccordTask<?> op)
@@ -436,15 +636,21 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         if (fail != null)
         {
             --tasks;
-            try { op.fail(fail); }
-            catch (Throwable t) { agent.onUncaughtException(t); }
-            enqueueLoadsUnsafe();
+            try
+            {
+                op.fail(fail);
+            }
+            catch (Throwable t)
+            {
+                agent.onUncaughtException(t);
+            }
         }
-        else
+        else if (op.state() != FAILED)
         {
             op.rangeLoader().scanned();
             updateQueue(scanningRanges, op);
         }
+        enqueueLoadsUnsafe();
     }
 
     private <K, V> void onSavedUnsafe(AccordCachingState<K, V> state, Object identity, Throwable fail)
@@ -498,123 +704,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
                 }
                 cache().loaded(loaded, value);
                 if (enqueueWork)
-                    enqueueWorkExclusive();
-            }
-        }
-    }
-
-    protected void run(Interruptible.State state) throws InterruptedException
-    {
-        lock.lock();
-        try
-        {
-            running = 1;
-            while (true)
-            {
-                drainSubmittedUnsafe();
-                Task op = waitingToRun.poll();
-
-                if (op != null)
-                {
-                    --tasks;
-                    try { op.run(); }
-                    catch (Throwable t) { op.fail(t); }
-                    finally { op.cleanup(); }
-                }
-                else
-                {
-                    running = 0;
-                    hasWork.await();
-                    if (waitingToRun.isEmpty() && submitted.isEmpty())
-                        return;
-                }
-            }
-        }
-        catch (Throwable t)
-        {
-            running = 0;
-            throw t;
-        }
-        finally
-        {
-            lock.unlock();
-            postUnlock();
-        }
-    }
-
-    protected void runWithLock(Interruptible.State state) throws InterruptedException
-    {
-        lock.lock();
-        try
-        {
-            running = 1;
-            while (true)
-            {
-                drainSubmittedUnsafe();
-                Task op = waitingToRun.poll();
-
-                if (op != null)
-                {
-                    --tasks;
-                    try { op.run(); }
-                    catch (Throwable t) { op.fail(t); }
-                    finally { op.cleanup(); }
-                }
-                else
-                {
-                    running = 0;
-                    hasWork.await();
-                }
-            }
-        }
-        catch (Throwable t)
-        {
-            running = 0;
-            throw t;
-        }
-        finally
-        {
-            lock.unlock();
-            postUnlock();
-        }
-    }
-
-    protected void runWithoutLock(Interruptible.State state) throws InterruptedException
-    {
-        Task op = null;
-        while (true)
-        {
-            lock.lock();
-            try
-            {
-                if (op != null)
-                    op.cleanup();
-
-                while (true)
-                {
-                    drainSubmittedUnsafe();
-                    op = waitingToRun.poll();
-                    if (op != null)
-                        break;
-                    hasWork.await();
-                }
-                --tasks;
-                ++running;
-            }
-            finally
-            {
-                lock.unlock();
-            }
-
-            try { op.run(); }
-            catch (Throwable t)
-            {
-                try { op.fail(t); }
-                catch (Throwable t2)
-                {
-                    t2.addSuppressed(t);
-                    agent.onUncaughtException(t2);
-                }
+                    notifyWorkExclusive();
             }
         }
     }
@@ -622,16 +712,6 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
     public boolean isInThread()
     {
         return lock.isHeldByCurrentThread();
-    }
-
-    public void shutdown()
-    {
-        loop.shutdown();
-    }
-
-    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException
-    {
-        return loop.awaitTermination(timeout, unit);
     }
 
     public Future<?> submit(Runnable run)
