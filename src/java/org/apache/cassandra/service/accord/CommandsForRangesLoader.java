@@ -217,12 +217,12 @@ public class CommandsForRangesLoader implements AccordStateCache.Listener<TxnId,
                 case LOADING:
                 case WAITING_TO_LOAD:
                 case UNINITIALIZED:
-                case FAILED_TO_SAVE:
                     return null;
 
                 case LOADED:
-                case SAVING:
                 case MODIFIED:
+                case SAVING:
+                case FAILED_TO_SAVE:
             }
 
             TxnId txnId = state.key();

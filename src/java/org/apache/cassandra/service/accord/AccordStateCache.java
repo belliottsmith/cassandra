@@ -46,7 +46,6 @@ import org.apache.cassandra.utils.concurrent.Future;
 import static accord.utils.Invariants.checkState;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.LOADED;
-import static org.apache.cassandra.service.accord.AccordCachingState.Status.LOADING;
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.SAVING;
 
 /**
@@ -553,28 +552,6 @@ public class AccordStateCache extends IntrusiveLinkedList<AccordCachingState<?,?
             //noinspection unchecked
             AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
             return node != null && node.references > 0;
-        }
-
-        @VisibleForTesting
-        public boolean isLoaded(K key)
-        {
-            //noinspection unchecked
-            AccordCachingState<K, V> node = (AccordCachingState<K, V>) cache.get(key);
-            return node != null && node.isLoaded();
-        }
-
-        @VisibleForTesting
-        public boolean hasLoadResult(K key)
-        {
-            AccordCachingState<?, ?> node = cache.get(key);
-            return node != null && node.status() == LOADING;
-        }
-
-        @VisibleForTesting
-        public boolean hasSaveResult(K key)
-        {
-            AccordCachingState<?, ?> node = cache.get(key);
-            return node != null && node.status() == SAVING;
         }
 
         @VisibleForTesting

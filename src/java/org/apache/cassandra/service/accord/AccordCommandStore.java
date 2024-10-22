@@ -444,21 +444,11 @@ public class AccordCommandStore extends CommandStore
         }
     }
 
-    public AccordSafeCommandStore beginOperation(PreLoadContext preLoadContext,
-                                                 @Nullable Map<TxnId, AccordSafeCommand> commands,
-                                                 @Nullable Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKeys,
-                                                 @Nullable Map<RoutingKey, AccordSafeCommandsForKey> commandsForKeys,
+    public AccordSafeCommandStore beginOperation(AsyncOperation<?> operation,
                                                  @Nullable CommandsForRanges commandsForRanges)
     {
         checkState(current == null);
-        if (commands != null)
-            commands.values().forEach(AccordSafeState::preExecute);
-        if (commandsForKeys != null)
-            commandsForKeys.values().forEach(AccordSafeState::preExecute);
-        if (timestampsForKeys != null)
-            timestampsForKeys.values().forEach(AccordSafeState::preExecute);
-
-        current = AccordSafeCommandStore.create(preLoadContext, commands, timestampsForKeys, commandsForKeys, commandsForRanges, this);
+        current = AccordSafeCommandStore.create(operation, commandsForRanges, this);
         return current;
     }
 

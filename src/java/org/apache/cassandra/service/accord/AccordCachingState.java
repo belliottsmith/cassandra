@@ -367,7 +367,7 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
 
         boolean isLoaded()
         {
-            return this == LOADED || this == MODIFIED || this == FAILED_TO_SAVE;
+            return this == LOADED || this == MODIFIED || this == SAVING || this == FAILED_TO_SAVE;
         }
 
         boolean isLoadingOrWaiting()
@@ -733,7 +733,6 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
             return value;
         }
 
-        // TODO (required): cancel the in-flight save
         @Override
         public State<K, V> set(V value)
         {

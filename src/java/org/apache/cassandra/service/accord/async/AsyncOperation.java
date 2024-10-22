@@ -48,7 +48,6 @@ import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.TxnId;
 import accord.primitives.Unseekables;
-import accord.utils.IntrusivePriorityHeap;
 import accord.utils.Invariants;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
@@ -245,7 +244,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
     public void setup()
     {
         setupInternal();
-        state(loading == null ? WAITING_TO_RUN : waitingToLoad == null ? LOADING : WAITING_TO_LOAD);
+        state(loading == null && rangeLoader == null ? WAITING_TO_RUN : waitingToLoad == null ? LOADING : WAITING_TO_LOAD);
     }
 
     private void setupInternal()
@@ -379,21 +378,41 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
         return false;
     }
 
-    private Map<TxnId, AccordSafeCommand> ensureCommands()
+    public PreLoadContext preLoadContext()
+    {
+        return preLoadContext;
+    }
+
+    public Map<TxnId, AccordSafeCommand> commands()
+    {
+        return commands;
+    }
+
+    public Map<TxnId, AccordSafeCommand> ensureCommands()
     {
         if (commands == null)
             commands = new Object2ObjectHashMap<>();
         return commands;
     }
 
-    private Map<RoutingKey, AccordSafeTimestampsForKey> ensureTimestampsForKey()
+    public Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey()
+    {
+        return timestampsForKey;
+    }
+
+    public Map<RoutingKey, AccordSafeTimestampsForKey> ensureTimestampsForKey()
     {
         if (timestampsForKey == null)
             timestampsForKey = new Object2ObjectHashMap<>();
         return timestampsForKey;
     }
 
-    private Map<RoutingKey, AccordSafeCommandsForKey> ensureCommandsForKey()
+    public Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey()
+    {
+        return commandsForKey;
+    }
+
+    public Map<RoutingKey, AccordSafeCommandsForKey> ensureCommandsForKey()
     {
         if (commandsForKey == null)
             commandsForKey = new Object2ObjectHashMap<>();
@@ -459,7 +478,15 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
                     commandsForRanges = rangeLoader.finish();
                     rangeLoader = null;
                 }
-                AccordSafeCommandStore safeStore = commandStore.beginOperation(preLoadContext, commands, timestampsForKey, commandsForKey, commandsForRanges);
+
+                if (commands != null)
+                    commands.values().forEach(AccordSafeState::preExecute);
+                if (commandsForKey != null)
+                    commandsForKey.values().forEach(AccordSafeState::preExecute);
+                if (timestampsForKey != null)
+                    timestampsForKey.values().forEach(AccordSafeState::preExecute);
+
+                AccordSafeCommandStore safeStore = commandStore.beginOperation(this, commandsForRanges);
                 result = apply(safeStore);
 
                 // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
@@ -767,6 +794,7 @@ public abstract class AsyncOperation<R> extends AccordCommandStoreExecutor.Opera
                 case MODIFIED:
                 case SAVING:
                 case LOADED:
+                case FAILED_TO_SAVE:
                     if (commandsForKey != null && commandsForKey.containsKey(state.key()))
                         return;
                     ensureCommandsForKey().putIfAbsent(state.key(), commandStore.commandsForKeyCache().acquire(state));
