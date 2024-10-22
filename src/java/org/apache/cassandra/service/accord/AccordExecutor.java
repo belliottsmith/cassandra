@@ -519,6 +519,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
                     --tasks;
                     try { op.run(); }
                     catch (Throwable t) { op.fail(t); }
+                    finally { op.cleanup(); }
                 }
                 else
                 {
@@ -768,7 +769,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         @Override
         void acceptUnsafe(AccordExecutor executor)
         {
-            executor.submit(run);
+            executor.submitUnsafe(result, run);
         }
     }
 

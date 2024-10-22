@@ -506,7 +506,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 }
 
                 commandStore.completeOperation(safeStore);
-                releaseResources(commandStore);
                 synchronizedState(COMPLETING);
                 if (flushed)
                     return false;
@@ -534,11 +533,13 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
+    // expects to hold cache lock
     protected void cleanup()
     {
+        releaseResources(commandStore);
     }
 
-    // expects to hold lock
+    // expects to hold cache lock
     public void fail(Throwable throwable)
     {
         commandStore.agent().onUncaughtException(throwable);

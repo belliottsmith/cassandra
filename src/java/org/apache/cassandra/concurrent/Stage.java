@@ -232,13 +232,9 @@ public enum Stage
     static LocalAwareExecutorPlus multiThreadedLowSignalStage(String jmxName, String jmxType, int numThreads, LocalAwareExecutorPlus.MaximumPoolSizeListener onSetMaximumPoolSize)
     {
         return executorFactory()
-               .localAware()
-               .withJmx(jmxType)
-               .pooled(jmxName, numThreads);
-//        return executorFactory()
-//                .localAware()
-//                .withJmx(jmxType)
-//                .shared(jmxName, numThreads, onSetMaximumPoolSize);
+                .localAware()
+                .withJmx(jmxType)
+                .shared(jmxName, numThreads, onSetMaximumPoolSize);
     }
 
     static LocalAwareExecutorPlus immediateExecutor(String jmxName, String jmxType, int numThreads, LocalAwareExecutorPlus.MaximumPoolSizeListener onSetMaximumPoolSize)
