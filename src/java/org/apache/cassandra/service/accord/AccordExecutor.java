@@ -107,7 +107,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
 
     public boolean hasTasks()
     {
-        return !submitted.isEmpty() || tasks > 0 || running;
+        return !submitted.isEmpty() || tasks > 0 || running > 0;
     }
 
     private void enqueueWorkExclusive()
@@ -508,7 +508,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         lock.lock();
         try
         {
-            running = true;
+            running = 1;
             while (true)
             {
                 drainSubmittedUnsafe();
@@ -522,7 +522,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
                 }
                 else
                 {
-                    running = false;
+                    running = 0;
                     hasWork.await();
                     if (waitingToRun.isEmpty() && submitted.isEmpty())
                         return;
@@ -531,7 +531,7 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         }
         catch (Throwable t)
         {
-            running = false;
+            running = 0;
             throw t;
         }
         finally
@@ -706,6 +706,11 @@ public class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, A
         {
             result.tryFailure(t);
             agent.onUncaughtException(t);
+        }
+
+        @Override
+        protected void cleanup()
+        {
         }
     }
 
