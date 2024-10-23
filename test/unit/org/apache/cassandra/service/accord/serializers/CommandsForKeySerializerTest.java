@@ -34,7 +34,9 @@ import java.util.function.LongUnaryOperator;
 import java.util.function.Supplier;
 
 import org.apache.commons.lang3.ArrayUtils;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -101,6 +103,18 @@ public class CommandsForKeySerializerTest
         SchemaLoader.createKeyspace("ks", KeyspaceParams.simple(1),
                                     parse("CREATE TABLE tbl (k int, c int, v int, primary key (k, c)) WITH transactional_mode='full'", "ks"));
         StorageService.instance.initServer();
+    }
+
+    @Before
+    public void before() throws Throwable
+    {
+        CommandsForKey.disableLinearizabilityViolationsReporting();
+    }
+
+    @After
+    public void after() throws Throwable
+    {
+        CommandsForKey.enableLinearizabilityViolationsReporting();
     }
 
     static class Cmd
