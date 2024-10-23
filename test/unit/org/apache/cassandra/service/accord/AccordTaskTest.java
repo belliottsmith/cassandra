@@ -93,9 +93,9 @@ import static org.apache.cassandra.service.accord.AccordTestUtils.keys;
 import static org.apache.cassandra.service.accord.AccordTestUtils.loaded;
 import static org.apache.cassandra.service.accord.AccordTestUtils.txnId;
 
-public class AccordOperationTest
+public class AccordTaskTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(AccordOperationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(AccordTaskTest.class);
     private static final AtomicLong clock = new AtomicLong(0);
 
     @BeforeClass
@@ -420,17 +420,17 @@ public class AccordOperationTest
     private static void assertNoReferences(AccordCommandStore commandStore, List<TxnId> ids, Participants<RoutingKey> keys)
     {
         AssertionError error = null;
-        try
+        try (ExclusiveCaches caches = commandStore.lockCaches())
         {
-            assertNoReferences(commandStore.cachesUnsafe().commands(), ids);
+            assertNoReferences(caches.commands(), ids);
         }
         catch (AssertionError e)
         {
             error = e;
         }
-        try
+        try (ExclusiveCaches caches = commandStore.lockCaches())
         {
-            assertNoReferences(commandStore.cachesUnsafe().commandsForKeys(), keys);
+            assertNoReferences(caches.commandsForKeys(), keys);
         }
         catch (AssertionError e)
         {
@@ -449,6 +449,8 @@ public class AccordOperationTest
             if (node == null) continue;
             try
             {
+                if (node.referenceCount() > 0)
+                    throw new IllegalStateException();
                 Assertions.assertThat(node.referenceCount())
                           .describedAs("Key %s found referenced in cache", key)
                           .isEqualTo(0);
