@@ -1011,7 +1011,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         }
 
         void append(Task task)
-        {
+        {   // TODO (expected): if the new task is higher priority, replace next
             if (next == null) updateNext(task);
             else queue.append(task);
         }

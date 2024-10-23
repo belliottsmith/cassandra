@@ -81,8 +81,10 @@ import accord.local.Node;
 import accord.local.Node.Id;
 import accord.local.PreLoadContext;
 import accord.local.RedundantBefore;
+import accord.local.SafeCommand;
 import accord.local.ShardDistributor.EvenSplit;
 import accord.local.cfk.CommandsForKey;
+import accord.local.cfk.SafeCommandsForKey;
 import accord.messages.Callback;
 import accord.messages.ReadData;
 import accord.messages.Reply;
@@ -1100,7 +1102,7 @@ public class AccordService implements IAccordService, Shutdownable
     @Nullable
     private static AsyncChain<Void> populate(CommandStoreTxnBlockedGraph.Builder state, AccordSafeCommandStore safeStore, TxnId txnId)
     {
-        AccordSafeCommand safeCommand = safeStore.getIfLoaded(txnId);
+        SafeCommand safeCommand = safeStore.unsafeGet(txnId);
         Invariants.nonNull(safeCommand, "Txn %s is not in the cache", txnId);
         if (safeCommand.current() == null || safeCommand.current().saveStatus() == SaveStatus.Uninitialised)
             return null;
@@ -1113,7 +1115,7 @@ public class AccordService implements IAccordService, Shutdownable
         {
             if (state.knows(blockedBy)) continue;
             // need to fetch the state
-            if (safeStore.getIfLoaded(blockedBy) != null)
+            if (safeStore.ifLoadedAndInitialised(blockedBy) != null)
             {
                 AsyncChain<Void> chain = populate(state, safeStore, blockedBy);
                 if (chain != null)
@@ -1128,7 +1130,7 @@ public class AccordService implements IAccordService, Shutdownable
         for (TokenKey blockedBy : cmdTxnState.blockedByKey)
         {
             if (state.keys.containsKey(blockedBy)) continue;
-            if (safeStore.getCommandsForKeyIfLoaded(blockedBy) != null)
+            if (safeStore.ifLoadedAndInitialised(blockedBy) != null)
             {
                 AsyncChain<Void> chain = populate(state, safeStore, blockedBy, txnId, safeCommand.current().executeAt());
                 if (chain != null)
@@ -1147,13 +1149,13 @@ public class AccordService implements IAccordService, Shutdownable
 
     private static AsyncChain<Void> populate(CommandStoreTxnBlockedGraph.Builder state, AccordSafeCommandStore safeStore, TokenKey pk, TxnId txnId, Timestamp executeAt)
     {
-        AccordSafeCommandsForKey commandsForKey = safeStore.getCommandsForKeyIfLoaded(pk);
+        SafeCommandsForKey commandsForKey = safeStore.ifLoadedAndInitialised(pk);
         TxnId blocking = commandsForKey.current().blockedOnTxnId(txnId, executeAt);
         if (blocking instanceof CommandsForKey.TxnInfo)
             blocking = ((CommandsForKey.TxnInfo) blocking).plainTxnId();
         state.keys.put(pk, blocking);
         if (state.txns.containsKey(blocking)) return null;
-        if (safeStore.getIfLoaded(blocking) != null) return populate(state, safeStore, blocking);
+        if (safeStore.ifLoadedAndInitialised(blocking) != null) return populate(state, safeStore, blocking);
         return populate(state, safeStore.commandStore(), blocking);
     }
 

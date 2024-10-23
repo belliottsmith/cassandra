@@ -93,14 +93,14 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
 
         for (TxnId txnId : context.txnIds())
         {
-            if (null != getCommandInternal(txnId))
+            if (null != getCommandUnsafe(txnId))
                 continue;
 
-            AccordSafeCommand safeCommand = getIfLoaded(txnId);
+            AccordSafeCommand safeCommand = getIfLoadedUnsafe(txnId);
             if (safeCommand == null)
                 return null;
 
-            addCommandInternal(safeCommand);
+            addCommandUnsafe(safeCommand);
         }
 
         KeyHistory keyHistory = context.keyHistory();
@@ -117,25 +117,25 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
             RoutingKey key = (RoutingKey) keys.get(i);
             if (keyHistory == TIMESTAMPS)
             {
-                if (null != getTimestampsForKeyInternal(key))
+                if (null != getTimestampsForKeyUnsafe(key))
                     continue; // already in working set
 
-                AccordSafeTimestampsForKey safeTfk = getTimestampsForKeyIfLoaded(key);
+                AccordSafeTimestampsForKey safeTfk = getTimestampsForKeyIfUnsafe(key);
                 if (safeTfk != null)
                 {
-                    addTimestampsForKeyInternal(safeTfk);
+                    addTimestampsForKeyUnsafe(safeTfk);
                     continue;
                 }
             }
             else
             {
-                if (null != getCommandsForKeyInternal(key))
+                if (null != getCommandsForKeyUnsafe(key))
                     continue; // already in working set
 
-                AccordSafeCommandsForKey safeCfk = getCommandsForKeyIfLoaded(key);
+                AccordSafeCommandsForKey safeCfk = getCommandsForKeyIfUnsafe(key);
                 if (safeCfk != null)
                 {
-                    addCommandsForKeyInternal(safeCfk);
+                    addCommandsForKeyUnsafe(safeCfk);
                     continue;
                 }
             }
@@ -162,7 +162,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected AccordSafeCommand getCommandInternal(TxnId txnId)
+    protected AccordSafeCommand getCommandUnsafe(TxnId txnId)
     {
         Map<TxnId, AccordSafeCommand> commands = task.commands();
         if (commands == null)
@@ -171,14 +171,14 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected void addCommandInternal(AccordSafeCommand command)
+    protected void addCommandUnsafe(AccordSafeCommand command)
     {
         command.preExecute();
         task.ensureCommands().put(command.txnId(), command);
     }
 
     @Override
-    protected AccordSafeCommand getIfLoaded(TxnId txnId)
+    protected AccordSafeCommand getIfLoadedUnsafe(TxnId txnId)
     {
         try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
         {
@@ -187,7 +187,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected AccordSafeCommandsForKey getCommandsForKeyInternal(RoutingKey key)
+    protected AccordSafeCommandsForKey getCommandsForKeyUnsafe(RoutingKey key)
     {
         Map<RoutingKey, AccordSafeCommandsForKey> commandsForKey = task.commandsForKey();
         if (commandsForKey == null)
@@ -196,7 +196,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected void addCommandsForKeyInternal(AccordSafeCommandsForKey cfk)
+    protected void addCommandsForKeyUnsafe(AccordSafeCommandsForKey cfk)
     {
         Object check = task.ensureCommandsForKey().putIfAbsent(cfk.key(), cfk);
         Invariants.checkState(check == null);
@@ -204,7 +204,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected AccordSafeCommandsForKey getCommandsForKeyIfLoaded(RoutingKey key)
+    protected AccordSafeCommandsForKey getCommandsForKeyIfUnsafe(RoutingKey key)
     {
         try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
         {
@@ -213,7 +213,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected AccordSafeTimestampsForKey getTimestampsForKeyInternal(RoutingKey key)
+    protected AccordSafeTimestampsForKey getTimestampsForKeyUnsafe(RoutingKey key)
     {
         Map<RoutingKey, AccordSafeTimestampsForKey> timestampsForKey = task.timestampsForKey();
         if (timestampsForKey == null)
@@ -222,7 +222,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected void addTimestampsForKeyInternal(AccordSafeTimestampsForKey tfk)
+    protected void addTimestampsForKeyUnsafe(AccordSafeTimestampsForKey tfk)
     {
         Object check = task.ensureTimestampsForKey().put(tfk.key(), tfk);
         Invariants.checkState(check == null);
@@ -230,7 +230,7 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     }
 
     @Override
-    protected AccordSafeTimestampsForKey getTimestampsForKeyIfLoaded(RoutingKey key)
+    protected AccordSafeTimestampsForKey getTimestampsForKeyIfUnsafe(RoutingKey key)
     {
         try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
         {

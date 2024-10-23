@@ -216,6 +216,9 @@ public class AccordVirtualTablesTest extends CQLTester
                 case ACCORD_CHECK_STATUS_REQ:
                 case ACCORD_CHECK_STATUS_RSP:
                 case ACCORD_READ_RSP:
+                case ACCORD_AWAIT_REQ:
+                case ACCORD_AWAIT_RSP:
+                case ACCORD_AWAIT_ASYNC_RSP_REQ:
                     return true;
                 default:
                     // many code paths don't log the error...
