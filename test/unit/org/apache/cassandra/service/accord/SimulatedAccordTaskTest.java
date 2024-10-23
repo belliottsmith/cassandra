@@ -55,7 +55,7 @@ import org.assertj.core.api.Assertions;
 
 import static accord.utils.Property.qt;
 
-public class SimulatedAccordOperationTest extends SimulatedAccordCommandStoreTestBase
+public class SimulatedAccordTaskTest extends SimulatedAccordCommandStoreTestBase
 {
     @Before
     public void precondition()

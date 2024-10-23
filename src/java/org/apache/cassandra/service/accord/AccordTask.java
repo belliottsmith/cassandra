@@ -20,7 +20,6 @@ package org.apache.cassandra.service.accord;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,8 +67,10 @@ import static org.apache.cassandra.service.accord.AccordTask.State.FINISHED;
 import static org.apache.cassandra.service.accord.AccordTask.State.INITIALIZED;
 import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
 import static org.apache.cassandra.service.accord.AccordTask.State.RUNNING;
+import static org.apache.cassandra.service.accord.AccordTask.State.SCANNING_RANGES;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_RUN;
+import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_SCAN_RANGES;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public abstract class AccordTask<R> extends AccordExecutor.Task implements Runnable, Function<SafeCommandStore, R>, Cancellable
@@ -133,26 +134,35 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     public enum State
     {
         INITIALIZED(),
-        WAITING_TO_LOAD(INITIALIZED),
-        LOADING(INITIALIZED, WAITING_TO_LOAD),
-        WAITING_TO_RUN(INITIALIZED, WAITING_TO_LOAD, LOADING),
+        WAITING_TO_SCAN_RANGES(INITIALIZED),
+        SCANNING_RANGES(WAITING_TO_SCAN_RANGES),
+        WAITING_TO_LOAD(INITIALIZED, SCANNING_RANGES),
+        LOADING(INITIALIZED, SCANNING_RANGES, WAITING_TO_LOAD),
+        WAITING_TO_RUN(INITIALIZED, SCANNING_RANGES, WAITING_TO_LOAD, LOADING),
         RUNNING(WAITING_TO_RUN),
         COMPLETING(RUNNING),
         WAITING_TO_FINISH(RUNNING),
         FINISHED(RUNNING, COMPLETING, WAITING_TO_FINISH),
-        FAILED(WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING);
+        FAILED(WAITING_TO_SCAN_RANGES, SCANNING_RANGES, WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING);
 
-        private final State[] permittedFroms;
-        private EnumSet<State> permittedFrom;
+        private final int permittedFrom;
 
         State()
         {
-            this.permittedFroms = new State[0];
+            this.permittedFrom = 0;
         }
 
         State(State ... permittedFroms)
         {
-            this.permittedFroms = permittedFroms;
+            int permittedFrom = 0;
+            for (State state : permittedFroms)
+                permittedFrom |= 1 << state.ordinal();
+            this.permittedFrom = permittedFrom;
+        }
+
+        boolean isPermittedFrom(State prev)
+        {
+            return (permittedFrom & (1 << prev.ordinal())) != 0;
         }
 
         boolean isComplete()
@@ -174,6 +184,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     @Nullable ArrayDeque<AccordCachingState<?, ?>> waitingToLoad;
     @Nullable RangeLoader rangeLoader;
     @Nullable CommandsForRanges commandsForRanges;
+    AccordExecutor.TaskQueue queued;
 
     private BiConsumer<? super R, Throwable> callback;
     private R result;
@@ -214,6 +225,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     private void state(State state)
     {
+        Invariants.checkState(state.isPermittedFrom(this.state));
         this.state = state;
         if (state == WAITING_TO_RUN) loadedAt = nanoTime();
         else if (state == RUNNING) runAt = nanoTime();
@@ -255,7 +267,9 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     public void setupExclusive()
     {
         setupInternal(commandStore.cachesExclusive());
-        state(loading == null && rangeLoader == null ? WAITING_TO_RUN : waitingToLoad == null ? LOADING : WAITING_TO_LOAD);
+        state(rangeLoader != null ? WAITING_TO_SCAN_RANGES
+                                  : waitingToLoad != null ? WAITING_TO_LOAD
+                                    : loading != null ? LOADING : WAITING_TO_RUN);
     }
 
     private void setupInternal(Caches caches)
@@ -463,11 +477,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         return waitingToLoad == null ? null : waitingToLoad.peek();
     }
 
-    public boolean isWaitingToLoad()
-    {
-        return waitingToLoad != null || (rangeLoader != null && !rangeLoader.started);
-    }
-
     public boolean isLoading()
     {
         return loading != null;
@@ -652,6 +661,11 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
+    public void setWaitingToLoadRanges()
+    {
+
+    }
+
     public RangeLoader rangeLoader()
     {
         return rangeLoader;
@@ -757,7 +771,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
 
         CommandsForRangesLoader.Loader summaryLoader;
-        boolean started, scanned;
+        boolean scanned;
 
         @Override
         public void run()
@@ -814,16 +828,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             }
         }
 
-        public boolean hasStarted()
-        {
-            return started;
-        }
-
         public void start(Executor executor)
         {
             Caches caches = commandStore.cachesExclusive();
-            Invariants.checkState(!started);
-            started = true;
+            state(SCANNING_RANGES);
 
             for (RoutingKey key : caches.commandsForKeys().keySet())
             {
@@ -840,12 +848,11 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
         public void scanned()
         {
-            Invariants.checkState(state == LOADING || state == WAITING_TO_LOAD);
+            Invariants.checkState(state == SCANNING_RANGES);
             scanned = true;
-            if (loading == null)
-                state(WAITING_TO_RUN);
-            else if (waitingToLoad == null)
-                state(LOADING);
+            if (loading == null) state(WAITING_TO_RUN);
+            else if (waitingToLoad == null) state(LOADING);
+            else state(WAITING_TO_LOAD);
         }
 
         CommandsForRanges finish(Caches caches)

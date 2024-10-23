@@ -337,14 +337,14 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
 
-    private final TaskPriorityHeap<AccordTask<?>> scanningRanges = new TaskPriorityHeap<>(); // never queried, just parked here while scanning
-    private final TaskPriorityHeap<AccordTask<?>> loading = new TaskPriorityHeap<>(); // never queried, just parked here while loading
+    private final TaskQueue<AccordTask<?>> scanningRanges = new TaskQueue<>(); // never queried, just parked here while scanning
+    private final TaskQueue<AccordTask<?>> loading = new TaskQueue<>(); // never queried, just parked here while loading
 
-    private @Nullable TaskPriorityHeap<AccordTask<?>> waitingToLoadRangeTxns; // this is kept null whenever the queue is empty (i.e. normally)
-    private final TaskPriorityHeap<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskPriorityHeap<>();
+    private @Nullable TaskQueue<AccordTask<?>> waitingToLoadRangeTxns; // this is kept null whenever the queue is empty (i.e. normally)
+    private final TaskQueue<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskQueue<>();
 
-    private final TaskPriorityHeap<AccordTask<?>> waitingToLoad = new TaskPriorityHeap<>();
-    final TaskPriorityHeap<Task> waitingToRun = new TaskPriorityHeap<>();
+    private final TaskQueue<AccordTask<?>> waitingToLoad = new TaskQueue<>();
+    final TaskQueue<Task> waitingToRun = new TaskQueue<>();
     private final AccordCachingState.OnLoaded onRangeLoaded = this::onRangeLoaded;
     private final ExclusiveStateCache locked;
 
@@ -386,95 +386,92 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         outer: while (true)
         {
-            TaskPriorityHeap<AccordTask<?>> queue = waitingToLoadRangeTxns == null || activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR ? waitingToLoad : waitingToLoadRangeTxns;
+            TaskQueue<AccordTask<?>> queue = waitingToLoadRangeTxns == null || activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR ? waitingToLoad : waitingToLoadRangeTxns;
             AccordTask<?> next = queue.peek();
             if (next == null)
-            {
-                Invariants.checkState(waitingToLoad.isEmpty());
                 return;
-            }
 
-            while (true)
+            switch (next.state())
             {
-                boolean isForRangeTxn = next.hasRanges();
-                AccordCachingState<?, ?> load = next.peekWaitingToLoad();
-                if (isForRangeTxn)
-                {
-                    if (next.rangeLoader().hasStarted())
+                default: throw new AssertionError("Unexpected state: " + next.state());
+                case WAITING_TO_SCAN_RANGES:
+                    if (activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
                     {
-                        // if we haven't submitted our range scan yet, this goes first
-                        for (AccordTask<?> op : load.loadingOrWaiting().waiters())
-                        {
-                            if (!op.hasRanges())
-                            {
-                                isForRangeTxn = false;
-                                break;
-                            }
-                        }
+                        parkRangeLoad(next);
                     }
-
-                    if (isForRangeTxn && activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
+                    else
                     {
-                        if (queue == waitingToLoad)
-                        {
-                            removeFromQueue(queue, next);
-                            if (waitingToLoadRangeTxns == null)
-                                waitingToLoadRangeTxns = waitingToLoadRangeTxnsCollection;
-                            waitingToLoadRangeTxns.append(next);
-                        }
-                        continue outer;
-                    }
-
-                    if (!next.rangeLoader().hasStarted())
-                    {
-                        removeFromQueue(queue, next);
-                        scanningRanges.append(next);
                         ++activeRangeLoads;
                         ++activeLoads;
                         next.rangeLoader().start(rangeLoadExecutor);
-                        continue outer;
+                        updateQueue(next, false);
                     }
-                }
-
-                Invariants.checkState(load != null);
-                AccordCachingState.OnLoaded onLoaded = this;
-                ++activeLoads;
-                if (isForRangeTxn)
-                {
-                    ++activeRangeLoads;
-                    onLoaded = onRangeLoaded;
-                }
-
-                for (AccordTask<?> op : cache.load(loadExecutor, load, onLoaded))
-                {
-                    if (op == next) continue;
-                    if (!op.onLoading(load))
-                        updateQueue(waitingToLoadQueue(op), op);
-                }
-                Object prev = next.pollWaitingToLoad();
-                Invariants.checkState(prev == load);
-                if (next.peekWaitingToLoad() == null)
                     break;
 
-                if (activeLoads >= MAX_QUEUED_LOADS_PER_EXECUTOR)
-                    return;
-            }
+                case WAITING_TO_LOAD:
+                    while (true)
+                    {
+                        AccordCachingState<?, ?> load = next.peekWaitingToLoad();
+                        boolean isForRange = isForRange(next, load);
+                        if (isForRange && activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
+                        {
+                            parkRangeLoad(next);
+                            continue outer;
+                        }
 
-            updateQueue(queue, next);
+                        Invariants.checkState(load != null);
+                        AccordCachingState.OnLoaded onLoaded = this;
+                        ++activeLoads;
+                        if (isForRange)
+                        {
+                            ++activeRangeLoads;
+                            onLoaded = onRangeLoaded;
+                        }
+
+                        for (AccordTask<?> op : cache.load(loadExecutor, load, onLoaded))
+                        {
+                            if (op == next) continue;
+                            if (!op.onLoading(load))
+                                updateQueue(op, false);
+                        }
+                        Object prev = next.pollWaitingToLoad();
+                        Invariants.checkState(prev == load);
+                        if (next.peekWaitingToLoad() == null)
+                            break;
+
+                        if (activeLoads >= MAX_QUEUED_LOADS_PER_EXECUTOR)
+                            return;
+                    }
+                    updateQueue(next, false);
+            }
         }
     }
 
-    private TaskPriorityHeap<?> waitingToLoadQueue(AccordTask<?> op)
+    private boolean isForRange(AccordTask<?> task, AccordCachingState<?, ?> load)
     {
-        if (op.rangeLoader() == null)
-            return waitingToLoad;
+        boolean isForRangeTxn = task.hasRanges();
+        if (!isForRangeTxn)
+            return false;
 
-        if (waitingToLoad.contains(op))
-            return waitingToLoad;
-        if (scanningRanges.contains(op))
-            return scanningRanges;
-        Invariants.checkState(waitingToLoadRangeTxns != null && waitingToLoadRangeTxns.contains(op));
-        return waitingToLoadRangeTxns;
+        for (AccordTask<?> op : load.loadingOrWaiting().waiters())
+        {
+            if (!op.hasRanges())
+                return false;
+        }
+        return true;
+    }
+
+    private void parkRangeLoad(AccordTask<?> task)
+    {
+        if (task.queued != waitingToLoadRangeTxnsCollection)
+        {
+            if (task.queued != null)
+                task.queued.remove(task);
+            if (waitingToLoadRangeTxns == null)
+                waitingToLoadRangeTxns = waitingToLoadRangeTxnsCollection;
+            waitingToLoadRangeTxns.append(task);
+            task.queued = waitingToLoadRangeTxns;
+        }
     }
 
     private void consumeExclusive(Object object)
@@ -492,29 +489,26 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         }
     }
 
-    private void updateQueue(TaskPriorityHeap<?> removeFrom, AccordTask<?> op)
+    private void updateQueue(AccordTask<?> op, boolean enqueueLoads)
     {
-        removeFromQueue(removeFrom, op);
-        updateQueue(op);
-    }
+        if (op.queued != null)
+            removeFromQueue(op);
 
-    private void removeFromQueue(TaskPriorityHeap removeFrom, AccordTask<?> op)
-    {
-        removeFrom.remove(op);
-        if (removeFrom == waitingToLoadRangeTxns && waitingToLoadRangeTxns.isEmpty())
-            waitingToLoadRangeTxns = null;
-    }
-
-    private void updateQueue(AccordTask<?> op)
-    {
         switch (op.state())
         {
             default: throw new AssertionError("Unexpected state: " + op.state());
+            case WAITING_TO_SCAN_RANGES:
             case WAITING_TO_LOAD:
+                op.queued = waitingToLoad;
                 waitingToLoad.append(op);
-                enqueueLoadsExclusive();
+                if (enqueueLoads) enqueueLoadsExclusive();
+                break;
+            case SCANNING_RANGES:
+                op.queued = scanningRanges;
+                scanningRanges.append(op);
                 break;
             case LOADING:
+                op.queued = loading;
                 loading.append(op);
                 break;
             case WAITING_TO_RUN:
@@ -526,18 +520,13 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         }
     }
 
-    private TaskPriorityHeap<?> queue(AccordTask<?> op)
+    private void removeFromQueue(AccordTask<?> op)
     {
-        switch (op.state())
-        {
-            default: throw new AssertionError("Unexpected state: " + op.state());
-            case WAITING_TO_LOAD:
-                return waitingToLoadQueue(op);
-            case LOADING:
-                return loading;
-            case WAITING_TO_RUN:
-                return waitingToRun;
-        }
+        TaskQueue queue = op.queued;
+        queue.remove(op);
+        if (queue == waitingToLoadRangeTxns && waitingToLoadRangeTxns.isEmpty())
+            waitingToLoadRangeTxns = null;
+        op.queued = null;
     }
 
     public <R> void submit(AccordTask<R> operation)
@@ -647,12 +636,11 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         ++tasks;
         op.queuePosition = ++nextPosition;
         op.setupExclusive();
-        updateQueue(op);
+        updateQueue(op, true);
     }
 
     private void cancelExclusive(AccordTask<?> op)
     {
-        // TODO (required): loading cache entries are now eligible for eviction; make sure we handle correctly
         switch (op.state())
         {
             default:
@@ -660,18 +648,14 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                 throw new AssertionError("Unexpected state for: " + op);
 
             case LOADING:
-                loading.remove(op);
-                break;
-
             case WAITING_TO_LOAD:
-                removeFromQueue(waitingToLoadQueue(op), op);
-                break;
-
+            case WAITING_TO_SCAN_RANGES:
+            case SCANNING_RANGES:
             case WAITING_TO_RUN:
-                waitingToRun.remove(op);
+                --tasks;
+                removeFromQueue(op);
                 break;
 
-                // TODO (required): set RUNNING before we release lock
             case RUNNING:
             case COMPLETING:
             case WAITING_TO_FINISH:
@@ -705,7 +689,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         else if (op.state() != FAILED)
         {
             op.rangeLoader().scanned();
-            updateQueue(scanningRanges, op);
+            updateQueue(op, false);
         }
         enqueueLoadsExclusive();
     }
@@ -731,7 +715,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             {
                 for (AccordTask<?> op : ops)
                 {
-                    TaskPriorityHeap queue = queue(op);
                     try
                     {
                         op.fail(fail);
@@ -745,8 +728,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         op.cleanupExclusive();
                     }
 
-                    removeFromQueue(queue, op);
                     --tasks;
+                    removeFromQueue(op);
                 }
                 cache.failedToLoad(loaded);
             }
@@ -759,8 +742,10 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     if (!op.isLoading())
                     {
                         enqueueWork = true;
+                        Invariants.checkState(op.queued == loading);
                         loading.remove(op);
                         waitingToRun.append(op);
+                        op.queued = waitingToRun;
                     }
                 }
                 cache.loaded(loaded, value);
@@ -868,7 +853,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         protected void cleanupExclusive() {}
     }
 
-    static final class TaskPriorityHeap<T extends Task> extends IntrusivePriorityHeap<T>
+    static final class TaskQueue<T extends Task> extends IntrusivePriorityHeap<T>
     {
         @Override
         public int compare(T o1, T o2)
