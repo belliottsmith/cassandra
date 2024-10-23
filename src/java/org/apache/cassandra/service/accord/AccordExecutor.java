@@ -20,8 +20,6 @@ package org.apache.cassandra.service.accord;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -46,6 +44,7 @@ import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.ConcurrentLinkedStack;
 import org.apache.cassandra.utils.concurrent.Future;
+import org.apache.cassandra.utils.concurrent.LockWithAsyncSignal;
 
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Daemon.NON_DAEMON;
@@ -62,8 +61,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         public enum Mode { RUN_WITH_LOCK, RUN_WITHOUT_LOCK }
 
-        final Condition hasWork = lock.newCondition();
-
         public LockLoopAccordExecutor(AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
         {
             super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
@@ -72,25 +69,15 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         abstract Shutdownable shutdownable();
 
         @Override
-        void notifyWorkExclusive()
+        void notifyWorkAsync()
         {
-            hasWork.signal();
+            lock.signal();
         }
 
         @Override
-        void postUnlock()
+        void notifyWorkExclusive()
         {
-            if (!submitted.isEmpty() || !lock.tryLock())
-                return;
-
-            try
-            {
-                hasWork.signal();
-            }
-            finally
-            {
-                lock.unlock();
-            }
+            lock.signal();
         }
 
         @Override public boolean isTerminated() { return shutdownable().isTerminated(); }
@@ -131,7 +118,9 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         if (state != NORMAL)
                             return;
 
-                        hasWork.await();
+                        lock.clearSignal();
+                        if (waitingToRun.isEmpty() && submitted.isEmpty())
+                            lock.await();
                     }
                 }
             }
@@ -143,7 +132,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             finally
             {
                 lock.unlock();
-                postUnlock();
             }
         }
 
@@ -166,7 +154,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                             break;
                         if (state != NORMAL)
                             return;
-                        hasWork.await();
+                        lock.await();
                     }
                     --tasks;
                     ++running;
@@ -174,6 +162,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                 }
                 finally
                 {
+                    // TODO (required): if exiting loop, call postUnlock
                     lock.unlock();
                 }
 
@@ -283,15 +272,12 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             {
                 running = 0;
                 lock.unlock();
-                postUnlock();
             }
         }
 
-        @Override
-        void postUnlock()
+        void notifyWorkAsync()
         {
-            if (!submitted.isEmpty() || !waitingToRun.isEmpty())
-                executor.execute(this::run);
+            executor.execute(this::run);
         }
 
         @Override
@@ -304,10 +290,10 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     // WARNING: this is a shared object, so close is NOT idempotent
     public static final class ExclusiveStateCache implements AutoCloseable
     {
-        final ReentrantLock lock;
+        final LockWithAsyncSignal lock;
         final AccordStateCache cache;
 
-        public ExclusiveStateCache(ReentrantLock lock, AccordStateCache cache)
+        public ExclusiveStateCache(LockWithAsyncSignal lock, AccordStateCache cache)
         {
             this.lock = lock;
             this.cache = cache;
@@ -328,7 +314,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     private static final int MAX_QUEUED_LOADS_PER_EXECUTOR = 64;
     private static final int MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR = 8;
 
-    final ReentrantLock lock = new ReentrantLock();
+    final LockWithAsyncSignal lock = new LockWithAsyncSignal();
 
     final Agent agent;
     private final AccordStateCache cache;
@@ -379,8 +365,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         return !submitted.isEmpty() || tasks > 0 || running > 0;
     }
 
+    abstract void notifyWorkAsync();
     abstract void notifyWorkExclusive();
-    abstract void postUnlock();
 
     private void enqueueLoadsExclusive()
     {
@@ -531,56 +517,56 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     public <R> void submit(AccordTask<R> operation)
     {
-        onEvent(AccordExecutor::loadExclusive, Function.identity(), operation);
+        submit(AccordExecutor::loadExclusive, Function.identity(), operation);
     }
 
     public <R> void cancel(AccordTask<R> operation)
     {
-        onEvent(AccordExecutor::cancelExclusive, OnCancel::new, operation);
+        submit(AccordExecutor::cancelExclusive, OnCancel::new, operation);
     }
 
     public void onScannedRanges(AccordTask<?> op, Throwable fail)
     {
-        onEvent(AccordExecutor::onScannedRangesExclusive, OnScannedRanges::new, op, fail);
+        submit(AccordExecutor::onScannedRangesExclusive, OnScannedRanges::new, op, fail);
     }
 
     public <K, V> void onSaved(AccordCachingState<K, V> saved, Object identity, Throwable fail)
     {
-        onEvent(AccordExecutor::onSavedExclusive, OnSaved::new, saved, identity, fail);
+        submit(AccordExecutor::onSavedExclusive, OnSaved::new, saved, identity, fail);
     }
 
     @Override
     public <K, V> void onLoaded(AccordCachingState<K, V> loaded, V value, Throwable fail)
     {
-        onEvent(AccordExecutor::onLoadedExclusive, OnLoaded::new, loaded, value, fail, false);
+        submit(AccordExecutor::onLoadedExclusive, OnLoaded::new, loaded, value, fail, false);
     }
 
     public <K, V> void onRangeLoaded(AccordCachingState<K, V> loaded, V value, Throwable fail)
     {
-        onEvent(AccordExecutor::onLoadedExclusive, OnLoaded::new, loaded, value, fail, true);
+        submit(AccordExecutor::onLoadedExclusive, OnLoaded::new, loaded, value, fail, true);
     }
 
-    private <P1> void onEvent(BiConsumer<AccordExecutor, P1> sync, Function<P1, ?> async, P1 p1)
+    private <P1> void submit(BiConsumer<AccordExecutor, P1> sync, Function<P1, ?> async, P1 p1)
     {
-        onEvent((e, c, p1a, p2a, p3) -> c.accept(e, p1a), (f, p1a, p2a, p3) -> f.apply(p1a), sync, async, p1, null, null);
+        submit((e, c, p1a, p2a, p3) -> c.accept(e, p1a), (f, p1a, p2a, p3) -> f.apply(p1a), sync, async, p1, null, null);
     }
 
-    private <P1, P2> void onEvent(TriConsumer<AccordExecutor, P1, P2> sync, BiFunction<P1, P2, ?> async, P1 p1, P2 p2)
+    private <P1, P2> void submit(TriConsumer<AccordExecutor, P1, P2> sync, BiFunction<P1, P2, ?> async, P1 p1, P2 p2)
     {
-        onEvent((e, c, p1a, p2a, p3) -> c.accept(e, p1a, p2a), (f, p1a, p2a, p3) -> f.apply(p1a, p2a), sync, async, p1, p2, null);
+        submit((e, c, p1a, p2a, p3) -> c.accept(e, p1a, p2a), (f, p1a, p2a, p3) -> f.apply(p1a, p2a), sync, async, p1, p2, null);
     }
 
-    private <P1, P2, P3> void onEvent(QuadConsumer<AccordExecutor, P1, P2, P3> sync, TriFunction<P1, P2, P3, ?> async, P1 p1, P2 p2, P3 p3)
+    private <P1, P2, P3> void submit(QuadConsumer<AccordExecutor, P1, P2, P3> sync, TriFunction<P1, P2, P3, ?> async, P1 p1, P2 p2, P3 p3)
     {
-        onEvent((e, c, p1a, p2a, p3a) -> c.accept(e, p1a, p2a, p3a), TriFunction::apply, sync, async, p1, p2, p3);
+        submit((e, c, p1a, p2a, p3a) -> c.accept(e, p1a, p2a, p3a), TriFunction::apply, sync, async, p1, p2, p3);
     }
 
-    private <P1, P2, P3, P4> void onEvent(QuintConsumer<AccordExecutor, P1, P2, P3, P4> sync, QuadFunction<P1, P2, P3, P4, Object> async, P1 p1, P2 p2, P3 p3, P4 p4)
+    private <P1, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1, P2, P3, P4> sync, QuadFunction<P1, P2, P3, P4, Object> async, P1 p1, P2 p2, P3 p3, P4 p4)
     {
-        onEvent(sync, async, p1, p1, p2, p3, p4);
+        submit(sync, async, p1, p1, p2, p3, p4);
     }
 
-    private <P1s, P1a, P2, P3, P4> void onEvent(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
+    private <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
     {
         boolean applySync = true;
         if (!lock.tryLock())
@@ -588,7 +574,10 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             submitted.push(async.apply(p1a, p2, p3, p4));
             applySync = false;
             if (!lock.tryLock())
+            {
+                notifyWorkAsync();
                 return;
+            }
         }
 
         try
@@ -612,7 +601,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         finally
         {
             lock.unlock();
-            postUnlock();
         }
     }
 
@@ -757,13 +745,13 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     public boolean isInThread()
     {
-        return lock.isHeldByCurrentThread();
+        return lock.isOwner(Thread.currentThread());
     }
 
     public Future<?> submit(Runnable run)
     {
         AsyncPromise<Void> result = new AsyncPromise<>();
-        onEvent(AccordExecutor::submitExclusive, SubmitPlainRunnable::new, result, run);
+        submit(AccordExecutor::submitExclusive, SubmitPlainRunnable::new, result, run);
         return result;
     }
 
