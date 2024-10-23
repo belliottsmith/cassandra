@@ -393,7 +393,6 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     public void setRangesForEpoch(CommandStores.RangesForEpoch rangesForEpoch)
     {
-        super.setRangesForEpoch(rangesForEpoch);
         ensureFieldUpdates().newRangesForEpoch = rangesForEpoch.snapshot();
         ranges = rangesForEpoch;
     }

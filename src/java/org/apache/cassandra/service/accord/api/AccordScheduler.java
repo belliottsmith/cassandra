@@ -30,7 +30,7 @@ import org.apache.cassandra.concurrent.Shutdownable;
 
 public class AccordScheduler implements Scheduler, Shutdownable
 {
-    private final ScheduledExecutorPlus scheduledExecutor = ExecutorFactory.Global.executorFactory().scheduled("AccordScheduled");
+    private final ScheduledExecutorPlus scheduledExecutor = ExecutorFactory.Global.executorFactory().scheduled(false, "AccordScheduled");
 
     private static class ScheduledFutureWrapper implements Scheduled
     {
@@ -93,7 +93,7 @@ public class AccordScheduler implements Scheduler, Shutdownable
     @Override
     public void shutdown()
     {
-        scheduledExecutor.shutdownNow();
+        scheduledExecutor.shutdown();
     }
 
     @Override
