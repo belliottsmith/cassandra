@@ -60,11 +60,14 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public abstract class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Shutdownable
 {
+    public interface ExecutorFunction extends Function<Runnable, Future<?>> {}
+    public interface ExecutorFunctionFactory extends Function<AccordExecutor, ExecutorFunction> {}
+
     static abstract class LockLoopAccordExecutor extends AccordExecutor
     {
         public enum Mode { RUN_WITH_LOCK, RUN_WITHOUT_LOCK }
 
-        public LockLoopAccordExecutor(AccordStateCacheMetrics metrics, Function<AccordExecutor, Function<Runnable, Future<?>>> loadExecutor, Function<AccordExecutor, Function<Runnable, Future<?>>> saveExecutor, Function<AccordExecutor, Executor> rangeLoadExecutor, Agent agent)
+        public LockLoopAccordExecutor(AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
         {
             super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
         }
@@ -189,7 +192,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     }
                 }
             }
-            catch (Throwable t)
+            finally
             {
                 if (task != null || isRunning)
                 {
@@ -204,7 +207,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         lock.unlock();
                     }
                 }
-                throw t;
             }
         }
     }
@@ -213,19 +215,9 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         private final Interruptible[] loops;
 
-        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, Agent agent)
+        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
         {
-            this(mode, 1, constantInt(name), metrics, agent);
-        }
-
-        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
-        {
-            this(mode, 1, constantInt(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-        }
-
-        public InfiniteLoopAccordExecutor(Mode mode, String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
-        {
-            this(mode, 1, constantInt(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+            this(mode, 1, constant(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
         }
 
         public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
@@ -233,17 +225,12 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
         }
 
-        public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
         {
-            this(mode, threads, name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
+            this(mode, threads, name, metrics, constantFactory(loadExecutor::submit), constantFactory(saveExecutor::submit), constantFactory(rangeLoadExecutor::submit), agent);
         }
 
-        public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
-        {
-            this(mode, threads, name, metrics, constant(loadExecutor), constant(saveExecutor), constant(rangeLoadExecutor), agent);
-        }
-
-        public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Function<AccordExecutor, Function<Runnable, Future<?>>> loadExecutor, Function<AccordExecutor, Function<Runnable, Future<?>>> saveExecutor, Function<AccordExecutor, Executor> rangeLoadExecutor, Agent agent)
+        public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
         {
             super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
             Invariants.checkState(mode == RUN_WITH_LOCK ? threads == 1 : threads >= 1);
@@ -296,9 +283,9 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         final ExecutorPlus executor;
 
-        public AbstractPooledAccordExecutor(ExecutorPlus executor, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        public AbstractPooledAccordExecutor(ExecutorPlus executor, AccordStateCacheMetrics metrics, ExecutorFunction loadExecutor, ExecutorFunction saveExecutor, ExecutorFunction rangeLoadExecutor, Agent agent)
         {
-            super(metrics, constant(loadExecutor), constant(saveExecutor), constant(rangeLoadExecutor), agent);
+            super(metrics, constantFactory(loadExecutor), constantFactory(saveExecutor), constantFactory(rangeLoadExecutor), agent);
             this.executor = executor;
         }
 
@@ -320,12 +307,12 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
         }
 
-        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
         {
-            this(name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor, agent);
+            this(name, metrics, loadExecutor::submit, saveExecutor::submit, rangeLoadExecutor::submit, agent);
         }
 
-        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, Function<Runnable, Future<?>> loadExecutor, Function<Runnable, Future<?>> saveExecutor, Executor rangeLoadExecutor, Agent agent)
+        public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorFunction loadExecutor, ExecutorFunction saveExecutor, ExecutorFunction rangeLoadExecutor, Agent agent)
         {
             super(executorFactory().sequential(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
         }
@@ -403,8 +390,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     final Agent agent;
     private final AccordStateCache cache;
-    private final Function<Runnable, Future<?>> loadExecutor;
-    private final Executor rangeLoadExecutor;
+    private final ExecutorFunction loadExecutor;
+    private final ExecutorFunction rangeLoadExecutor;
 
     final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
 
@@ -426,7 +413,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     int tasks;
     int running;
 
-    AccordExecutor(AccordStateCacheMetrics metrics, Function<AccordExecutor, Function<Runnable, Future<?>>> loadExecutor, Function<AccordExecutor, Function<Runnable, Future<?>>> saveExecutor, Function<AccordExecutor, Executor> rangeLoadExecutor, Agent agent)
+    AccordExecutor(AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         this.cache = new AccordStateCache(saveExecutor.apply(this), this, 8 << 20, metrics);
         this.loadExecutor = loadExecutor.apply(this);
@@ -503,7 +490,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         for (AccordTask<?> task : cache.load(loadExecutor, load, onLoaded))
                         {
                             if (task == next) continue;
-                            if (!task.onLoading(load))
+                            if (task.onLoading(load))
                                 updateQueue(task, false);
                         }
                         Object prev = next.pollWaitingToLoad();
@@ -613,6 +600,18 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         if (queue == waitingToLoadRangeTxns && waitingToLoadRangeTxns.isEmpty())
             waitingToLoadRangeTxns = null;
         task.queued = null;
+    }
+
+    private Future<?> submitIO(Runnable run)
+    {
+        Invariants.checkState(isInThread());
+        ++tasks;
+        AsyncPromise<Void> result = new AsyncPromise<>();
+        PlainRunnable task = new PlainRunnable(result, run, null);
+        task.queuePosition = ++nextPosition;
+        waitingToRun.append(task);
+        notifyWorkExclusive();
+        return result;
     }
 
     public Executor executor(AccordCommandStore commandStore)
@@ -806,6 +805,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             {
                 for (AccordTask<?> task : ops)
                 {
+                    --tasks;
                     try
                     {
                         task.fail(fail);
@@ -817,10 +817,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     finally
                     {
                         task.cleanupExclusive();
+                        removeFromQueue(task);
                     }
-
-                    --tasks;
-                    removeFromQueue(task);
                 }
                 cache.failedToLoad(loaded);
             }
@@ -829,8 +827,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                 boolean enqueueWork = false;
                 for (AccordTask<?> task : ops)
                 {
-                    task.onLoad(loaded);
-                    if (!task.isLoading())
+                    if (task.onLoad(loaded))
                     {
                         enqueueWork = true;
                         Invariants.checkState(task.queued == loading);
@@ -865,6 +862,19 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     public void execute(Runnable command)
     {
         submit(command);
+    }
+
+    public void executeBlockingWithLock(Runnable command)
+    {
+        lock.lock();
+        try
+        {
+            command.run();
+        }
+        finally
+        {
+            lock.unlock();
+        }
     }
 
     public void execute(Runnable command, AccordCommandStore commandStore)
@@ -929,7 +939,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     }
 
     class PlainRunnable extends Task
-    {
+    {   // TODO (expected): support cancellation
         final AsyncPromise<Void> result;
         final Runnable run;
 
@@ -1179,14 +1189,18 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         }
     }
 
-    private static <O> IntFunction<O> constantInt(O out)
+    private static <O> IntFunction<O> constant(O out)
     {
         return ignore -> out;
     }
 
-    private static <I, O> Function<I, O> constant(O out)
+    private static ExecutorFunctionFactory constantFactory(ExecutorFunction exec)
     {
-        return ignore -> out;
+        return ignore -> exec;
     }
 
+    public static ExecutorFunction submitIOToSelf(AccordExecutor executor)
+    {
+        return executor::submitIO;
+    }
 }

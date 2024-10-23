@@ -59,6 +59,7 @@ import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
+import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED;
 import static org.apache.cassandra.service.accord.AccordTask.State.COMPLETING;
@@ -364,7 +365,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     }
 
     // expects to hold lock
-    public void onLoad(AccordCachingState<?, ?> state)
+    public boolean onLoad(AccordCachingState<?, ?> state)
     {
         Invariants.checkState(loading != null);
         AccordSafeState<?, ?> safeRef = loading.remove(state.key());
@@ -382,11 +383,15 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             Invariants.checkState (safeRef.getClass() == AccordSafeTimestampsForKey.class);
             ensureTimestampsForKey().put((RoutingKey) state.key(), (AccordSafeTimestampsForKey) safeRef);
         }
-        if (loading.isEmpty())
-        {
-            loading = null;
-            state(WAITING_TO_RUN);
-        }
+        if (!loading.isEmpty())
+            return false;
+
+        loading = null;
+        if (this.state.compareTo(WAITING_TO_LOAD) < 0)
+            return false;
+
+        state(WAITING_TO_RUN);
+        return true;
     }
 
     // expects to hold lock
@@ -394,12 +399,20 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     {
         Invariants.checkState(waitingToLoad != null);
         waitingToLoad.remove(state);
-        if (!waitingToLoad.isEmpty())
-            return true;
+        if (waitingToLoad.isEmpty())
+            return false;
 
+        return onEmptyWaitingToLoad();
+    }
+
+    private boolean onEmptyWaitingToLoad()
+    {
         waitingToLoad = null;
+        if (this.state.compareTo(WAITING_TO_LOAD) < 0)
+            return false;
+
         state(loading == null ? WAITING_TO_RUN : LOADING);
-        return false;
+        return true;
     }
 
     public PreLoadContext preLoadContext()
@@ -464,10 +477,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
         AccordCachingState<?, ?> next = waitingToLoad.poll();
         if (waitingToLoad.isEmpty())
-        {
-            waitingToLoad = null;
-            state(loading == null ? WAITING_TO_RUN : LOADING);
-        }
+            onEmptyWaitingToLoad();
         return next;
     }
 
@@ -796,7 +806,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             }
         }
 
-        public void start(Executor executor)
+        public void start(Function<Runnable, Future<?>> executor)
         {
             Caches caches = commandStore.cachesExclusive();
             state(SCANNING_RANGES);
@@ -811,7 +821,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             summaryLoader.forEachInCache(summary -> summaries.put(summary.txnId, summary), caches);
             caches.commandsForKeys().register(keyWatcher);
             caches.commands().register(commandWatcher);
-            executor.execute(this);
+            executor.apply(this);
         }
 
         public void scanned()

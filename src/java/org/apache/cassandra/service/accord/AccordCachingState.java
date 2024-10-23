@@ -584,6 +584,7 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
         @Override
         public Loading<K, V> load(Future<?> loading)
         {
+            Invariants.checkState(waiters == null || !waiters.isEmpty());
             Loading<K, V> result = new Loading<>(waiters, loading);
             waiters = Collections.emptyList();
             return result;

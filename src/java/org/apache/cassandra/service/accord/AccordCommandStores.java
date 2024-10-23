@@ -86,7 +86,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
                         executors[id] = new InfiniteLoopAccordExecutor(shardModel == THREAD_PER_SHARD ? RUN_WITHOUT_LOCK : RUN_WITH_LOCK, baseName + ']', metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
                         break;
                     case THREAD_POOL_PER_SHARD:
-                        executors[id] = new InfiniteLoopAccordExecutor(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, exec -> exec::submit, exec -> exec::submit, exec -> exec::submit, agent);
+                        executors[id] = new InfiniteLoopAccordExecutor(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, agent);
                         break;
                     case THREAD_POOL_PER_SHARD_EXCLUDES_IO:
                         executors[id] = new InfiniteLoopAccordExecutor(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
@@ -155,7 +155,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
         long perExecutor = cacheSize / executors.length;
         // TODO (low priority, safety): we might transiently breach our limit if we increase one store before decreasing another
         for (AccordExecutor executor : executors)
-            executor.execute(() -> executor.setCapacity(perExecutor));
+            executor.executeBlockingWithLock(() -> executor.setCapacity(perExecutor));
     }
 
     public void waitForQuiescense()

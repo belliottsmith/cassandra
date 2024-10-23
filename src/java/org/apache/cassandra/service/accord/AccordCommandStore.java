@@ -215,8 +215,6 @@ public class AccordCommandStore extends CommandStore
         loadBootstrapBeganAt(journal.loadBootstrapBeganAt(id()));
         loadSafeToRead(journal.loadSafeToRead(id()));
         loadRangesForEpoch(journal.loadRangesForEpoch(id()));
-
-        taskExecutor.execute(() -> CommandStore.register(this));
     }
 
     static Factory factory(AccordJournal journal, IntFunction<AccordExecutor> executorFactory)
@@ -434,6 +432,8 @@ public class AccordCommandStore extends CommandStore
     {
         Invariants.checkState(thread == null ? currentThread == self : currentThread == null);
         currentThread = thread;
+        if (thread != null) CommandStore.register(this);
+
     }
 
     public boolean hasSafeStore()
