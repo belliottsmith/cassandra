@@ -26,6 +26,7 @@ import org.apache.cassandra.journal.Params;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static accord.primitives.Routable.Domain.Range;
+import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_POOL_PER_SHARD;
 
 public class AccordSpec
 {
@@ -35,7 +36,51 @@ public class AccordSpec
 
     public volatile boolean enable_journal_compaction = true;
 
-    public volatile OptionaldPositiveInt shard_count = OptionaldPositiveInt.UNDEFINED;
+    public enum QueueShardModel
+    {
+        /**
+         * Same number of threads as queue shards, but the shard lock is held only while managing the queue,
+         * so that submitting threads may queue load/save work.
+         *
+         * The global READ and WRITE stages are used for IO.
+         */
+        THREAD_PER_SHARD,
+
+        /**
+         * Same number of threads as shards, and the shard lock is held for the duration of serving requests.
+         * The global READ and WRITE stages are used for IO.
+         */
+        THREAD_PER_SHARD_SYNC_QUEUE,
+
+        /**
+         * More threads than shards. Threads update transaction state as well as performing IO, minimising context switching.
+         * Fewer shards is generally better, until queue-contention is encountered.
+         */
+        THREAD_POOL_PER_SHARD,
+
+        /**
+         * More threads than shards. Threads update transaction state only, relying on READ and WRITE stages for IO.
+         * Fewer shards is generally better, until queue-contention is encountered.
+         */
+        THREAD_POOL_PER_SHARD_EXCLUDES_IO,
+    }
+
+    public QueueShardModel queue_shard_model = THREAD_POOL_PER_SHARD;
+
+    /**
+     * The number of queue (and cache) shards.
+     */
+    public volatile OptionaldPositiveInt queue_shard_count = OptionaldPositiveInt.UNDEFINED;
+
+    /**
+     * The target number of command stores to create per topology shard.
+     * This determines the amount of execution parallelism possible for a given table/shard on the host.
+     * More shards means more parallelism, but more state.
+     *
+     * TODO (expected): make this a table property
+     * TODO (expected): adjust this by proportion of ring
+     */
+    public volatile OptionaldPositiveInt command_store_shard_count = OptionaldPositiveInt.UNDEFINED;
 
     // TODO (expected): we should be able to support lower recover delays, at least for txns
     public volatile DurationSpec.IntMillisecondsBound recover_delay = new DurationSpec.IntMillisecondsBound(5000);

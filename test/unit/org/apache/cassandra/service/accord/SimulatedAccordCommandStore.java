@@ -128,7 +128,6 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         ExecutorFactory.Global.unsafeSet(globalExecutor);
         Stage.READ.unsafeSetExecutor(unorderedScheduled);
         Stage.MUTATION.unsafeSetExecutor(unorderedScheduled);
-        Stage.ACCORD_RANGE_LOADER.unsafeSetExecutor(unorderedScheduled);
         for (Stage stage : Arrays.asList(Stage.MISC, Stage.ACCORD_MIGRATION, Stage.READ, Stage.MUTATION))
             stage.unsafeSetExecutor(globalExecutor.configureSequential("ignore").build());
 

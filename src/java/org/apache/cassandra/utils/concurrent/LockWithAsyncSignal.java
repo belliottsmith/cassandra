@@ -123,11 +123,17 @@ public class LockWithAsyncSignal
 
     private <T extends Throwable> void awaitLock(boolean awaitingSignal, Thread thread, int restoreDepth, AwaitFunction<T> await) throws T
     {
+        boolean wakeOne = false;
         T pending = null;
         while (true)
         {
             Waiter waiter = register(awaitingSignal, thread);
-            if ((!awaitingSignal || signal > 0) && ownerUpdater.compareAndSet(this, null, thread))
+            if (awaitingSignal && signal == 0)
+            {
+                if (wakeOne && owner == null)
+                    wakeOne(false); // will not wake ourselves as we only signal pure lock waiters
+            }
+            else if (ownerUpdater.compareAndSet(this, null, thread))
             {
                 depth = restoreDepth;
                 waiters.remove(waiter);
@@ -136,6 +142,7 @@ public class LockWithAsyncSignal
                 return;
             }
             pending = await.await(this, waiter);
+            wakeOne = awaitingSignal; // if we're signalled but miss the signal, we need to forward the wake to a plain lock
             awaitingSignal &= pending == null;
         }
     }
@@ -187,7 +194,7 @@ public class LockWithAsyncSignal
             if (Thread.interrupted())
             {
                 if (!waiters.remove(waiter))
-                    wakeOne();
+                    wakeOne(waiter.ticket < 0 || signal > 0);
 
                 throw new InterruptedException();
             }

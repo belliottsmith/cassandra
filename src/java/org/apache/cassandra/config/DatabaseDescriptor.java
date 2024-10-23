@@ -2586,7 +2586,7 @@ public class DatabaseDescriptor
         conf.concurrent_materialized_view_writes = concurrent_materialized_view_writes;
     }
 
-    public static int getConcurrentAccordOps()
+    public static int getAccordConcurrentOps()
     {
         return conf.concurrent_accord_operations;
     }
@@ -5096,9 +5096,28 @@ public class DatabaseDescriptor
         conf.accord.enabled = b;
     }
 
-    public static int getAccordShardCount()
+    public static AccordSpec.QueueShardModel getAccordQueueShardModel()
     {
-        return conf.accord.shard_count.or(DatabaseDescriptor::getAvailableProcessors);
+        return conf.accord.queue_shard_model;
+    }
+
+    public static int getAccordQueueShardCount()
+    {
+        switch (getAccordQueueShardModel())
+        {
+            default: throw new AssertionError("Unhandled queue_shard_model: " + conf.accord.queue_shard_model);
+            case THREAD_PER_SHARD:
+            case THREAD_PER_SHARD_SYNC_QUEUE:
+                return conf.accord.queue_shard_count.or(DatabaseDescriptor::getAvailableProcessors);
+            case THREAD_POOL_PER_SHARD:
+            case THREAD_POOL_PER_SHARD_EXCLUDES_IO:
+                return conf.accord.queue_shard_count.or(Math.min(4, DatabaseDescriptor.getAvailableProcessors()));
+        }
+    }
+
+    public static int getAccordCommandStoreShardCount()
+    {
+        return conf.accord.command_store_shard_count.or(DatabaseDescriptor::getAvailableProcessors);
     }
 
     public static long getAccordRecoverDelay(TimeUnit units)

@@ -129,48 +129,82 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
         protected void runWithoutLock(Interruptible.State state) throws InterruptedException
         {
+            boolean isRunning = false;
             Task task = null;
-            while (true)
+            try
             {
-                lock.lock();
-                try
+                while (true)
                 {
-                    if (task != null)
-                        task.cleanupExclusive();
-
-                    while (true)
+                    lock.lock();
+                    try
                     {
-                        drainSubmittedExclusive();
-                        task = waitingToRun.poll();
                         if (task != null)
-                            break;
+                        {
+                            task.cleanupExclusive();
+                            task = null;
+                        }
+                        else
+                        {
+                            ++running;
+                            isRunning = true;
+                        }
 
-                        if (state != NORMAL)
-                            return;
+                        while (true)
+                        {
+                            drainSubmittedExclusive();
+                            task = waitingToRun.poll();
+                            if (task != null)
+                                break;
 
-                        lock.clearSignal();
-                        if (waitingToRun.isEmpty() && submitted.isEmpty())
-                            lock.await();
+                            if (state != NORMAL)
+                                return;
+
+                            lock.clearSignal();
+                            if (waitingToRun.isEmpty() && submitted.isEmpty())
+                            {
+                                isRunning = false;
+                                --running;
+                                lock.await();
+                                ++running;
+                                isRunning = true;
+                            }
+                        }
+                        --tasks;
+                        task.preRunExclusive();
                     }
-                    --tasks;
-                    ++running;
-                    task.preRunExclusive();
-                }
-                finally
-                {
-                    lock.unlock();
-                }
-
-                try { task.run(); }
-                catch (Throwable t)
-                {
-                    try { task.fail(t); }
-                    catch (Throwable t2)
+                    finally
                     {
-                        t2.addSuppressed(t);
-                        agent.onUncaughtException(t2);
+                        lock.unlock();
+                    }
+
+                    try { task.run(); }
+                    catch (Throwable t)
+                    {
+                        try { task.fail(t); }
+                        catch (Throwable t2)
+                        {
+                            t2.addSuppressed(t);
+                            agent.onUncaughtException(t2);
+                        }
                     }
                 }
+            }
+            catch (Throwable t)
+            {
+                if (task != null || isRunning)
+                {
+                    lock.lock();
+                    try
+                    {
+                        if (isRunning) --running;
+                        if (task != null) task.cleanupExclusive();
+                    }
+                    finally
+                    {
+                        lock.unlock();
+                    }
+                }
+                throw t;
             }
         }
     }
@@ -196,7 +230,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
         public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
         {
-            this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
+            this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
         }
 
         public InfiniteLoopAccordExecutor(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)
@@ -283,7 +317,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, Agent agent)
         {
-            this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.ACCORD_RANGE_LOADER.executor(), agent);
+            this(name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
         }
 
         public TestAccordExecutor(String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, Executor rangeLoadExecutor, Agent agent)

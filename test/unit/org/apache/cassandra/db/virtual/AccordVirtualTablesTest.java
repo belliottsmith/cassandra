@@ -63,7 +63,8 @@ public class AccordVirtualTablesTest extends CQLTester
     public static void setUpClass()
     {
         daemonInitialization();
-        DatabaseDescriptor.getAccord().shard_count = new OptionaldPositiveInt(1);
+        DatabaseDescriptor.getAccord().queue_shard_count = new OptionaldPositiveInt(1);
+        DatabaseDescriptor.getAccord().command_store_shard_count = new OptionaldPositiveInt(1);
 
         CQLTester.setUpClass();
 

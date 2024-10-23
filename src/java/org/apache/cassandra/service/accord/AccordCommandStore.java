@@ -430,7 +430,7 @@ public class AccordCommandStore extends CommandStore
         return current;
     }
 
-    public void setOwner(Thread thread, Thread self)
+    void setOwner(Thread thread, Thread self)
     {
         Invariants.checkState(thread == null ? currentThread == self : currentThread == null);
         currentThread = thread;
