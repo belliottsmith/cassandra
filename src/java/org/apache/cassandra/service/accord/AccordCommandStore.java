@@ -24,6 +24,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -146,13 +147,14 @@ public class AccordCommandStore extends CommandStore
     public final String loggingId;
     private final IJournal journal;
     private final AccordExecutor executor;
+    private final Executor taskExecutor;
     private final ExclusiveCaches guardedCaches;
     private final Caches unguardedCaches;
-    private AccordTask<?> currentOperation = null;
-    private AccordSafeCommandStore current = null;
     private long lastSystemTimestampMicros = Long.MIN_VALUE;
     private final CommandsForRangesLoader commandsForRangesLoader;
 
+    private AccordSafeCommandStore current;
+    private Thread currentThread;
 
     public AccordCommandStore(int id,
                               NodeCommandStoreService node,
@@ -168,6 +170,7 @@ public class AccordCommandStore extends CommandStore
         this.journal = journal;
         loggingId = String.format("[%s]", id);
         executor = commandStoreExecutor;
+        taskExecutor = executor.executor(this);
         final AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands;
         final AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKey;
         final AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKey;
@@ -213,7 +216,7 @@ public class AccordCommandStore extends CommandStore
         loadSafeToRead(journal.loadSafeToRead(id()));
         loadRangesForEpoch(journal.loadRangesForEpoch(id()));
 
-        executor.execute(() -> CommandStore.register(this));
+        taskExecutor.execute(() -> CommandStore.register(this));
     }
 
     static Factory factory(AccordJournal journal, IntFunction<AccordExecutor> executorFactory)
@@ -237,7 +240,7 @@ public class AccordCommandStore extends CommandStore
     @Override
     public boolean inStore()
     {
-        return executor.isInThread();
+        return currentThread == Thread.currentThread();
     }
 
     public void checkInStoreThread()
@@ -255,6 +258,11 @@ public class AccordCommandStore extends CommandStore
     public AccordExecutor executor()
     {
         return executor;
+    }
+
+    public Executor taskExecutor()
+    {
+        return taskExecutor;
     }
 
     public ExclusiveCaches lockCaches()
@@ -360,24 +368,6 @@ public class AccordCommandStore extends CommandStore
         return null != mutation ? mutation::applyUnsafe : null;
     }
 
-    public void setCurrentOperation(AccordTask<?> operation)
-    {
-        checkState(currentOperation == null);
-        currentOperation = operation;
-    }
-
-    public AccordTask<?> getContext()
-    {
-        checkState(currentOperation != null);
-        return currentOperation;
-    }
-
-    public void unsetCurrentOperation(AccordTask<?> operation)
-    {
-        checkState(currentOperation == operation);
-        currentOperation = null;
-    }
-
     public long nextSystemTimestampMicros()
     {
         lastSystemTimestampMicros = Math.max(TimeUnit.MILLISECONDS.toMicros(Clock.Global.currentTimeMillis()), lastSystemTimestampMicros + 1);
@@ -392,7 +382,7 @@ public class AccordCommandStore extends CommandStore
     @Override
     public <T> AsyncChain<T> submit(Callable<T> task)
     {
-        return AsyncChains.ofCallable(executor, task);
+        return AsyncChains.ofCallable(taskExecutor(), task);
     }
 
     public DataStore dataStore()
@@ -432,12 +422,18 @@ public class AccordCommandStore extends CommandStore
         }
     }
 
-    public AccordSafeCommandStore beginOperation(AccordTask<?> operation,
-                                                 @Nullable CommandsForRanges commandsForRanges)
+    public AccordSafeCommandStore begin(AccordTask<?> operation,
+                                        @Nullable CommandsForRanges commandsForRanges)
     {
         checkState(current == null);
         current = AccordSafeCommandStore.create(operation, commandsForRanges, this);
         return current;
+    }
+
+    public void setOwner(Thread thread, Thread self)
+    {
+        Invariants.checkState(thread == null ? currentThread == self : currentThread == null);
+        currentThread = thread;
     }
 
     public boolean hasSafeStore()
@@ -445,21 +441,17 @@ public class AccordCommandStore extends CommandStore
         return current != null;
     }
 
-    public void completeOperation(AccordSafeCommandStore store)
+    public void complete(AccordSafeCommandStore store)
     {
         checkState(current == store);
-        try
-        {
-            current.postExecute();
-        }
-        finally
-        {
-            current = null;
-        }
+        current.postExecute();
+        current = null;
     }
 
-    public void abortCurrentOperation()
+    public void abort(AccordSafeCommandStore store)
     {
+        checkInStore();
+        Invariants.checkState(store == current);
         current = null;
     }
 

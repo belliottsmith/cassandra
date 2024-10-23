@@ -172,7 +172,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     }
 
     private State state = INITIALIZED;
-    private final AccordCommandStore commandStore;
     private final PreLoadContext preLoadContext;
     private final String loggingId;
 
@@ -205,8 +204,8 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     public AccordTask(AccordCommandStore commandStore, PreLoadContext preLoadContext)
     {
+        super(commandStore);
         this.loggingId = "0x" + Integer.toHexString(System.identityHashCode(this));
-        this.commandStore = commandStore;
         this.preLoadContext = preLoadContext;
 
         if (logger.isTraceEnabled())
@@ -482,119 +481,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         return loading != null;
     }
 
-    protected void runInternal()
-    {
-        switch (state)
-        {
-            default: throw new IllegalStateException("Unexpected state " + state);
-            case RUNNING:
-                if (commands != null)
-                    commands.values().forEach(AccordSafeState::preExecute);
-                if (commandsForKey != null)
-                    commandsForKey.values().forEach(AccordSafeState::preExecute);
-                if (timestampsForKey != null)
-                    timestampsForKey.values().forEach(AccordSafeState::preExecute);
-
-                AccordSafeCommandStore safeStore = commandStore.beginOperation(this, commandsForRanges);
-                result = apply(safeStore);
-
-                // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
-                List<SavedCommand.DiffWriter> diffs = null;
-                if (commands != null)
-                {
-                    for (AccordSafeCommand safeCommand : commands.values())
-                    {
-                        SavedCommand.DiffWriter diff = safeCommand.diff();
-                        if (diff == null)
-                            continue;
-
-                        if (diffs == null)
-                            diffs = new ArrayList<>(commands.size());
-                        diffs.add(diff);
-
-                        maybeSanityCheck(safeCommand);
-                    }
-                }
-
-                boolean flushed = false;
-                if (diffs != null || safeStore.fieldUpdates() != null)
-                {
-                    Runnable onFlush = () -> finish(result, null);
-                    if (safeStore.fieldUpdates() != null)
-                        commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
-                    if (diffs != null)
-                        save(diffs, onFlush);
-                    flushed = true;
-                }
-
-                commandStore.completeOperation(safeStore);
-                synchronizedState(RUNNING, COMPLETING);
-                if (flushed)
-                    return;
-
-            case COMPLETING:
-                finish(result, null);
-            case FINISHED:
-            case FAILED:
-                break;
-        }
-    }
-
-    private void finish(R result, Throwable failure)
-    {
-        try
-        {
-            if (callback != null)
-                callback.accept(result, failure);
-        }
-        finally
-        {
-            synchronizedState(failure == null ? FINISHED : FAILED);
-        }
-    }
-
-    // expects to hold cache lock
-    public void fail(Throwable throwable)
-    {
-        commandStore.agent().onUncaughtException(throwable);
-        commandStore.checkInStoreThread();
-        Invariants.nonNull(throwable);
-
-        if (state.isComplete())
-            return;
-
-        try
-        {
-            switch (state)
-            {
-                case COMPLETING:
-                    break; // everything's cleaned up, invoke callback
-                case RUNNING:
-                    revertChanges();
-                    commandStore.abortCurrentOperation();
-                case WAITING_TO_RUN:
-                case LOADING:
-                case WAITING_TO_LOAD:
-                case INITIALIZED:
-                    break; // nothing to clean up, call callback
-            }
-            if (commandStore.hasSafeStore())
-                commandStore.agent().onUncaughtException(new IllegalStateException(String.format("Failure to cleanup safe store for %s; status=%s", this, state), throwable));
-        }
-        catch (Throwable cleanup)
-        {
-            commandStore.agent().onUncaughtException(cleanup);
-            throwable.addSuppressed(cleanup);
-        }
-
-        finish(null, throwable);
-    }
-
-    protected void cleanupExclusive()
-    {
-        releaseResources(commandStore.cachesExclusive());
-    }
-
     private void maybeSanityCheck(AccordSafeCommand safeCommand)
     {
         if (SANITY_CHECK)
@@ -641,18 +527,74 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     {
         setLoggingIds();
         logger.trace("Running {} with state {}", this, state);
+        AccordSafeCommandStore safeStore = null;
         try
         {
-            commandStore.checkInStoreThread();
-            commandStore.setCurrentOperation(this);
-            try
+            switch (state)
             {
-                runInternal();
+                default: throw new IllegalStateException("Unexpected state " + state);
+                case RUNNING:
+                    if (commands != null)
+                        commands.values().forEach(AccordSafeState::preExecute);
+                    if (commandsForKey != null)
+                        commandsForKey.values().forEach(AccordSafeState::preExecute);
+                    if (timestampsForKey != null)
+                        timestampsForKey.values().forEach(AccordSafeState::preExecute);
+
+                    safeStore = commandStore.begin(this, commandsForRanges);
+                    result = apply(safeStore);
+
+                    // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
+                    List<SavedCommand.DiffWriter> diffs = null;
+                    if (commands != null)
+                    {
+                        for (AccordSafeCommand safeCommand : commands.values())
+                        {
+                            SavedCommand.DiffWriter diff = safeCommand.diff();
+                            if (diff == null)
+                                continue;
+
+                            if (diffs == null)
+                                diffs = new ArrayList<>(commands.size());
+                            diffs.add(diff);
+
+                            maybeSanityCheck(safeCommand);
+                        }
+                    }
+
+                    boolean flushed = false;
+                    if (diffs != null || safeStore.fieldUpdates() != null)
+                    {
+                        Runnable onFlush = () -> finish(result, null);
+                        if (safeStore.fieldUpdates() != null)
+                            commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
+                        if (diffs != null)
+                            save(diffs, onFlush);
+                        flushed = true;
+                    }
+
+                    commandStore.complete(safeStore);
+                    safeStore = null;
+                    synchronizedState(RUNNING, COMPLETING);
+                    if (flushed)
+                        return;
+
+                case COMPLETING:
+                    finish(result, null);
+
+                case FINISHED:
+                case FAILED:
+                    break;
             }
-            finally
+        }
+        catch (Throwable t)
+        {
+            if (safeStore != null)
             {
-                commandStore.unsetCurrentOperation(this);
+                revert();
+                commandStore.abort(safeStore);
             }
+            throw t;
         }
         finally
         {
@@ -661,9 +603,22 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
-    public void setWaitingToLoadRanges()
+    // expects to hold cache lock
+    public void fail(Throwable throwable)
     {
+        commandStore.agent().onUncaughtException(throwable);
+        if (state.isComplete())
+            return;
 
+        if (commandStore.hasSafeStore())
+            commandStore.agent().onUncaughtException(new IllegalStateException(String.format("Failure to cleanup safe store for %s; status=%s", this, state), throwable));
+
+        finish(null, throwable);
+    }
+
+    protected void cleanupExclusive()
+    {
+        releaseResources(commandStore.cachesExclusive());
     }
 
     public RangeLoader rangeLoader()
@@ -692,6 +647,19 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     public State state()
     {
         return state;
+    }
+
+    private void finish(R result, Throwable failure)
+    {
+        try
+        {
+            if (callback != null)
+                callback.accept(result, failure);
+        }
+        finally
+        {
+            synchronizedState(failure == null ? FINISHED : FAILED);
+        }
     }
 
     void releaseResources(Caches caches)
@@ -724,7 +692,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         waitingToLoad = null;
     }
 
-    void revertChanges()
+    void revert()
     {
         if (commands != null)
             commands.forEach((k, v) -> v.revert());
