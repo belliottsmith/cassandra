@@ -3474,41 +3474,6 @@ public class DatabaseDescriptor
         return conf.paxos_topology_repair_strict_each_quorum;
     }
 
-    public static AccordSpec getAccord()
-    {
-        return conf.accord;
-    }
-
-    public static AccordSpec.TransactionalRangeMigration getTransactionalRangeMigration()
-    {
-        return conf.accord.range_migration;
-    }
-
-    public static void setTransactionalRangeMigration(AccordSpec.TransactionalRangeMigration val)
-    {
-        conf.accord.range_migration = Preconditions.checkNotNull(val);
-    }
-
-    public static int getAccordBarrierRetryAttempts()
-    {
-        return conf.accord.barrier_retry_attempts;
-    }
-
-    public static long getAccordBarrierRetryInitialBackoffMillis()
-    {
-        return conf.accord.barrier_retry_inital_backoff_millis.toMilliseconds();
-    }
-
-    public static long getAccordBarrierRetryMaxBackoffMillis()
-    {
-        return conf.accord.barrier_max_backoff.toMilliseconds();
-    }
-
-    public static long getAccordRangeBarrierTimeoutNanos()
-    {
-        return conf.accord.range_barrier_timeout.to(TimeUnit.NANOSECONDS);
-    }
-
     public static TransactionalMode defaultTransactionalMode()
     {
         return conf.accord.default_transactional_mode;
@@ -5085,6 +5050,42 @@ public class DatabaseDescriptor
         }
     }
 
+
+    public static AccordSpec getAccord()
+    {
+        return conf.accord;
+    }
+
+    public static AccordSpec.TransactionalRangeMigration getTransactionalRangeMigration()
+    {
+        return conf.accord.range_migration;
+    }
+
+    public static void setTransactionalRangeMigration(AccordSpec.TransactionalRangeMigration val)
+    {
+        conf.accord.range_migration = Preconditions.checkNotNull(val);
+    }
+
+    public static int getAccordBarrierRetryAttempts()
+    {
+        return conf.accord.barrier_retry_attempts;
+    }
+
+    public static long getAccordBarrierRetryInitialBackoffMillis()
+    {
+        return conf.accord.barrier_retry_inital_backoff_millis.toMilliseconds();
+    }
+
+    public static long getAccordBarrierRetryMaxBackoffMillis()
+    {
+        return conf.accord.barrier_max_backoff.toMilliseconds();
+    }
+
+    public static long getAccordRangeSyncPointTimeoutNanos()
+    {
+        return conf.accord.range_syncpoint_timeout.to(TimeUnit.NANOSECONDS);
+    }
+
     public static boolean getAccordTransactionsEnabled()
     {
         return conf.accord.enabled;
@@ -5098,6 +5099,26 @@ public class DatabaseDescriptor
     public static int getAccordShardCount()
     {
         return conf.accord.shard_count.or(DatabaseDescriptor::getAvailableProcessors);
+    }
+
+    public static long getAccordRecoverDelay(TimeUnit units)
+    {
+        return conf.accord.recover_delay.to(units);
+    }
+
+    public static void setAccordRecoverDelay(long time, TimeUnit units)
+    {
+        conf.accord.recover_delay = new IntMillisecondsBound(time, units);
+    }
+
+    public static long getAccordRangeSyncPointRecoverDelay(TimeUnit units)
+    {
+        return conf.accord.range_syncpoint_recover_delay.to(units);
+    }
+
+    public static void setAccordRangeSyncPointRecoverDelay(long time, TimeUnit units)
+    {
+        conf.accord.range_syncpoint_recover_delay = new IntMillisecondsBound(time, units);
     }
 
     public static long getAccordFastPathUpdateDelayMillis()

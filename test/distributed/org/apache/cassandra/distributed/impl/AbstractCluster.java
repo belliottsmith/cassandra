@@ -762,11 +762,6 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
         }
     }
 
-    public void forEach(IIsolatedExecutor.SerializableRunnable runnable)
-    {
-        forEach(i -> i.sync(runnable));
-    }
-
     public void forEach(Consumer<? super I> consumer)
     {
         forEach(instances, consumer);

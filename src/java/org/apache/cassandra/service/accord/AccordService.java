@@ -829,7 +829,7 @@ public class AccordService implements IAccordService, Shutdownable
     @Override
     public Seekables barrierWithRetries(Seekables keysOrRanges, long minEpoch, BarrierType barrierType, boolean isForWrite) throws InterruptedException
     {
-        return doWithRetries(Blocking.Default.instance, () -> AccordService.instance().barrier(keysOrRanges, minEpoch, Dispatcher.RequestTime.forImmediateExecution(), DatabaseDescriptor.getAccordRangeBarrierTimeoutNanos(), barrierType, isForWrite),
+        return doWithRetries(Blocking.Default.instance, () -> AccordService.instance().barrier(keysOrRanges, minEpoch, Dispatcher.RequestTime.forImmediateExecution(), DatabaseDescriptor.getAccordRangeSyncPointTimeoutNanos(), barrierType, isForWrite),
                              DatabaseDescriptor.getAccordBarrierRetryAttempts(),
                              DatabaseDescriptor.getAccordBarrierRetryInitialBackoffMillis(),
                              DatabaseDescriptor.getAccordBarrierRetryMaxBackoffMillis());
@@ -838,7 +838,7 @@ public class AccordService implements IAccordService, Shutdownable
     @Override
     public Seekables<?, ?> repairWithRetries(Seekables<?, ?> keysOrRanges, long minEpoch, BarrierType barrierType, boolean isForWrite, List<InetAddressAndPort> allEndpoints) throws InterruptedException
     {
-        return doWithRetries(Blocking.Default.instance, () -> AccordService.instance().repair(keysOrRanges, minEpoch, Dispatcher.RequestTime.forImmediateExecution(), DatabaseDescriptor.getAccordRangeBarrierTimeoutNanos(), barrierType, isForWrite, allEndpoints),
+        return doWithRetries(Blocking.Default.instance, () -> AccordService.instance().repair(keysOrRanges, minEpoch, Dispatcher.RequestTime.forImmediateExecution(), DatabaseDescriptor.getAccordRangeSyncPointTimeoutNanos(), barrierType, isForWrite, allEndpoints),
                              DatabaseDescriptor.getAccordBarrierRetryAttempts(),
                              DatabaseDescriptor.getAccordBarrierRetryInitialBackoffMillis(),
                              DatabaseDescriptor.getAccordBarrierRetryMaxBackoffMillis());

@@ -39,14 +39,14 @@ public class AccordSpec
 
     // TODO (expected): we should be able to support lower recover delays, at least for txns
     public volatile DurationSpec.IntMillisecondsBound recover_delay = new DurationSpec.IntMillisecondsBound(5000);
-    public volatile DurationSpec.IntMillisecondsBound range_sync_recover_delay = new DurationSpec.IntMillisecondsBound("5m");
+    public volatile DurationSpec.IntMillisecondsBound range_syncpoint_recover_delay = new DurationSpec.IntMillisecondsBound("5m");
     public String slowPreAccept = "30ms <= p50*2 <= 100ms";
     public String slowRead = "30ms <= p50*2 <= 100ms";
 
     public long recoveryDelayFor(TxnId txnId, TimeUnit unit)
     {
         if (txnId.isSyncPoint() && txnId.is(Range))
-            return range_sync_recover_delay.to(unit);
+            return range_syncpoint_recover_delay.to(unit);
         return recover_delay.to(unit);
     }
 
@@ -63,7 +63,7 @@ public class AccordSpec
 
     public DurationSpec.IntMillisecondsBound barrier_max_backoff = new DurationSpec.IntMillisecondsBound("10m");
 
-    public DurationSpec.IntMillisecondsBound range_barrier_timeout = new DurationSpec.IntMillisecondsBound("2m");
+    public DurationSpec.IntMillisecondsBound range_syncpoint_timeout = new DurationSpec.IntMillisecondsBound("2m");
 
     public volatile DurationSpec.IntSecondsBound fast_path_update_delay = new DurationSpec.IntSecondsBound("60m");
 
