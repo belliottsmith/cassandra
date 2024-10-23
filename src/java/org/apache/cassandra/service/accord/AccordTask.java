@@ -399,7 +399,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     {
         Invariants.checkState(waitingToLoad != null);
         waitingToLoad.remove(state);
-        if (waitingToLoad.isEmpty())
+        if (!waitingToLoad.isEmpty())
             return false;
 
         return onEmptyWaitingToLoad();
