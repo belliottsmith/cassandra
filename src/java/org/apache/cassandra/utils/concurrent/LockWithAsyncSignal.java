@@ -140,9 +140,14 @@ public class LockWithAsyncSignal
                     throw pending;
                 return;
             }
-            pending = await.await(this, waiter);
+            pending = firstNonNull(pending, await.await(this, waiter));
             awaitingSignal &= pending == null;
         }
+    }
+
+    private static <T> T firstNonNull(T cur, T next)
+    {
+        return cur != null ? cur : next;
     }
 
     public void signal()

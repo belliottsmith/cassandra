@@ -61,6 +61,7 @@ import org.junit.Assume;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.concurrent.ExecutorFactory;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Token;
@@ -92,6 +93,7 @@ import org.apache.cassandra.io.util.PathUtils;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Isolated;
+import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.Shared;
 import org.apache.cassandra.utils.Shared.Recursive;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -193,6 +195,11 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
             CassandraRelevantProperties.TEST_FLUSH_LOCAL_SCHEMA_CHANGES.reset();
             CassandraRelevantProperties.NON_GRACEFUL_SHUTDOWN.reset();
             CassandraRelevantProperties.IO_NETTY_TRANSPORT_NONATIVE.setBoolean(false);
+            withInstanceInitializer((classLoader, threadGroup, i, i1) -> {
+                IsolatedExecutor.transferAdhoc((IIsolatedExecutor.SerializableBiConsumer<ClassLoader, ThreadGroup>) (cl, tg) -> {
+                    ExecutorFactory.Global.tryUnsafeSet(new ExecutorFactory.Default(cl, tg, Thread.getDefaultUncaughtExceptionHandler()));
+                }, classLoader).accept(classLoader, threadGroup);
+            });
         }
 
         public AbstractBuilder(Factory<I, C, B> factory)

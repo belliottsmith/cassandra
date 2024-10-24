@@ -634,7 +634,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
                                                                                                         config.networkTopology(), config.broadcastAddress());
                     // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
                     // so extract it to populate ExecutorFactory.Global
-                    ExecutorFactory.Global.tryUnsafeSet(new ExecutorFactory.Default(Thread.currentThread().getContextClassLoader(), null, Thread.getDefaultUncaughtExceptionHandler()));
                     DistributedTestSnitch.assign(config.networkTopology());
                     CassandraDaemon.getInstanceForTesting().activate(false);
                     // TODO: filters won't work for the messages dispatched during startup
@@ -704,7 +703,6 @@ public class Instance extends IsolatedExecutor implements IInvokableInstance
     {
         // org.apache.cassandra.distributed.impl.AbstractCluster.startup sets the exception handler for the thread
         // so extract it to populate ExecutorFactory.Global
-        ExecutorFactory.Global.tryUnsafeSet(new ExecutorFactory.Default(Thread.currentThread().getContextClassLoader(), null, Thread.getDefaultUncaughtExceptionHandler()));
         if (config.has(GOSSIP))
         {
             // TODO: hacky
