@@ -253,7 +253,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         if (collection.size() < 10)
             return collection.toString();
 
-        return collection.stream().limit(10).map(Object::toString).collect(Collectors.joining(",", "[", "]"));
+        return collection.stream().limit(10).map(Object::toString).collect(Collectors.joining(",", "[", "...(*" + (collection.size() - 10) + ")]"));
     }
 
     private void state(State state)
