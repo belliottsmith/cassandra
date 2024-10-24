@@ -27,7 +27,7 @@ import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static accord.primitives.Routable.Domain.Range;
 import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_POOL_PER_SHARD;
-import static org.apache.cassandra.config.AccordSpec.QueueSubmissionModel.SEMI_SYNC;
+import static org.apache.cassandra.config.AccordSpec.QueueSubmissionModel.SYNC;
 
 public class AccordSpec
 {
@@ -72,7 +72,7 @@ public class AccordSpec
     }
 
     public QueueShardModel queue_shard_model = THREAD_POOL_PER_SHARD;
-    public QueueSubmissionModel queue_submission_model = SEMI_SYNC;
+    public QueueSubmissionModel queue_submission_model = SYNC;
 
     /**
      * The number of queue (and cache) shards.

@@ -98,14 +98,14 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     private final ExecutorFunction loadExecutor;
     private final ExecutorFunction rangeLoadExecutor;
 
-    private final TaskQueue<AccordTask<?>> scanningRanges = new TaskQueue<>(); // never queried, just parked here while scanning
-    private final TaskQueue<AccordTask<?>> loading = new TaskQueue<>(); // never queried, just parked here while loading
+    private final TaskQueue<AccordTask<?>> scanningRanges = new TaskQueue<>(SCANNING_RANGES); // never queried, just parked here while scanning
+    private final TaskQueue<AccordTask<?>> loading = new TaskQueue<>(LOADING); // never queried, just parked here while loading
 
     private @Nullable TaskQueue<AccordTask<?>> waitingToLoadRangeTxns; // this is kept null whenever the queue is empty (i.e. normally)
-    private final TaskQueue<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskQueue<>();
+    private final TaskQueue<AccordTask<?>> waitingToLoadRangeTxnsCollection = new TaskQueue<>(WAITING_TO_LOAD);
 
-    private final TaskQueue<AccordTask<?>> waitingToLoad = new TaskQueue<>();
-    final TaskQueue<Task> waitingToRun = new TaskQueue<>();
+    private final TaskQueue<AccordTask<?>> waitingToLoad = new TaskQueue<>(WAITING_TO_LOAD);
+    final TaskQueue<Task> waitingToRun = new TaskQueue<>(WAITING_TO_RUN);
     private final Object2ObjectHashMap<AccordCommandStore, CommandStoreQueue> commandStoreQueues = new Object2ObjectHashMap<>();
 
     private final AccordCachingState.OnLoaded onRangeLoaded = this::onRangeLoaded;
@@ -151,7 +151,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
             switch (next.state())
             {
-                default: throw new AssertionError("Unexpected state: " + next);
+                default: throw new AssertionError("Unexpected state: " + next.toDescription());
                 case WAITING_TO_SCAN_RANGES:
                     if (activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
                     {
@@ -228,7 +228,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             task.unqueueIfQueued();
             if (waitingToLoadRangeTxns == null)
                 waitingToLoadRangeTxns = waitingToLoadRangeTxnsCollection;
-            task.addToQueue(waitingToLoadRangeTxns, WAITING_TO_LOAD);
+            task.addToQueue(waitingToLoadRangeTxns);
         }
     }
 
@@ -252,17 +252,17 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         removeFromQueue(task);
         switch (task.state())
         {
-            default: throw new AssertionError("Unexpected state: " + task.state());
+            default: throw new AssertionError("Unexpected state: " + task.toDescription());
             case WAITING_TO_SCAN_RANGES:
             case WAITING_TO_LOAD:
-                task.addToQueue(waitingToLoad, WAITING_TO_LOAD);
+                task.addToQueue(waitingToLoad);
                 if (enqueueLoads) enqueueLoadsExclusive();
                 break;
             case SCANNING_RANGES:
-                task.addToQueue(scanningRanges, SCANNING_RANGES);
+                task.addToQueue(scanningRanges);
                 break;
             case LOADING:
-                task.addToQueue(loading, LOADING);
+                task.addToQueue(loading);
                 break;
             case WAITING_TO_RUN:
                 task.runQueuedAt = nanoTime();
@@ -383,7 +383,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         {
             default:
             case INITIALIZED:
-                throw new AssertionError("Unexpected state for: " + task);
+                throw new AssertionError("Unexpected state: " + task.toDescription());
 
             case LOADING:
             case WAITING_TO_LOAD:
@@ -576,7 +576,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
          */
         abstract protected void cleanupExclusive();
 
-        abstract protected void addToQueue(TaskQueue queue, AccordTask.State queueKind);
+        abstract protected void addToQueue(TaskQueue queue);
     }
 
     class PlainRunnable extends Task
@@ -612,16 +612,16 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         protected void cleanupExclusive() {}
 
         @Override
-        protected void addToQueue(TaskQueue queue, AccordTask.State queueKind)
+        protected void addToQueue(TaskQueue queue)
         {
-            Invariants.checkState(queueKind == WAITING_TO_RUN);
+            Invariants.checkState(queue.kind == WAITING_TO_RUN);
             queue.append(this);
         }
     }
 
     class CommandStoreQueue extends Task
     {
-        final TaskQueue<Task> queue = new TaskQueue<>();
+        final TaskQueue<Task> queue = new TaskQueue<>(WAITING_TO_RUN);
         Task next;
 
         CommandStoreQueue(AccordCommandStore commandStore)
@@ -659,16 +659,15 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         }
 
         @Override
-        protected void addToQueue(TaskQueue queue, AccordTask.State queueKind)
+        protected void addToQueue(TaskQueue queue)
         {
-            Invariants.checkState(queueKind == WAITING_TO_RUN);
-            queue.append(this);
+            throw new UnsupportedOperationException();
         }
 
         void append(Task task)
         {   // TODO (expected): if the new task is higher priority, replace next
             if (next == null) updateNext(task);
-            else task.addToQueue(queue, WAITING_TO_RUN);
+            else task.addToQueue(queue);
         }
 
         void updateNext(Task task)
@@ -684,6 +683,13 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     static final class TaskQueue<T extends Task> extends IntrusivePriorityHeap<T>
     {
+        final AccordTask.State kind;
+
+        TaskQueue(AccordTask.State kind)
+        {
+            this.kind = kind;
+        }
+
         @Override
         public int compare(T o1, T o2)
         {

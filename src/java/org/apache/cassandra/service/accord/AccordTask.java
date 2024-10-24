@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 import org.slf4j.Logger;
@@ -224,6 +225,37 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         return "AsyncOperation{" + state + "}-" + loggingId;
     }
 
+    public String toDescription()
+    {
+        return "AsyncOperation{" + state + "}-" + loggingId + ": "
+               + (queued == null ? "unqueued" : queued.kind)
+               + ", waitingToLoad: " + summarise(waitingToLoad)
+               + ", loading:" + summarise(loading)
+               + ", cfks:" + summarise(commandsForKey)
+               + ", tfks:" + summarise(timestampsForKey)
+               + ", txns:" + summarise(commands);
+
+    }
+
+    private static String summarise(Map<?, ?> map)
+    {
+        if (map == null)
+            return "null";
+
+        return summarise(map.keySet());
+    }
+
+    private static String summarise(Collection<?> collection)
+    {
+        if (collection == null)
+            return "null";
+
+        if (collection.size() < 10)
+            return collection.toString();
+
+        return collection.stream().limit(10).map(Object::toString).collect(Collectors.joining(",", "[", "]"));
+    }
+
     private void state(State state)
     {
         Invariants.checkState(state.isPermittedFrom(this.state));
@@ -384,6 +416,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             Invariants.checkState (safeRef.getClass() == AccordSafeTimestampsForKey.class);
             ensureTimestampsForKey().put((RoutingKey) state.key(), (AccordSafeTimestampsForKey) safeRef);
         }
+
         if (!loading.isEmpty())
             return false;
 
@@ -838,9 +871,9 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
-    protected void addToQueue(TaskQueue queue, State queueKind)
+    protected void addToQueue(TaskQueue queue)
     {
-        Invariants.checkState(queueKind == state || (queueKind == WAITING_TO_LOAD && state == WAITING_TO_SCAN_RANGES), "Invalid queue type: %s vs %s", queueKind, this);
+        Invariants.checkState(queue.kind == state || (queue.kind == WAITING_TO_LOAD && state == WAITING_TO_SCAN_RANGES), "Invalid queue type: %s vs %s", queue.kind, this);
         Invariants.checkState(this.queued == null, "Already queued with state: " + this);
         queued = queue;
         queue.append(this);
@@ -849,11 +882,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     TaskQueue<?> queued()
     {
         return queued;
-    }
-
-    void clearQueue()
-    {
-        queued = null;
     }
 
     TaskQueue<?> unqueue()
