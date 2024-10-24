@@ -89,6 +89,8 @@ class AccordExecutorTest extends AccordExecutor
         finally
         {
             running = 0;
+            if (!waitingToRun.isEmpty())
+                executor.execute(this::run);
             lock.unlock();
         }
     }
@@ -103,14 +105,11 @@ class AccordExecutorTest extends AccordExecutor
         }
         finally
         {
+            if (!waitingToRun.isEmpty())
+                executor.execute(this::run);
+
             lock.unlock();
         }
-    }
-
-    @Override
-    void notifyWorkExclusive()
-    {
-        executor.execute(this::run);
     }
 
     @Override

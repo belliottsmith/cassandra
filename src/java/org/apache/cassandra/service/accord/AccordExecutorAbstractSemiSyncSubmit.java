@@ -44,7 +44,7 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
     }
 
     abstract void notifyWorkAsync();
-    abstract void await() throws InterruptedException;
+    abstract void awaitExclusive() throws InterruptedException;
 
     Interruptible.Task task(Mode mode)
     {
@@ -53,16 +53,11 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
 
     <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
     {
-        boolean applySync = true;
         if (!lock.tryLock())
         {
             submitted.push(async.apply(p1a, p2, p3, p4));
-            applySync = false;
-            if (!lock.tryLock())
-            {
-                notifyWorkAsync();
-                return;
-            }
+            notifyWorkAsync();
+            return;
         }
 
         try
@@ -73,18 +68,15 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
             }
             catch (Throwable t)
             {
-                if (applySync)
-                {
-                    try { sync.accept(this, p1s, p2, p3, p4); }
-                    catch (Throwable t2) { t.addSuppressed(t2); }
-                }
+                try { sync.accept(this, p1s, p2, p3, p4); }
+                catch (Throwable t2) { t.addSuppressed(t2); }
                 throw t;
             }
-            if (applySync)
-                sync.accept(this, p1s, p2, p3, p4);
+            sync.accept(this, p1s, p2, p3, p4);
         }
         finally
         {
+            notifyIfMoreWorkExclusive();
             lock.unlock();
         }
     }

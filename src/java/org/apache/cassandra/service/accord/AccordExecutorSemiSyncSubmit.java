@@ -19,7 +19,6 @@
 package org.apache.cassandra.service.accord;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntFunction;
@@ -34,9 +33,6 @@ class AccordExecutorSemiSyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
     private final AccordExecutorInfiniteLoops loops;
     private final ReentrantLock lock;
     private final Condition hasWork;
-
-    private volatile int active;
-    private static final AtomicIntegerFieldUpdater<AccordExecutorSemiSyncSubmit> activeUpdater = AtomicIntegerFieldUpdater.newUpdater(AccordExecutorSemiSyncSubmit.class, "active");
 
     public AccordExecutorSemiSyncSubmit(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
     {
@@ -66,33 +62,28 @@ class AccordExecutorSemiSyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
         this.hasWork = lock.newCondition();
     }
 
-    void preStart()
-    {
-        activeUpdater.incrementAndGet(this);
-    }
-
     @Override
-    void await() throws InterruptedException
+    void awaitExclusive() throws InterruptedException
     {
-        activeUpdater.decrementAndGet(this);
         if (waitingToRun.isEmpty() && submitted.isEmpty())
             hasWork.await();
-        activeUpdater.incrementAndGet(this);
     }
 
     @Override
     void notifyWorkAsync()
     {
-        if (active > 0 || !lock.tryLock())
-            return;
-
-        try
+        // we check running both sides of tryLock for ordering guarantees
+        boolean hadRunning = isHeldByExecutor;
+        if (lock.tryLock())
         {
-            hasWork.signal();
+            try { hasWork.signal(); }
+            finally { lock.unlock(); }
         }
-        finally
+        else if (!hadRunning || !isHeldByExecutor)
         {
-            lock.unlock();
+            lock.lock();
+            try { hasWork.signal(); }
+            finally { lock.unlock(); }
         }
     }
     

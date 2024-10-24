@@ -138,7 +138,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     }
 
     abstract boolean hasTasks();
-    abstract void notifyWorkExclusive();
     abstract boolean isInThread();
 
     private void enqueueLoadsExclusive()
@@ -277,9 +276,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         if (task.commandStore == null)
         {
-            boolean signal = waitingToRun.isEmpty();
             waitingToRun.append(task);
-            if (signal) notifyWorkExclusive();
         }
         else
         {
@@ -303,7 +300,6 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         PlainRunnable task = new PlainRunnable(result, run, null);
         task.queuePosition = ++nextPosition;
         waitingToRun.append(task);
-        notifyWorkExclusive();
         return result;
     }
 
@@ -476,20 +472,16 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             }
             else
             {
-                boolean enqueueWork = false;
                 for (AccordTask<?> task : ops)
                 {
                     if (task.onLoad(loaded))
                     {
-                        enqueueWork = true;
                         Invariants.checkState(task.queued() == loading);
                         task.unqueue();
                         waitingToRun(task);
                     }
                 }
                 cache.loaded(loaded, value);
-                if (enqueueWork)
-                    notifyWorkExclusive();
             }
         }
     }
@@ -685,9 +677,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             if (task != null)
             {
                 queuePosition = task.queuePosition;
-                boolean signal = waitingToRun.isEmpty();
                 waitingToRun.append(this);
-                if (signal) notifyWorkExclusive();
             }
         }
     }

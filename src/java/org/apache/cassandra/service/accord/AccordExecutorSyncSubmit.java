@@ -65,7 +65,7 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
     }
 
     @Override
-    void await() throws InterruptedException
+    void awaitExclusive() throws InterruptedException
     {
         if (waitingToRun.isEmpty())
             hasWork.await();
@@ -97,6 +97,7 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
         }
         finally
         {
+            notifyIfMoreWorkExclusive();
             lock.unlock();
         }
     }

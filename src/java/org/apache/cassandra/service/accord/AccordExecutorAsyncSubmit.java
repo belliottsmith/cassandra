@@ -60,7 +60,7 @@ class AccordExecutorAsyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
     }
 
     @Override
-    void await() throws InterruptedException
+    void awaitExclusive() throws InterruptedException
     {
         lock.clearSignal();
         if (waitingToRun.isEmpty() && submitted.isEmpty())

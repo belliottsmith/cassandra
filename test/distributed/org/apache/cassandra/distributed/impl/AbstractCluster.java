@@ -1026,6 +1026,8 @@ public abstract class AbstractCluster<I extends IInstance> implements ICluster<I
 
     public void startup()
     {
+        // start the JNA cleaner on the system class loader to avoid pinning an instance
+        com.sun.jna.internal.Cleaner.getCleaner();
         previousHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler(this::uncaughtExceptions);
         try (AllMembersAliveMonitor monitor = new AllMembersAliveMonitor())

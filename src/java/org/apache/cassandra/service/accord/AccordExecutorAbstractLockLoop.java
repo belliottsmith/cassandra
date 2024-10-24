@@ -29,14 +29,42 @@ import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_L
 
 abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
 {
+    boolean isHeldByExecutor;
     AccordExecutorAbstractLockLoop(Lock lock, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
     }
 
-    void preStart() {}
     void prePoll() {}
-    abstract void await() throws InterruptedException;
+    abstract void notifyWorkExclusive();
+    abstract void awaitExclusive() throws InterruptedException;
+
+    void notifyIfMoreWorkExclusive()
+    {
+        if (!waitingToRun.isEmpty())
+            notifyWorkExclusive();
+    }
+
+    private void enterLockExclusive()
+    {
+        isHeldByExecutor = true;
+    }
+
+    private void exitLockExclusive()
+    {
+        isHeldByExecutor = false;
+        notifyIfMoreWorkExclusive();
+    }
+
+    private void pauseExclusive()
+    {
+        --running;
+    }
+
+    private void resumeExclusive()
+    {
+        ++running;
+    }
 
     Interruptible.Task task(Mode mode)
     {
@@ -48,10 +76,10 @@ abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
         lock.lockInterruptibly();
         try
         {
-            preStart();
+            resumeExclusive();
+            enterLockExclusive();
             while (true)
             {
-                running = 1;
                 prePoll();
                 Task task = waitingToRun.poll();
 
@@ -74,17 +102,23 @@ abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
                 }
                 else
                 {
-                    running = 0;
                     if (state != NORMAL)
+                    {
+                        pauseExclusive();
+                        exitLockExclusive();
                         return;
+                    }
 
-                    await();
+                    pauseExclusive();
+                    awaitExclusive();
+                    resumeExclusive();
                 }
             }
         }
         catch (Throwable t)
         {
-            running = 0;
+            pauseExclusive();
+            exitLockExclusive();
             throw t;
         }
         finally
@@ -95,82 +129,77 @@ abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
 
     protected void runWithoutLock(Interruptible.State state) throws InterruptedException
     {
-        boolean isRunning = false;
         Task task = null;
-        try
+        while (true)
         {
-            preStart();
-            while (true)
+            lock.lock();
+            try
             {
-                lock.lock();
-                try
+                if (task != null) task.cleanupExclusive();
+                else resumeExclusive();
+                enterLockExclusive();
+
+                while (true)
                 {
+                    prePoll();
+                    task = waitingToRun.poll();
                     if (task != null)
                     {
-                        task.cleanupExclusive();
-                        task = null;
+                        exitLockExclusive();
+                        break;
                     }
-                    else
+
+                    if (state != NORMAL)
                     {
-                        ++running;
-                        isRunning = true;
+                        exitLockExclusive();
+                        return;
                     }
 
-                    while (true)
-                    {
-                        prePoll();
-                        task = waitingToRun.poll();
-                        if (task != null)
-                            break;
-
-                        if (state != NORMAL)
-                            return;
-
-                        isRunning = false;
-                        --running;
-                        await();
-                        ++running;
-                        isRunning = true;
-                    }
-                    --tasks;
-                    task.preRunExclusive();
+                    pauseExclusive();
+                    awaitExclusive();
+                    resumeExclusive();
                 }
-                finally
+                --tasks;
+                task.preRunExclusive();
+            }
+            catch (Throwable t)
+            {
+                if (task != null)
                 {
-                    lock.unlock();
+                    try { task.fail(t); }
+                    catch (Throwable t2) { t.addSuppressed(t2); }
+                    try { task.cleanupExclusive(); }
+                    catch (Throwable t2) { t.addSuppressed(t2); }
+                    try { agent.onUncaughtException(t); }
+                    catch (Throwable t2) { /* nothing we can sensibly do after already reporting */ }
                 }
+                pauseExclusive();
+                exitLockExclusive();
+                throw t;
+            }
+            finally
+            {
+                lock.unlock();
+            }
 
-                try
-                {
-                    task.run();
-                }
-                catch (Throwable t)
+            try
+            {
+                task.run();
+            }
+            catch (Throwable t)
+            {
+                try { task.fail(t); }
+                catch (Throwable t2)
                 {
                     try
-                    {
-                        task.fail(t);
-                    }
-                    catch (Throwable t2)
                     {
                         t2.addSuppressed(t);
                         agent.onUncaughtException(t2);
                     }
-                }
-            }
-        }
-        finally
-        {
-            if (task != null || isRunning)
-            {
-                lock.lock();
-                try
-                {
-                    if (isRunning) --running;
-                    if (task != null) task.cleanupExclusive();
-                }
-                finally
-                {
-                    lock.unlock();
+                    catch (Throwable t3)
+                    {
+                        // empty to ensure we definitely loop so we cleanup the task
+                    }
                 }
             }
         }
