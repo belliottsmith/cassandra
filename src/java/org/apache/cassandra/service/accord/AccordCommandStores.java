@@ -42,13 +42,17 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheSizeMetrics;
 import org.apache.cassandra.schema.TableId;
-import org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExecutor;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
+import static org.apache.cassandra.config.AccordSpec.QueueModel.SYNC_LOOP;
 import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_PER_SHARD;
-import static org.apache.cassandra.service.accord.AccordExecutor.LockLoopAccordExecutor.Mode.RUN_WITHOUT_LOCK;
-import static org.apache.cassandra.service.accord.AccordExecutor.LockLoopAccordExecutor.Mode.RUN_WITH_LOCK;
+import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueModel;
+import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueShardCount;
+import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITHOUT_LOCK;
+import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
+import static org.apache.cassandra.service.accord.AccordExecutor.constant;
+import static org.apache.cassandra.service.accord.AccordExecutor.constantFactory;
 
 public class AccordCommandStores extends CommandStores implements CacheSize
 {
@@ -72,24 +76,25 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     static Factory factory(AccordJournal journal)
     {
         return (time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory) -> {
-            AccordExecutor[] executors = new AccordExecutor[DatabaseDescriptor.getAccordQueueShardCount()];
+            AccordExecutor[] executors = new AccordExecutor[getAccordQueueShardCount()];
+            AccordExecutor.AccordExecutorFactory factory = getAccordQueueModel() == SYNC_LOOP ? AccordExecutorSyncInfiniteLoop::new : AccordExecutorSemiSyncInfiniteLoop::new;
             for (int id = 0; id < executors.length; id++)
             {
                 AccordStateCacheMetrics metrics = new AccordStateCacheMetrics(ACCORD_STATE_CACHE);
                 QueueShardModel shardModel = DatabaseDescriptor.getAccordQueueShardModel();
                 String baseName = CommandStore.class.getSimpleName() + '[' + id;
-                int threads = Math.max(DatabaseDescriptor.getAccordConcurrentOps() / DatabaseDescriptor.getAccordQueueShardCount(), 1);
+                int threads = Math.max(DatabaseDescriptor.getAccordConcurrentOps() / getAccordQueueShardCount(), 1);
                 switch (shardModel)
                 {
                     case THREAD_PER_SHARD:
                     case THREAD_PER_SHARD_SYNC_QUEUE:
-                        executors[id] = new InfiniteLoopAccordExecutor(shardModel == THREAD_PER_SHARD ? RUN_WITHOUT_LOCK : RUN_WITH_LOCK, baseName + ']', metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
+                        executors[id] = factory.get(shardModel == THREAD_PER_SHARD ? RUN_WITHOUT_LOCK : RUN_WITH_LOCK, 1, constant(baseName + ']'), metrics, constantFactory(Stage.READ.executor()), constantFactory(Stage.MUTATION.executor()), constantFactory(Stage.READ.executor()), agent);
                         break;
                     case THREAD_POOL_PER_SHARD:
-                        executors[id] = new InfiniteLoopAccordExecutor(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, agent);
+                        executors[id] = factory.get(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, AccordExecutor::submitIOToSelf, agent);
                         break;
                     case THREAD_POOL_PER_SHARD_EXCLUDES_IO:
-                        executors[id] = new InfiniteLoopAccordExecutor(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
+                        executors[id] = factory.get(RUN_WITHOUT_LOCK, threads, num -> baseName + ',' + num + ']', metrics, constantFactory(Stage.READ.executor()), constantFactory(Stage.MUTATION.executor()), constantFactory(Stage.READ.executor()), agent);
                         break;
                 }
             }

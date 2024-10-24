@@ -27,6 +27,7 @@ import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static accord.primitives.Routable.Domain.Range;
 import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_POOL_PER_SHARD;
+import static org.apache.cassandra.config.AccordSpec.QueueModel.SYNC_LOOP;
 
 public class AccordSpec
 {
@@ -65,7 +66,13 @@ public class AccordSpec
         THREAD_POOL_PER_SHARD_EXCLUDES_IO,
     }
 
+    public enum QueueModel
+    {
+        SYNC_LOOP, SEMI_SYNC_LOOP
+    }
+
     public QueueShardModel queue_shard_model = THREAD_POOL_PER_SHARD;
+    public QueueModel queue_model = SYNC_LOOP;
 
     /**
      * The number of queue (and cache) shards.

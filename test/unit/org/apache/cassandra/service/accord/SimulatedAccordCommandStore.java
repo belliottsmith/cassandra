@@ -79,7 +79,6 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.ColumnFilter;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
-import org.apache.cassandra.service.accord.AccordExecutor.TestAccordExecutor;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Generators;
@@ -207,7 +206,7 @@ public class SimulatedAccordCommandStore implements AutoCloseable
                                             }),
                                                    updateHolder,
                                                    journal,
-                                                   new TestAccordExecutor(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), agent));
+                                                   new AccordExecutorTest(CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), agent));
 
         this.topology = AccordTopology.createAccordTopology(ClusterMetadata.current());
         this.topologies = new Topologies.Single(SizeOfIntersectionSorter.SUPPLIER, topology);

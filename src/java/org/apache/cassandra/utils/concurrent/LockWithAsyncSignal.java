@@ -19,14 +19,17 @@
 package org.apache.cassandra.utils.concurrent;
 
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 
 import accord.utils.Invariants;
 
-public class LockWithAsyncSignal
+public class LockWithAsyncSignal implements Lock
 {
     interface AwaitFunction<T extends Throwable>
     {
@@ -108,7 +111,7 @@ public class LockWithAsyncSignal
         depth = 0;
         owner = null;
 
-        awaitLock(true, thread, restoreDepth, LockWithAsyncSignal::awaitDowngrade);
+        awaitLock(true, thread, restoreDepth, LockWithAsyncSignal::awaitDeferThrow);
     }
 
     public void unlock()
@@ -176,7 +179,7 @@ public class LockWithAsyncSignal
         return waiter;
     }
 
-    private InterruptedException awaitDowngrade(Waiter waiter)
+    private InterruptedException awaitDeferThrow(Waiter waiter)
     {
         while (waiters.contains(waiter))
         {
@@ -238,5 +241,17 @@ public class LockWithAsyncSignal
         }
 
         LockSupport.unpark(wake.thread);
+    }
+
+    @Override
+    public boolean tryLock(long time, TimeUnit unit) throws InterruptedException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Condition newCondition()
+    {
+        throw new UnsupportedOperationException();
     }
 }

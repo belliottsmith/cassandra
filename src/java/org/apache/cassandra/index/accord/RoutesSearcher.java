@@ -22,7 +22,6 @@ import java.util.function.Consumer;
 
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
-import org.agrona.collections.ObjectHashSet;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;

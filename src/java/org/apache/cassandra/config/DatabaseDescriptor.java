@@ -5101,6 +5101,11 @@ public class DatabaseDescriptor
         return conf.accord.queue_shard_model;
     }
 
+    public static AccordSpec.QueueModel getAccordQueueModel()
+    {
+        return conf.accord.queue_model;
+    }
+
     public static int getAccordQueueShardCount()
     {
         switch (getAccordQueueShardModel())
@@ -5111,7 +5116,8 @@ public class DatabaseDescriptor
                 return conf.accord.queue_shard_count.or(DatabaseDescriptor::getAvailableProcessors);
             case THREAD_POOL_PER_SHARD:
             case THREAD_POOL_PER_SHARD_EXCLUDES_IO:
-                return conf.accord.queue_shard_count.or(Math.min(4, DatabaseDescriptor.getAvailableProcessors()));
+                int defaultMax = getAccordQueueModel() == AccordSpec.QueueModel.SYNC_LOOP ? 8 : 4;
+                return conf.accord.queue_shard_count.or(Math.min(defaultMax, DatabaseDescriptor.getAvailableProcessors()));
         }
     }
 

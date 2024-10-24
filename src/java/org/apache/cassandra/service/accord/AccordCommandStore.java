@@ -26,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -75,7 +76,6 @@ import org.apache.cassandra.service.accord.api.AccordRoutingKey.TokenKey;
 import org.apache.cassandra.service.accord.events.CacheEvents;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
-import org.apache.cassandra.utils.concurrent.LockWithAsyncSignal;
 import org.apache.cassandra.utils.concurrent.Promise;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
@@ -129,9 +129,9 @@ public class AccordCommandStore extends CommandStore
 
     public static final class ExclusiveCaches extends Caches implements AutoCloseable
     {
-        private final LockWithAsyncSignal lock;
+        private final Lock lock;
 
-        public ExclusiveCaches(LockWithAsyncSignal lock, AccordStateCache global, AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands, AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeys, AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeys)
+        public ExclusiveCaches(Lock lock, AccordStateCache global, AccordStateCache.Instance<TxnId, Command, AccordSafeCommand> commands, AccordStateCache.Instance<RoutingKey, TimestampsForKey, AccordSafeTimestampsForKey> timestampsForKeys, AccordStateCache.Instance<RoutingKey, CommandsForKey, AccordSafeCommandsForKey> commandsForKeys)
         {
             super(global, commands, timestampsForKeys, commandsForKeys);
             this.lock = lock;
@@ -272,7 +272,7 @@ public class AccordCommandStore extends CommandStore
 
     public Caches cachesExclusive()
     {
-        Invariants.checkState(executor.lock.isOwner(Thread.currentThread()));
+        Invariants.checkState(executor.isInThread());
         return unguardedCaches;
     }
 

@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -183,7 +182,8 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     // TODO (expected): collection supporting faster deletes but still fast poll (e.g. some ordered collection)
     @Nullable ArrayDeque<AccordCachingState<?, ?>> waitingToLoad;
     @Nullable RangeLoader rangeLoader;
-    @Nullable CommandsForRanges commandsForRanges;
+    @Nullable
+    CommandsForRanges commandsForRanges;
     AccordExecutor.TaskQueue queued;
 
     private BiConsumer<? super R, Throwable> callback;

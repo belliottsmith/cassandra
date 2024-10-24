@@ -95,7 +95,6 @@ import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.service.accord.AccordExecutor.InfiniteLoopAccordExecutor;
 import org.apache.cassandra.service.accord.api.AccordAgent;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.txn.TxnData;
@@ -108,7 +107,7 @@ import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 import static accord.primitives.Routable.Domain.Key;
 import static accord.utils.async.AsyncChains.getUninterruptibly;
 import static java.lang.String.format;
-import static org.apache.cassandra.service.accord.AccordExecutor.LockLoopAccordExecutor.Mode.RUN_WITH_LOCK;
+import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
 
 public class AccordTestUtils
 {
@@ -429,7 +428,7 @@ public class AccordTestUtils
                                                            }),
                                                            holder,
                                                            journal,
-                                                           new InfiniteLoopAccordExecutor(RUN_WITH_LOCK, CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, agent));
+                                                           new AccordExecutorSemiSyncInfiniteLoop(RUN_WITH_LOCK, CommandStore.class.getSimpleName() + '[' + 0 + ']', new AccordStateCacheMetrics("test"), loadExecutor, saveExecutor, loadExecutor, agent));
         holder.set(result);
 
         // TODO: CompactionAccordIteratorsTest relies on this
