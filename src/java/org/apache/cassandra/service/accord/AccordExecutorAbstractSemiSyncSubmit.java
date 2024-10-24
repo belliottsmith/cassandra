@@ -25,22 +25,14 @@ import accord.utils.QuadFunction;
 import accord.utils.QuintConsumer;
 import org.apache.cassandra.concurrent.Interruptible;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
-import org.apache.cassandra.utils.concurrent.ConcurrentLinkedStack;
 
 import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
 
 abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstractLockLoop
 {
-    final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
-
     AccordExecutorAbstractSemiSyncSubmit(Lock lock, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-    }
-
-    public boolean hasTasks()
-    {
-        return !submitted.isEmpty() || tasks > 0 || running > 0;
     }
 
     abstract void notifyWorkAsync();
@@ -51,7 +43,7 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
         return mode == RUN_WITH_LOCK ? this::runWithLock : this::runWithoutLock;
     }
 
-    <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
+    <P1s, P1a, P2, P3, P4> void submitExternal(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
     {
         if (!lock.tryLock())
         {
@@ -64,7 +56,7 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
         {
             try
             {
-                prePoll();
+                drainSubmittedExclusive();
             }
             catch (Throwable t)
             {
@@ -79,10 +71,5 @@ abstract class AccordExecutorAbstractSemiSyncSubmit extends AccordExecutorAbstra
             notifyIfMoreWorkExclusive();
             lock.unlock();
         }
-    }
-
-    void prePoll()
-    {
-        submitted.drain(AccordExecutor::consumeExclusive, this, true);
     }
 }

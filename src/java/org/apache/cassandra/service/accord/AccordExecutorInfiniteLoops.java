@@ -23,6 +23,8 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import accord.utils.Invariants;
+import org.agrona.collections.LongHashSet;
+import org.apache.cassandra.concurrent.InfiniteLoopExecutor;
 import org.apache.cassandra.concurrent.Interruptible;
 import org.apache.cassandra.concurrent.Shutdownable;
 import org.apache.cassandra.service.accord.AccordExecutor.Mode;
@@ -37,15 +39,25 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 class AccordExecutorInfiniteLoops implements Shutdownable
 {
     private final Interruptible[] loops;
+    private final LongHashSet threadIds;
 
     public AccordExecutorInfiniteLoops(Mode mode, int threads, IntFunction<String> name, Function<Mode, Interruptible.Task> tasks)
     {
         Invariants.checkState(mode == RUN_WITH_LOCK ? threads == 1 : threads >= 1);
+        final LongHashSet threadIds = new LongHashSet(threads, 0.5f);
         this.loops = new Interruptible[threads];
         for (int i = 0; i < threads; ++i)
         {
             loops[i] = executorFactory().infiniteLoop(name.apply(i), tasks.apply(mode), SAFE, NON_DAEMON, UNSYNCHRONIZED);
+            if (loops[i] instanceof InfiniteLoopExecutor)
+                threadIds.add(((InfiniteLoopExecutor) loops[i]).threadId());
         }
+        this.threadIds = threadIds;
+    }
+
+    public boolean isInLoop()
+    {
+        return threadIds.contains(Thread.currentThread().getId());
     }
 
     @Override

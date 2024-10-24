@@ -72,7 +72,6 @@ import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
 import static org.apache.cassandra.service.accord.AccordTask.State.PERSISTING;
 import static org.apache.cassandra.service.accord.AccordTask.State.RUNNING;
 import static org.apache.cassandra.service.accord.AccordTask.State.SCANNING_RANGES;
-import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_RUN;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_SCAN_RANGES;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
@@ -171,7 +170,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
         boolean isExecuted()
         {
-            return this.compareTo(EXECUTED) >= 0;
+            return this.compareTo(PERSISTING) >= 0;
         }
 
         boolean isComplete()
@@ -191,12 +190,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     // TODO (expected): collection supporting faster deletes but still fast poll (e.g. some ordered collection)
     @Nullable ArrayDeque<AccordCachingState<?, ?>> waitingToLoad;
     @Nullable RangeLoader rangeLoader;
-    @Nullable
-    CommandsForRanges commandsForRanges;
+    @Nullable CommandsForRanges commandsForRanges;
     private TaskQueue queued;
 
     private BiConsumer<? super R, Throwable> callback;
-    private R result;
     private List<Command> sanityCheck;
     public long createdAt = nanoTime(), loadedAt, runQueuedAt, runAt, completedAt;
 
@@ -272,18 +269,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         else if (state == FINISHED) completedAt = nanoTime();
     }
 
-    // TODO (expected): avoid this in the common case, or use CAS to guard this final update
-    private synchronized void synchronizedState(State test, State state)
-    {
-        if (state == test)
-            state(state);
-    }
-
-    private synchronized void synchronizedState(State state)
-    {
-        state(state);
-    }
-
     Unseekables<?> keys()
     {
         return preLoadContext.keys();
@@ -308,7 +293,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     {
         setupInternal(commandStore.cachesExclusive());
         state(rangeLoader != null ? WAITING_TO_SCAN_RANGES
-                                  : waitingToLoad != null ? WAITING_TO_LOAD
+                                  : waitingToLoad != null ? State.WAITING_TO_LOAD
                                     : loading != null ? LOADING : WAITING_TO_RUN);
     }
 
@@ -370,35 +355,31 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     {
         S safeRef = cache.acquire(k);
         Status status = safeRef.global().status();
-        Map<? super K, ? super S> context;
+        Map<? super K, ? super S> map;
         switch (status)
         {
             default: throw new IllegalStateException("Unhandled global state: " + status);
             case WAITING_TO_LOAD:
             case LOADING:
-                context = ensureLoading();
+                map = ensureLoading();
                 break;
             case SAVING:
             case LOADED:
             case MODIFIED:
             case FAILED_TO_SAVE:
-                context = loaded.apply(this);
+                map = loaded.apply(this);
         }
 
-        Object prev = context.putIfAbsent(k, safeRef);
+        Object prev = map.putIfAbsent(k, safeRef);
         if (prev != null)
         {
-            noSpamLogger.warn("Context {} contained key {} more than once", context, k);
+            noSpamLogger.warn("PreLoadContext {} contained key {} more than once", map, k);
             cache.release(safeRef, this);
         }
-        else if (context == loading)
+        else if (map == loading)
         {
             if (status == Status.WAITING_TO_LOAD)
-            {
-                if (waitingToLoad == null)
-                    waitingToLoad = new ArrayDeque<>();
-                waitingToLoad.add(safeRef.global());
-            }
+                ensureWaitingToLoad().add(safeRef.global());
             safeRef.global().loadingOrWaiting().add(this);
             Invariants.checkState(safeRef.global().loadingOrWaiting().waiters().size() == safeRef.global().referenceCount());
         }
@@ -428,7 +409,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             return false;
 
         loading = null;
-        if (this.state.compareTo(WAITING_TO_LOAD) < 0)
+        if (this.state.compareTo(State.WAITING_TO_LOAD) < 0)
             return false;
 
         state(WAITING_TO_RUN);
@@ -439,7 +420,8 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     public boolean onLoading(AccordCachingState<?, ?> state)
     {
         Invariants.checkState(waitingToLoad != null);
-        waitingToLoad.remove(state);
+        boolean removed = waitingToLoad.remove(state);
+        Invariants.checkState(removed);
         if (!waitingToLoad.isEmpty())
             return false;
 
@@ -449,7 +431,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     private boolean onEmptyWaitingToLoad()
     {
         waitingToLoad = null;
-        if (this.state.compareTo(WAITING_TO_LOAD) < 0)
+        if (this.state.compareTo(State.WAITING_TO_LOAD) < 0)
             return false;
 
         state(loading == null ? WAITING_TO_RUN : LOADING);
@@ -513,7 +495,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     public AccordCachingState<?, ?> pollWaitingToLoad()
     {
-        Invariants.checkState(state == WAITING_TO_LOAD);
+        Invariants.checkState(state == State.WAITING_TO_LOAD);
         if (waitingToLoad == null)
             return null;
 
@@ -589,7 +571,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                         timestampsForKey.values().forEach(AccordSafeState::preExecute);
 
                     safeStore = commandStore.begin(this, commandsForRanges);
-                    result = apply(safeStore);
+                    R result = apply(safeStore);
 
                     // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
                     List<SavedCommand.DiffWriter> diffs = null;
@@ -860,7 +842,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             scanned = true;
             if (loading == null) state(WAITING_TO_RUN);
             else if (waitingToLoad == null) state(LOADING);
-            else state(WAITING_TO_LOAD);
+            else state(State.WAITING_TO_LOAD);
         }
 
         CommandsForRanges finish(Caches caches)
@@ -873,7 +855,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     protected void addToQueue(TaskQueue queue)
     {
-        Invariants.checkState(queue.kind == state || (queue.kind == WAITING_TO_LOAD && state == WAITING_TO_SCAN_RANGES), "Invalid queue type: %s vs %s", queue.kind, this);
+        Invariants.checkState(queue.kind == state || (queue.kind == State.WAITING_TO_LOAD && state == WAITING_TO_SCAN_RANGES), "Invalid queue type: %s vs %s", queue.kind, this);
         Invariants.checkState(this.queued == null, "Already queued with state: " + this);
         queued = queue;
         queue.append(this);

@@ -21,23 +21,45 @@ package org.apache.cassandra.service.accord;
 import java.util.concurrent.locks.Lock;
 
 import accord.api.Agent;
+import accord.utils.QuadFunction;
+import accord.utils.QuintConsumer;
 import org.apache.cassandra.concurrent.Interruptible;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
+import org.apache.cassandra.utils.concurrent.ConcurrentLinkedStack;
 
 import static org.apache.cassandra.concurrent.Interruptible.State.NORMAL;
 import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
 
 abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
 {
+    final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
     boolean isHeldByExecutor;
+
     AccordExecutorAbstractLockLoop(Lock lock, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
     }
 
-    void prePoll() {}
     abstract void notifyWorkExclusive();
     abstract void awaitExclusive() throws InterruptedException;
+    abstract boolean isInLoop();
+    abstract <P1s, P1a, P2, P3, P4> void submitExternal(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4);
+
+    <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
+    {
+        if (isInLoop()) submitted.push(async.apply(p1a, p2, p3, p4));
+        else submitExternal(sync, async, p1s, p1a, p2, p3, p4);
+    }
+
+    public boolean hasTasks()
+    {
+        return !submitted.isEmpty() || tasks > 0 || running > 0;
+    }
+
+    void drainSubmittedExclusive()
+    {
+        submitted.drain(AccordExecutor::consumeExclusive, this, true);
+    }
 
     void notifyIfMoreWorkExclusive()
     {
@@ -80,7 +102,7 @@ abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
             enterLockExclusive();
             while (true)
             {
-                prePoll();
+                drainSubmittedExclusive();
                 Task task = waitingToRun.poll();
 
                 if (task != null)
@@ -141,7 +163,7 @@ abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
 
                 while (true)
                 {
-                    prePoll();
+                    drainSubmittedExclusive();
                     task = waitingToRun.poll();
                     if (task != null)
                     {

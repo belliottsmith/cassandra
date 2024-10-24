@@ -150,7 +150,15 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
             switch (next.state())
             {
-                default: throw new AssertionError("Unexpected state: " + next.toDescription());
+                default:
+                {
+                    try { throw new AssertionError("Unexpected state: " + next.toDescription()); }
+                    catch (Throwable t)
+                    {
+                        failExclusive(next, t);
+                        throw t;
+                    }
+                }
                 case WAITING_TO_SCAN_RANGES:
                     if (activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
                     {
@@ -396,9 +404,9 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                 break;
 
             case RUNNING:
-            case EXECUTED:
             case PERSISTING:
             case FINISHED:
+            case CANCELLED:
             case FAILED:
                 // cannot safely cancel
         }
@@ -413,19 +421,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         {
             if (fail != null)
             {
-                --tasks;
-                try
-                {
-                    task.fail(fail);
-                }
-                catch (Throwable t)
-                {
-                    agent.onUncaughtException(t);
-                }
-                finally
-                {
-                    task.cleanupExclusive();
-                }
+                failExclusive(task, fail);
             }
             else
             {
@@ -434,6 +430,21 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             }
         }
         enqueueLoadsExclusive();
+    }
+
+    private void failExclusive(AccordTask<?> task, Throwable fail)
+    {
+        if (task.state().isExecuted())
+            return;
+
+        --tasks;
+        try { task.fail(fail); }
+        catch (Throwable t) { agent.onUncaughtException(t); }
+        finally
+        {
+            removeFromQueue(task);
+            task.cleanupExclusive();
+        }
     }
 
     private <K, V> void onSavedExclusive(AccordCachingState<K, V> state, Object identity, Throwable fail)
@@ -445,49 +456,35 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
     {
         boolean enqueueLoads = activeLoads-- == MAX_QUEUED_LOADS_PER_EXECUTOR;
         if (isForRange) enqueueLoads |= activeRangeLoads-- == MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR;
-        if (enqueueLoads)
-            enqueueLoadsExclusive();
 
-        if (loaded.status() == EVICTED)
-            return;
-
-        try (BufferList<AccordTask<?>> ops = loaded.loading().copyWaiters())
+        if (loaded.status() != EVICTED)
         {
-            if (fail != null)
+            try (BufferList<AccordTask<?>> tasks = loaded.loading().copyWaiters())
             {
-                for (AccordTask<?> task : ops)
+                if (fail != null)
                 {
-                    --tasks;
-                    try
+                    for (AccordTask<?> task : tasks)
+                        failExclusive(task, fail);
+                    cache.failedToLoad(loaded);
+                }
+                else
+                {
+                    cache.loaded(loaded, value);
+                    for (AccordTask<?> task : tasks)
                     {
-                        task.fail(fail);
-                    }
-                    catch (Throwable t)
-                    {
-                        agent.onUncaughtException(t);
-                    }
-                    finally
-                    {
-                        task.cleanupExclusive();
-                        removeFromQueue(task);
+                        if (task.onLoad(loaded))
+                        {
+                            Invariants.checkState(task.queued() == loading);
+                            task.unqueue();
+                            waitingToRun(task);
+                        }
                     }
                 }
-                cache.failedToLoad(loaded);
-            }
-            else
-            {
-                for (AccordTask<?> task : ops)
-                {
-                    if (task.onLoad(loaded))
-                    {
-                        Invariants.checkState(task.queued() == loading);
-                        task.unqueue();
-                        waitingToRun(task);
-                    }
-                }
-                cache.loaded(loaded, value);
             }
         }
+
+        if (enqueueLoads)
+            enqueueLoadsExclusive();
     }
 
     public Future<?> submit(Runnable run)

@@ -948,7 +948,7 @@ public class DatabaseDescriptor
 
         try
         {
-            // if paxosCacheSizeInMiB option was set to "auto" then size of the cache should be "max(10% of Heap (in MB), 1MB)
+            // if accordCacheSizeInMiB option was set to "auto" then size of the cache should be "max(10% of Heap (in MB), 1MB)
             accordCacheSizeInMiB = (conf.accord_cache_size == null)
                                   ? Math.max(1, (int) ((Runtime.getRuntime().totalMemory() * 0.10) / 1024 / 1024))
                                   : conf.accord_cache_size.toMebibytes();

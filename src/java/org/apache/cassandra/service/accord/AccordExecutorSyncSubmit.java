@@ -41,11 +41,6 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
         this(mode, 1, constant(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
     }
 
-    public AccordExecutorSyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
-    {
-        this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
-    }
-
     public AccordExecutorSyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
     {
         this(mode, threads, name, metrics, constantFactory(loadExecutor::submit), constantFactory(saveExecutor::submit), constantFactory(rangeLoadExecutor::submit), agent);
@@ -72,6 +67,12 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
     }
 
     @Override
+    boolean isInLoop()
+    {
+        return loops.isInLoop();
+    }
+
+    @Override
     boolean isInThread()
     {
         return lock.isHeldByCurrentThread();
@@ -88,11 +89,12 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
         return tasks > 0 || running > 0;
     }
 
-    <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
+    <P1s, P1a, P2, P3, P4> void submitExternal(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
     {
         lock.lock();
         try
         {
+            drainSubmittedExclusive();
             sync.accept(this, p1s, p2, p3, p4);
         }
         finally
@@ -101,6 +103,7 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
             lock.unlock();
         }
     }
+
     @Override
     public void shutdown()
     {

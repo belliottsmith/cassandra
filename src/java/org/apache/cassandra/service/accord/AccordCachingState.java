@@ -319,12 +319,6 @@ public class AccordCachingState<K, V> extends IntrusiveLinkedListNode
         return state.saving().saving;
     }
 
-    public AccordCachingState<K, V> reset()
-    {
-        state(state.reset());
-        return this;
-    }
-
     public AccordCachingState<K, V> evicted()
     {
         state(state.evicted());

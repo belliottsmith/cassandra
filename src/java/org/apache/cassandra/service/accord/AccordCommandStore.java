@@ -273,6 +273,13 @@ public class AccordCommandStore extends CommandStore
         return guardedCaches;
     }
 
+    public ExclusiveCaches tryLockCaches()
+    {
+        if (guardedCaches.lock.tryLock())
+            return guardedCaches;
+        return null;
+    }
+
     public Caches cachesExclusive()
     {
         Invariants.checkState(executor.isInThread());

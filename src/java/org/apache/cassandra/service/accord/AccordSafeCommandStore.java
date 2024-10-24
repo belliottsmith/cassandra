@@ -91,66 +91,72 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
         if (context.keys().domain() == Routable.Domain.Range)
             return context.isSubsetOf(this.context) ? context : null;
 
-        for (TxnId txnId : context.txnIds())
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.tryLockCaches())
         {
-            if (null != getCommandUnsafe(txnId))
-                continue;
-
-            AccordSafeCommand safeCommand = getIfLoadedUnsafe(txnId);
-            if (safeCommand == null)
+            if (caches == null)
                 return null;
 
-            addCommandUnsafe(safeCommand);
-        }
-
-        KeyHistory keyHistory = context.keyHistory();
-        if (keyHistory == KeyHistory.NONE)
-            return context;
-
-        List<RoutingKey> unavailable = null;
-        Unseekables<?> keys = context.keys();
-        if (keys.size() == 0)
-            return context;
-
-        for (int i = 0 ; i < keys.size() ; ++i)
-        {
-            RoutingKey key = (RoutingKey) keys.get(i);
-            if (keyHistory == TIMESTAMPS)
+            for (TxnId txnId : context.txnIds())
             {
-                if (null != getTimestampsForKeyUnsafe(key))
-                    continue; // already in working set
-
-                AccordSafeTimestampsForKey safeTfk = getTimestampsForKeyIfUnsafe(key);
-                if (safeTfk != null)
-                {
-                    addTimestampsForKeyUnsafe(safeTfk);
+                if (null != getCommandUnsafe(txnId))
                     continue;
-                }
+
+                AccordSafeCommand safeCommand = caches.commands().acquireIfLoaded(txnId);
+                if (safeCommand == null)
+                    return null;
+
+                addCommandUnsafe(safeCommand);
             }
-            else
+
+            KeyHistory keyHistory = context.keyHistory();
+            if (keyHistory == KeyHistory.NONE)
+                return context;
+
+            List<RoutingKey> unavailable = null;
+            Unseekables<?> keys = context.keys();
+            if (keys.size() == 0)
+                return context;
+
+            for (int i = 0 ; i < keys.size() ; ++i)
             {
-                if (null != getCommandsForKeyUnsafe(key))
-                    continue; // already in working set
-
-                AccordSafeCommandsForKey safeCfk = getCommandsForKeyIfUnsafe(key);
-                if (safeCfk != null)
+                RoutingKey key = (RoutingKey) keys.get(i);
+                if (keyHistory == TIMESTAMPS)
                 {
-                    addCommandsForKeyUnsafe(safeCfk);
-                    continue;
+                    if (null != getTimestampsForKeyUnsafe(key))
+                        continue; // already in working set
+
+                    AccordSafeTimestampsForKey safeTfk = caches.timestampsForKeys().acquireIfLoaded(key);
+                    if (safeTfk != null)
+                    {
+                        addTimestampsForKeyUnsafe(safeTfk);
+                        continue;
+                    }
                 }
+                else
+                {
+                    if (null != getCommandsForKeyUnsafe(key))
+                        continue; // already in working set
+
+                    AccordSafeCommandsForKey safeCfk = caches.commandsForKeys().acquireIfLoaded(key);
+                    if (safeCfk != null)
+                    {
+                        addCommandsForKeyUnsafe(safeCfk);
+                        continue;
+                    }
+                }
+                if (unavailable == null)
+                    unavailable = new ArrayList<>();
+                unavailable.add(key);
             }
+
             if (unavailable == null)
-                unavailable = new ArrayList<>();
-            unavailable.add(key);
+                return context;
+
+            if (unavailable.size() == keys.size())
+                return null;
+
+            return PreLoadContext.contextFor(context.primaryTxnId(), context.additionalTxnId(), keys.without(RoutingKeys.ofSortedUnique(unavailable)), keyHistory);
         }
-
-        if (unavailable == null)
-            return context;
-
-        if (unavailable.size() == keys.size())
-            return null;
-
-        return PreLoadContext.contextFor(context.primaryTxnId(), context.additionalTxnId(), keys.without(RoutingKeys.ofSortedUnique(unavailable)), keyHistory);
     }
 
     @VisibleForTesting
@@ -180,8 +186,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeCommand getIfLoadedUnsafe(TxnId txnId)
     {
-        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.tryLockCaches())
         {
+            if (caches == null)
+                return null;
             return caches.commands().acquireIfLoaded(txnId);
         }
     }
@@ -206,8 +214,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeCommandsForKey getCommandsForKeyIfUnsafe(RoutingKey key)
     {
-        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.tryLockCaches())
         {
+            if (caches == null)
+                return null;
             return caches.commandsForKeys().acquireIfLoaded(key);
         }
     }
@@ -232,8 +242,10 @@ public class AccordSafeCommandStore extends AbstractSafeCommandStore<AccordSafeC
     @Override
     protected AccordSafeTimestampsForKey getTimestampsForKeyIfUnsafe(RoutingKey key)
     {
-        try (AccordCommandStore.ExclusiveCaches caches = commandStore.lockCaches())
+        try (AccordCommandStore.ExclusiveCaches caches = commandStore.tryLockCaches())
         {
+            if (caches == null)
+                return null;
             return caches.timestampsForKeys().acquireIfLoaded(key);
         }
     }

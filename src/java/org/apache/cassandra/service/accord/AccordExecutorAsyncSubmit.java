@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntFunction;
 
 import accord.api.Agent;
+import accord.utils.QuadFunction;
+import accord.utils.QuintConsumer;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
@@ -31,16 +33,6 @@ class AccordExecutorAsyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
 {
     private final AccordExecutorInfiniteLoops loops;
     private final LockWithAsyncSignal lock;
-
-    public AccordExecutorAsyncSubmit(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
-    {
-        this(mode, 1, constant(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-    }
-
-    public AccordExecutorAsyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
-    {
-        this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
-    }
 
     public AccordExecutorAsyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
     {
@@ -65,6 +57,12 @@ class AccordExecutorAsyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
         lock.clearSignal();
         if (waitingToRun.isEmpty() && submitted.isEmpty())
             lock.await();
+    }
+
+    @Override
+    boolean isInLoop()
+    {
+        return loops.isInLoop();
     }
 
     @Override
