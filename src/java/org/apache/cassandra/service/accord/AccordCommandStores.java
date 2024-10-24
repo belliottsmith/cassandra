@@ -42,12 +42,12 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.metrics.CacheSizeMetrics;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.AccordExecutor.AccordExecutorFactory;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
-import static org.apache.cassandra.config.AccordSpec.QueueModel.SYNC_LOOP;
 import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_PER_SHARD;
-import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueModel;
+import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueSubmissionModel;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueShardCount;
 import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITHOUT_LOCK;
 import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
@@ -77,7 +77,15 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     {
         return (time, agent, store, random, shardDistributor, progressLogFactory, listenerFactory) -> {
             AccordExecutor[] executors = new AccordExecutor[getAccordQueueShardCount()];
-            AccordExecutor.AccordExecutorFactory factory = getAccordQueueModel() == SYNC_LOOP ? AccordExecutorSyncInfiniteLoop::new : AccordExecutorSemiSyncInfiniteLoop::new;
+            AccordExecutorFactory factory;
+            switch (getAccordQueueSubmissionModel())
+            {
+                default: throw new AssertionError("Unhandled QueueSubmissionModel: " + getAccordQueueSubmissionModel());
+                case SYNC: factory = AccordExecutorSyncSubmit::new; break;
+                case SEMI_SYNC: factory = AccordExecutorSemiSyncSubmit::new; break;
+                case ASYNC: factory = AccordExecutorAsyncSubmit::new; break;
+            }
+
             for (int id = 0; id < executors.length; id++)
             {
                 AccordStateCacheMetrics metrics = new AccordStateCacheMetrics(ACCORD_STATE_CACHE);

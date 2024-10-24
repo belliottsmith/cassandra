@@ -25,30 +25,64 @@ import accord.api.Agent;
 import org.apache.cassandra.concurrent.ExecutorPlus;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
+import org.apache.cassandra.utils.concurrent.LockWithAsyncSignal;
 
-class AccordExecutorSemiSyncInfiniteLoop extends AccordExecutorSemiSyncLockLoop
+class AccordExecutorAsyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
 {
     private final AccordExecutorInfiniteLoops loops;
+    private final LockWithAsyncSignal lock;
 
-    public AccordExecutorSemiSyncInfiniteLoop(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
+    public AccordExecutorAsyncSubmit(Mode mode, String name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
     {
         this(mode, 1, constant(name), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
     }
 
-    public AccordExecutorSemiSyncInfiniteLoop(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
+    public AccordExecutorAsyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, Agent agent)
     {
         this(mode, threads, name, metrics, Stage.READ.executor(), Stage.MUTATION.executor(), Stage.READ.executor(), agent);
     }
 
-    public AccordExecutorSemiSyncInfiniteLoop(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
+    public AccordExecutorAsyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorPlus loadExecutor, ExecutorPlus saveExecutor, ExecutorPlus rangeLoadExecutor, Agent agent)
     {
         this(mode, threads, name, metrics, constantFactory(loadExecutor::submit), constantFactory(saveExecutor::submit), constantFactory(rangeLoadExecutor::submit), agent);
     }
 
-    public AccordExecutorSemiSyncInfiniteLoop(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
+    public AccordExecutorAsyncSubmit(Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
-        super(metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+        this(new LockWithAsyncSignal(), mode, threads, name, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
+    }
+
+    private AccordExecutorAsyncSubmit(LockWithAsyncSignal lock, Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
+    {
+        super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
         this.loops = new AccordExecutorInfiniteLoops(mode, threads, name, this::task);
+        this.lock = lock;
+    }
+
+    @Override
+    void await() throws InterruptedException
+    {
+        lock.clearSignal();
+        if (waitingToRun.isEmpty() && submitted.isEmpty())
+            lock.await();
+    }
+
+    @Override
+    void notifyWorkAsync()
+    {
+        lock.signal();
+    }
+
+    @Override
+    void notifyWorkExclusive()
+    {
+        lock.signal();
+    }
+
+    @Override
+    boolean isInThread()
+    {
+        return lock.isOwner(Thread.currentThread());
     }
 
     @Override

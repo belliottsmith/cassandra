@@ -18,100 +18,29 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.util.concurrent.locks.Lock;
+
 import accord.api.Agent;
-import accord.utils.QuadFunction;
-import accord.utils.QuintConsumer;
 import org.apache.cassandra.concurrent.Interruptible;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
-import org.apache.cassandra.utils.concurrent.ConcurrentLinkedStack;
-import org.apache.cassandra.utils.concurrent.LockWithAsyncSignal;
 
 import static org.apache.cassandra.concurrent.Interruptible.State.NORMAL;
 import static org.apache.cassandra.service.accord.AccordExecutor.Mode.RUN_WITH_LOCK;
 
-abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
+abstract class AccordExecutorAbstractLockLoop extends AccordExecutor
 {
-    final LockWithAsyncSignal lock;
-    final ConcurrentLinkedStack<Object> submitted = new ConcurrentLinkedStack<>();
-
-    public AccordExecutorSemiSyncLockLoop(AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
-    {
-        this(new LockWithAsyncSignal(), metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-    }
-
-    private AccordExecutorSemiSyncLockLoop(LockWithAsyncSignal lock, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
+    AccordExecutorAbstractLockLoop(Lock lock, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-        this.lock = lock;
     }
 
-    public boolean hasTasks()
-    {
-        return !submitted.isEmpty() || tasks > 0 || running > 0;
-    }
-
-    void notifyWorkAsync()
-    {
-        lock.signal();
-    }
-
-    @Override
-    void notifyWorkExclusive()
-    {
-        lock.signal();
-    }
-
-    boolean isInThread()
-    {
-        return lock.isOwner(Thread.currentThread());
-    }
+    void preStart() {}
+    void prePoll() {}
+    abstract void await() throws InterruptedException;
 
     Interruptible.Task task(Mode mode)
     {
         return mode == RUN_WITH_LOCK ? this::runWithLock : this::runWithoutLock;
-    }
-
-    <P1s, P1a, P2, P3, P4> void submit(QuintConsumer<AccordExecutor, P1s, P2, P3, P4> sync, QuadFunction<P1a, P2, P3, P4, Object> async, P1s p1s, P1a p1a, P2 p2, P3 p3, P4 p4)
-    {
-        boolean applySync = true;
-        if (!lock.tryLock())
-        {
-            submitted.push(async.apply(p1a, p2, p3, p4));
-            applySync = false;
-            if (!lock.tryLock())
-            {
-                notifyWorkAsync();
-                return;
-            }
-        }
-
-        try
-        {
-            try
-            {
-                drainSubmittedExclusive();
-            }
-            catch (Throwable t)
-            {
-                if (applySync)
-                {
-                    try { sync.accept(this, p1s, p2, p3, p4); }
-                    catch (Throwable t2) { t.addSuppressed(t2); }
-                }
-                throw t;
-            }
-            if (applySync)
-                sync.accept(this, p1s, p2, p3, p4);
-        }
-        finally
-        {
-            lock.unlock();
-        }
-    }
-
-    void drainSubmittedExclusive()
-    {
-        submitted.drain(AccordExecutor::consumeExclusive, this, true);
     }
 
     protected void runWithLock(Interruptible.State state) throws InterruptedException
@@ -119,10 +48,11 @@ abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
         lock.lockInterruptibly();
         try
         {
-            running = 1;
+            preStart();
             while (true)
             {
-                drainSubmittedExclusive();
+                running = 1;
+                prePoll();
                 Task task = waitingToRun.poll();
 
                 if (task != null)
@@ -148,9 +78,7 @@ abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
                     if (state != NORMAL)
                         return;
 
-                    lock.clearSignal();
-                    if (waitingToRun.isEmpty() && submitted.isEmpty())
-                        lock.await();
+                    await();
                 }
             }
         }
@@ -171,6 +99,7 @@ abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
         Task task = null;
         try
         {
+            preStart();
             while (true)
             {
                 lock.lock();
@@ -189,7 +118,7 @@ abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
 
                     while (true)
                     {
-                        drainSubmittedExclusive();
+                        prePoll();
                         task = waitingToRun.poll();
                         if (task != null)
                             break;
@@ -197,15 +126,11 @@ abstract class AccordExecutorSemiSyncLockLoop extends AccordExecutor
                         if (state != NORMAL)
                             return;
 
-                        lock.clearSignal();
-                        if (waitingToRun.isEmpty() && submitted.isEmpty())
-                        {
-                            isRunning = false;
-                            --running;
-                            lock.await();
-                            ++running;
-                            isRunning = true;
-                        }
+                        isRunning = false;
+                        --running;
+                        await();
+                        ++running;
+                        isRunning = true;
                     }
                     --tasks;
                     task.preRunExclusive();
