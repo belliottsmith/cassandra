@@ -22,10 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntFunction;
 
 import accord.api.Agent;
-import accord.utils.QuadFunction;
-import accord.utils.QuintConsumer;
 import org.apache.cassandra.concurrent.ExecutorPlus;
-import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 import org.apache.cassandra.utils.concurrent.LockWithAsyncSignal;
 

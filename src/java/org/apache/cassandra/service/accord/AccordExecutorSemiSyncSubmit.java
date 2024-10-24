@@ -25,7 +25,6 @@ import java.util.function.IntFunction;
 
 import accord.api.Agent;
 import org.apache.cassandra.concurrent.ExecutorPlus;
-import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.metrics.AccordStateCacheMetrics;
 
 class AccordExecutorSemiSyncSubmit extends AccordExecutorAbstractSemiSyncSubmit
