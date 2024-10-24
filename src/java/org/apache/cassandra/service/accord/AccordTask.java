@@ -262,7 +262,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     private void state(State state)
     {
-        Invariants.checkState(state.isPermittedFrom(this.state));
+        Invariants.checkState(state.isPermittedFrom(this.state), "%s forbidden from %s", state, this.state);
         this.state = state;
         if (state == WAITING_TO_RUN) loadedAt = nanoTime();
         else if (state == RUNNING) runAt = nanoTime();
@@ -559,60 +559,52 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         AccordSafeCommandStore safeStore = null;
         try
         {
-            switch (state)
+            if (state != RUNNING)
+                throw new IllegalStateException("Unexpected state " + state);
+
+            if (commands != null)
+                commands.values().forEach(AccordSafeState::preExecute);
+            if (commandsForKey != null)
+                commandsForKey.values().forEach(AccordSafeState::preExecute);
+            if (timestampsForKey != null)
+                timestampsForKey.values().forEach(AccordSafeState::preExecute);
+
+            safeStore = commandStore.begin(this, commandsForRanges);
+            R result = apply(safeStore);
+
+            // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
+            List<SavedCommand.DiffWriter> diffs = null;
+            if (commands != null)
             {
-                default: throw new IllegalStateException("Unexpected state " + state);
-                case RUNNING:
-                    if (commands != null)
-                        commands.values().forEach(AccordSafeState::preExecute);
-                    if (commandsForKey != null)
-                        commandsForKey.values().forEach(AccordSafeState::preExecute);
-                    if (timestampsForKey != null)
-                        timestampsForKey.values().forEach(AccordSafeState::preExecute);
+                for (AccordSafeCommand safeCommand : commands.values())
+                {
+                    SavedCommand.DiffWriter diff = safeCommand.diff();
+                    if (diff == null)
+                        continue;
 
-                    safeStore = commandStore.begin(this, commandsForRanges);
-                    R result = apply(safeStore);
+                    if (diffs == null)
+                        diffs = new ArrayList<>(commands.size());
+                    diffs.add(diff);
 
-                    // TODO (required): currently, we are not very efficient about ensuring that we persist the absolute minimum amount of state. Improve that.
-                    List<SavedCommand.DiffWriter> diffs = null;
-                    if (commands != null)
-                    {
-                        for (AccordSafeCommand safeCommand : commands.values())
-                        {
-                            SavedCommand.DiffWriter diff = safeCommand.diff();
-                            if (diff == null)
-                                continue;
-
-                            if (diffs == null)
-                                diffs = new ArrayList<>(commands.size());
-                            diffs.add(diff);
-
-                            maybeSanityCheck(safeCommand);
-                        }
-                    }
-
-                    boolean flush = diffs != null || safeStore.fieldUpdates() != null;
-                    if (flush)
-                    {
-                        state(PERSISTING);
-                        Runnable onFlush = () -> finish(result, null);
-                        if (safeStore.fieldUpdates() != null)
-                            commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
-                        if (diffs != null)
-                            save(diffs, onFlush);
-                    }
-
-                    commandStore.complete(safeStore);
-                    safeStore = null;
-                    if (flush)
-                        return;
-
-                    state(FINISHED);
-                    finish(result, null);
-                case FINISHED:
-                case FAILED:
-                    break;
+                    maybeSanityCheck(safeCommand);
+                }
             }
+
+            boolean flush = diffs != null || safeStore.fieldUpdates() != null;
+            if (flush)
+            {
+                state(PERSISTING);
+                Runnable onFlush = () -> finish(result, null);
+                if (safeStore.fieldUpdates() != null)
+                    commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
+                if (diffs != null)
+                    save(diffs, onFlush);
+            }
+
+            commandStore.complete(safeStore);
+            safeStore = null;
+            if (!flush)
+                finish(result, null);
         }
         catch (Throwable t)
         {
@@ -800,6 +792,9 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                 default: throw new AssertionError("Unhandled Status: " + state.status());
                 case WAITING_TO_LOAD:
                 case LOADING:
+                    if (scanned)
+                        // if we've finished scanning and not already taken a reference we shouldn't need to witness (unless modified)
+                        return;
                     if (loading != null && loading.containsKey(state.key()))
                         return;
                     ensureLoading().put(state.key(), commandsForKeyCache.acquire(state));
