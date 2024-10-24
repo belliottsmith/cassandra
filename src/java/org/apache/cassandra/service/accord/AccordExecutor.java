@@ -148,7 +148,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
             switch (next.state())
             {
-                default: throw new AssertionError("Unexpected state: " + next.state());
+                default: throw new AssertionError("Unexpected state: " + next);
                 case WAITING_TO_SCAN_RANGES:
                     if (activeRangeLoads >= MAX_QUEUED_RANGE_LOADS_PER_EXECUTOR)
                     {
