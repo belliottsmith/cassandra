@@ -59,9 +59,9 @@ class AccordExecutorSyncSubmit extends AccordExecutorAbstractLockLoop
     private AccordExecutorSyncSubmit(ReentrantLock lock, Mode mode, int threads, IntFunction<String> name, AccordStateCacheMetrics metrics, ExecutorFunctionFactory loadExecutor, ExecutorFunctionFactory saveExecutor, ExecutorFunctionFactory rangeLoadExecutor, Agent agent)
     {
         super(lock, metrics, loadExecutor, saveExecutor, rangeLoadExecutor, agent);
-        this.loops = new AccordExecutorInfiniteLoops(mode, threads, name, this::task);
         this.lock = lock;
         this.hasWork = lock.newCondition();
+        this.loops = new AccordExecutorInfiniteLoops(mode, threads, name, this::task);
     }
 
     @Override
