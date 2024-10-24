@@ -55,6 +55,7 @@ import org.agrona.collections.Object2ObjectHashMap;
 import org.agrona.collections.ObjectHashSet;
 import org.apache.cassandra.service.accord.AccordCachingState.Status;
 import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
+import org.apache.cassandra.service.accord.AccordExecutor.TaskQueue;
 import org.apache.cassandra.service.accord.api.AccordRoutingKey;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -184,7 +185,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     @Nullable RangeLoader rangeLoader;
     @Nullable
     CommandsForRanges commandsForRanges;
-    AccordExecutor.TaskQueue queued;
+    private TaskQueue queued;
 
     private BiConsumer<? super R, Throwable> callback;
     private R result;
@@ -472,6 +473,7 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     public AccordCachingState<?, ?> pollWaitingToLoad()
     {
+        Invariants.checkState(state == WAITING_TO_LOAD);
         if (waitingToLoad == null)
             return null;
 
@@ -484,11 +486,6 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
     public AccordCachingState<?, ?> peekWaitingToLoad()
     {
         return waitingToLoad == null ? null : waitingToLoad.peek();
-    }
-
-    public boolean isLoading()
-    {
-        return loading != null;
     }
 
     private void maybeSanityCheck(AccordSafeCommand safeCommand)
@@ -841,4 +838,36 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         }
     }
 
+    protected void addToQueue(TaskQueue queue, State queueKind)
+    {
+        Invariants.checkState(queueKind == state || (queueKind == WAITING_TO_LOAD && state == WAITING_TO_SCAN_RANGES), "Invalid queue type: %s vs %s", queueKind, this);
+        Invariants.checkState(this.queued == null, "Already queued with state: " + this);
+        queued = queue;
+        queue.append(this);
+    }
+
+    TaskQueue<?> queued()
+    {
+        return queued;
+    }
+
+    void clearQueue()
+    {
+        queued = null;
+    }
+
+    TaskQueue<?> unqueue()
+    {
+        TaskQueue<?> wasQueued = queued;
+        queued.remove(this);
+        queued = null;
+        return wasQueued;
+    }
+
+    TaskQueue<?> unqueueIfQueued()
+    {
+        if (queued == null)
+            return null;
+        return unqueue();
+    }
 }

@@ -46,6 +46,10 @@ import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
 import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
+import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
+import static org.apache.cassandra.service.accord.AccordTask.State.SCANNING_RANGES;
+import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
+import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_RUN;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public abstract class AccordExecutor implements CacheSize, AccordCachingState.OnLoaded, AccordCachingState.OnSaved, Shutdownable
@@ -194,9 +198,11 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                         if (next.peekWaitingToLoad() == null)
                             break;
 
+                        Invariants.checkState(next.state() == WAITING_TO_LOAD, "Invalid state: %s", next);
                         if (activeLoads >= MAX_QUEUED_LOADS_PER_EXECUTOR)
                             return;
                     }
+                    Invariants.checkState(next.state().compareTo(LOADING) >= 0, "Invalid state: %s", next);
                     updateQueue(next, false);
             }
         }
@@ -218,14 +224,12 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     private void parkRangeLoad(AccordTask<?> task)
     {
-        if (task.queued != waitingToLoadRangeTxnsCollection)
+        if (task.queued() != waitingToLoadRangeTxnsCollection)
         {
-            if (task.queued != null)
-                task.queued.remove(task);
+            task.unqueueIfQueued();
             if (waitingToLoadRangeTxns == null)
                 waitingToLoadRangeTxns = waitingToLoadRangeTxnsCollection;
-            waitingToLoadRangeTxns.append(task);
-            task.queued = waitingToLoadRangeTxns;
+            task.addToQueue(waitingToLoadRangeTxns, WAITING_TO_LOAD);
         }
     }
 
@@ -246,25 +250,20 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     private void updateQueue(AccordTask<?> task, boolean enqueueLoads)
     {
-        if (task.queued != null)
-            removeFromQueue(task);
-
+        removeFromQueue(task);
         switch (task.state())
         {
             default: throw new AssertionError("Unexpected state: " + task.state());
             case WAITING_TO_SCAN_RANGES:
             case WAITING_TO_LOAD:
-                task.queued = waitingToLoad;
-                waitingToLoad.append(task);
+                task.addToQueue(waitingToLoad, WAITING_TO_LOAD);
                 if (enqueueLoads) enqueueLoadsExclusive();
                 break;
             case SCANNING_RANGES:
-                task.queued = scanningRanges;
-                scanningRanges.append(task);
+                task.addToQueue(scanningRanges, SCANNING_RANGES);
                 break;
             case LOADING:
-                task.queued = loading;
-                loading.append(task);
+                task.addToQueue(loading, LOADING);
                 break;
             case WAITING_TO_RUN:
                 task.runQueuedAt = nanoTime();
@@ -291,11 +290,9 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
     private void removeFromQueue(AccordTask<?> task)
     {
-        TaskQueue queue = task.queued;
-        queue.remove(task);
-        if (queue == waitingToLoadRangeTxns && waitingToLoadRangeTxns.isEmpty())
+        TaskQueue<?> queue = task.unqueueIfQueued();
+        if (queue == waitingToLoadRangeTxnsCollection && waitingToLoadRangeTxnsCollection.isEmpty())
             waitingToLoadRangeTxns = null;
-        task.queued = null;
     }
 
     private Future<?> submitIOExclusive(Runnable run)
@@ -485,8 +482,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
                     if (task.onLoad(loaded))
                     {
                         enqueueWork = true;
-                        Invariants.checkState(task.queued == loading);
-                        loading.remove(task);
+                        Invariants.checkState(task.queued() == loading);
+                        task.unqueue();
                         waitingToRun(task);
                     }
                 }
@@ -586,6 +583,8 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
          * Cleanup the command while holding the state cache lock
          */
         abstract protected void cleanupExclusive();
+
+        abstract protected void addToQueue(TaskQueue queue, AccordTask.State queueKind);
     }
 
     class PlainRunnable extends Task
@@ -619,6 +618,13 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
 
         @Override
         protected void cleanupExclusive() {}
+
+        @Override
+        protected void addToQueue(TaskQueue queue, AccordTask.State queueKind)
+        {
+            Invariants.checkState(queueKind == WAITING_TO_RUN);
+            queue.append(this);
+        }
     }
 
     class CommandStoreQueue extends Task
@@ -660,10 +666,17 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             updateNext(queue.poll());
         }
 
+        @Override
+        protected void addToQueue(TaskQueue queue, AccordTask.State queueKind)
+        {
+            Invariants.checkState(queueKind == WAITING_TO_RUN);
+            queue.append(this);
+        }
+
         void append(Task task)
         {   // TODO (expected): if the new task is higher priority, replace next
             if (next == null) updateNext(task);
-            else queue.append(task);
+            else task.addToQueue(queue, WAITING_TO_RUN);
         }
 
         void updateNext(Task task)
