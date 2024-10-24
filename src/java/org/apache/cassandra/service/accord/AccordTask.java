@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
@@ -63,11 +64,12 @@ import org.apache.cassandra.utils.concurrent.Condition;
 import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED;
-import static org.apache.cassandra.service.accord.AccordTask.State.COMPLETING;
+import static org.apache.cassandra.service.accord.AccordTask.State.CANCELLED;
 import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
 import static org.apache.cassandra.service.accord.AccordTask.State.FINISHED;
 import static org.apache.cassandra.service.accord.AccordTask.State.INITIALIZED;
 import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
+import static org.apache.cassandra.service.accord.AccordTask.State.PERSISTING;
 import static org.apache.cassandra.service.accord.AccordTask.State.RUNNING;
 import static org.apache.cassandra.service.accord.AccordTask.State.SCANNING_RANGES;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
@@ -142,10 +144,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
         LOADING(INITIALIZED, SCANNING_RANGES, WAITING_TO_LOAD),
         WAITING_TO_RUN(INITIALIZED, SCANNING_RANGES, WAITING_TO_LOAD, LOADING),
         RUNNING(WAITING_TO_RUN),
-        COMPLETING(RUNNING),
-        WAITING_TO_FINISH(RUNNING),
-        FINISHED(RUNNING, COMPLETING, WAITING_TO_FINISH),
-        FAILED(WAITING_TO_SCAN_RANGES, SCANNING_RANGES, WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING);
+        PERSISTING(RUNNING),
+        FINISHED(RUNNING, PERSISTING),
+        CANCELLED(WAITING_TO_SCAN_RANGES, SCANNING_RANGES, WAITING_TO_LOAD, LOADING, WAITING_TO_RUN),
+        FAILED(WAITING_TO_SCAN_RANGES, SCANNING_RANGES, WAITING_TO_LOAD, LOADING, WAITING_TO_RUN, RUNNING, PERSISTING);
 
         private final int permittedFrom;
 
@@ -167,9 +169,14 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
             return (permittedFrom & (1 << prev.ordinal())) != 0;
         }
 
+        boolean isExecuted()
+        {
+            return this.compareTo(EXECUTED) >= 0;
+        }
+
         boolean isComplete()
         {
-            return this == FINISHED || this == FAILED;
+            return this.compareTo(FINISHED) >= 0;
         }
     }
 
@@ -602,26 +609,24 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
                         }
                     }
 
-                    boolean flushed = false;
-                    if (diffs != null || safeStore.fieldUpdates() != null)
+                    boolean flush = diffs != null || safeStore.fieldUpdates() != null;
+                    if (flush)
                     {
+                        state(PERSISTING);
                         Runnable onFlush = () -> finish(result, null);
                         if (safeStore.fieldUpdates() != null)
                             commandStore.persistFieldUpdates(safeStore.fieldUpdates(), diffs == null ? onFlush : null);
                         if (diffs != null)
                             save(diffs, onFlush);
-                        flushed = true;
                     }
 
                     commandStore.complete(safeStore);
                     safeStore = null;
-                    synchronizedState(RUNNING, COMPLETING);
-                    if (flushed)
+                    if (flush)
                         return;
 
-                case COMPLETING:
+                    state(FINISHED);
                     finish(result, null);
-
                 case FINISHED:
                 case FAILED:
                     break;
@@ -679,9 +684,10 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     public void cancelExclusive()
     {
-        Invariants.checkState(state.compareTo(RUNNING) < 0);
-        state = FAILED;
         releaseResources(commandStore.cachesExclusive());
+        state(CANCELLED);
+        if (callback != null)
+            callback.accept(null, new CancellationException());
     }
 
     public State state()
@@ -691,15 +697,9 @@ public abstract class AccordTask<R> extends AccordExecutor.Task implements Runna
 
     private void finish(R result, Throwable failure)
     {
-        try
-        {
-            if (callback != null)
-                callback.accept(result, failure);
-        }
-        finally
-        {
-            synchronizedState(failure == null ? FINISHED : FAILED);
-        }
+        state(failure == null ? FINISHED : FAILED);
+        if (callback != null)
+            callback.accept(result, failure);
     }
 
     void releaseResources(Caches caches)

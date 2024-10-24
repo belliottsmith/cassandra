@@ -168,7 +168,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
         long perExecutor = cacheSize / executors.length;
         // TODO (low priority, safety): we might transiently breach our limit if we increase one store before decreasing another
         for (AccordExecutor executor : executors)
-            executor.executeBlockingWithLock(() -> executor.setCapacity(perExecutor));
+            executor.executeDirectlyWithLock(() -> executor.setCapacity(perExecutor));
     }
 
     public void waitForQuiescense()

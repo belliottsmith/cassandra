@@ -45,7 +45,6 @@ import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.Future;
 
 import static org.apache.cassandra.service.accord.AccordCachingState.Status.EVICTED;
-import static org.apache.cassandra.service.accord.AccordTask.State.FAILED;
 import static org.apache.cassandra.service.accord.AccordTask.State.LOADING;
 import static org.apache.cassandra.service.accord.AccordTask.State.SCANNING_RANGES;
 import static org.apache.cassandra.service.accord.AccordTask.State.WAITING_TO_LOAD;
@@ -298,6 +297,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         ++tasks;
         AsyncPromise<Void> result = new AsyncPromise<>();
         PlainRunnable task = new PlainRunnable(result, run, null);
+        // TODO (expected): adopt queue position of the submitting task
         task.queuePosition = ++nextPosition;
         waitingToRun.append(task);
         return result;
@@ -392,42 +392,46 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
             case WAITING_TO_RUN:
                 --tasks;
                 removeFromQueue(task);
+                task.cancelExclusive();
                 break;
 
             case RUNNING:
-            case COMPLETING:
-            case WAITING_TO_FINISH:
+            case EXECUTED:
+            case PERSISTING:
             case FINISHED:
             case FAILED:
-                return; // cannot safely cancel
+                // cannot safely cancel
         }
-        task.cancelExclusive();
     }
 
     private void onScannedRangesExclusive(AccordTask<?> task, Throwable fail)
     {
         --activeLoads;
         --activeRangeLoads;
-        if (fail != null)
+        // the task may have already been cancelled, in which case we don't need to fail it
+        if (!task.state().isExecuted())
         {
-            --tasks;
-            try
+            if (fail != null)
             {
-                task.fail(fail);
+                --tasks;
+                try
+                {
+                    task.fail(fail);
+                }
+                catch (Throwable t)
+                {
+                    agent.onUncaughtException(t);
+                }
+                finally
+                {
+                    task.cleanupExclusive();
+                }
             }
-            catch (Throwable t)
+            else
             {
-                agent.onUncaughtException(t);
+                task.rangeLoader().scanned();
+                updateQueue(task, false);
             }
-            finally
-            {
-                task.cleanupExclusive();
-            }
-        }
-        else if (task.state() != FAILED)
-        {
-            task.rangeLoader().scanned();
-            updateQueue(task, false);
         }
         enqueueLoadsExclusive();
     }
@@ -491,6 +495,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         return submit(run, null);
     }
 
+    // TODO (expected): offer queue jumping/priorities
     public Future<?> submit(Runnable run, AccordCommandStore commandStore)
     {
         AsyncPromise<Void> result = new AsyncPromise<>();
@@ -503,7 +508,7 @@ public abstract class AccordExecutor implements CacheSize, AccordCachingState.On
         submit(command);
     }
 
-    public void executeBlockingWithLock(Runnable command)
+    public void executeDirectlyWithLock(Runnable command)
     {
         lock.lock();
         try

@@ -258,6 +258,9 @@ public class AccordCommandStore extends CommandStore
         return executor;
     }
 
+    // TODO (desired): we use this for executing callbacks with mutual exclusivity,
+    //  but we don't need to block the actual CommandStore - could quite easily
+    //  inflate a separate queue dynamically in AccordExecutor
     public Executor taskExecutor()
     {
         return taskExecutor;
