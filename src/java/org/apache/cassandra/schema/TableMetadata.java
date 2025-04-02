@@ -770,6 +770,18 @@ public class TableMetadata implements SchemaElement
                             .build();
     }
 
+    /**
+     * There is a couple of places in the code where we need a TableMetadata object and don't have one readily available
+     * and know that only the keyspace and name matter. This creates such "fake" metadata. Use only if you know what
+     * you're doing.
+     */
+    public static TableMetadata minimal(String keyspace, String name, TableId tableId)
+    {
+        return TableMetadata.builder(keyspace, name, tableId)
+                            .addPartitionKeyColumn("key", BytesType.instance)
+                            .build();
+    }
+
     public TableMetadata updateIndexTableMetadata(TableParams baseTableParams)
     {
         TableParams.Builder builder = baseTableParams.unbuild().gcGraceSeconds(0);

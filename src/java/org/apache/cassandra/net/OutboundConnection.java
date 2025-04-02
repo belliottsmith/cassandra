@@ -21,6 +21,7 @@ package org.apache.cassandra.net;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -824,7 +825,11 @@ public class OutboundConnection
                         Message.serializer.serialize(next, out, messagingVersion);
 
                         if (sending.length() != sendingBytes + messageSize)
+                        {
+                            DataOutputBufferFixed out2 = new DataOutputBufferFixed(ByteBuffer.allocate(sendingBytes + messageSize));
+                            Message.serializer.serialize(next, out2, messagingVersion);
                             throw new InvalidSerializedSizeException(next.verb(), messageSize, sending.length() - sendingBytes);
+                        }
 
                         canonicalSize += canonicalSize(next);
                         sendingCount += 1;

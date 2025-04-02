@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
+import accord.utils.VIntCoding;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
@@ -35,10 +36,12 @@ import org.apache.cassandra.db.rows.CellPath;
 import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.ComplexColumnData;
 import org.apache.cassandra.db.rows.Row;
+import org.apache.cassandra.io.ParameterisedVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
-import org.apache.cassandra.service.accord.serializers.IVersionedSerializer;
+import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.service.accord.serializers.TableMetadatas;
 import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -49,18 +52,20 @@ public class TxnReference
 {
     private final int tuple;
     private final ColumnMetadata column;
+    private final TableMetadata table;
     private final CellPath path;
 
-    public TxnReference(int tuple, ColumnMetadata column, CellPath path)
+    public TxnReference(int tuple, ColumnMetadata column, TableMetadata table, CellPath path)
     {
         this.tuple = tuple;
         this.column = column;
+        this.table = table;
         this.path = path;
     }
 
-    public TxnReference(int tuple, ColumnMetadata column)
+    public TxnReference(int tuple, ColumnMetadata column, TableMetadata table)
     {
-        this(tuple, column, null);
+        this(tuple, column, table, null);
     }
 
     @Override
@@ -93,7 +98,17 @@ public class TxnReference
     {
         return column;
     }
-    
+
+    public TableMetadata table()
+    {
+        return table;
+    }
+
+    public void collect(TableMetadatas.Collector collector)
+    {
+        collector.add(table);
+    }
+
     public CellPath path()
     {
         return path;
@@ -288,37 +303,49 @@ public class TxnReference
         return selectsPath() && column.type.isUDT() && !column.type.isMultiCell();
     }
 
-    static final IVersionedSerializer<TxnReference> serializer = new IVersionedSerializer<TxnReference>()
+    static final ParameterisedVersionedSerializer<TxnReference, TableMetadatas, Version> serializer = new ParameterisedVersionedSerializer<>()
     {
         @Override
-        public void serialize(TxnReference reference, DataOutputPlus out, Version version) throws IOException
+        public void serialize(TxnReference reference, TableMetadatas tables, DataOutputPlus out, Version version) throws IOException
         {
-            out.writeInt(reference.tuple);
+            out.writeUnsignedVInt32(reference.tuple);
             out.writeBoolean(reference.column != null);
             if (reference.column != null)
-                columnMetadataSerializer.serialize(reference.column, out);
+            {
+                tables.serialize(reference.table, out);
+                columnMetadataSerializer.serialize(reference.column, reference.table, out);
+            }
             out.writeBoolean(reference.path != null);
             if (reference.path != null)
                 CollectionType.cellPathSerializer.serialize(reference.path, out);
         }
 
         @Override
-        public TxnReference deserialize(DataInputPlus in, Version version) throws IOException
+        public TxnReference deserialize(TableMetadatas tables, DataInputPlus in, Version version) throws IOException
         {
-            int name = in.readInt();
-            ColumnMetadata column = in.readBoolean() ? columnMetadataSerializer.deserialize(in) : null;
+            int name = in.readUnsignedVInt32();
+            TableMetadata table = null;
+            ColumnMetadata column = null;
+            if (in.readBoolean())
+            {
+                table = tables.deserialize(in);
+                column = columnMetadataSerializer.deserialize(table, in);
+            }
             CellPath path = in.readBoolean() ? CollectionType.cellPathSerializer.deserialize(in) : null;
-            return new TxnReference(name, column, path);
+            return new TxnReference(name, column, table, path);
         }
 
         @Override
-        public long serializedSize(TxnReference reference, Version version)
+        public long serializedSize(TxnReference reference, TableMetadatas tables, Version version)
         {
             long size = 0;
-            size += TypeSizes.INT_SIZE;
+            size += VIntCoding.sizeOfUnsignedVInt(reference.tuple);
             size += TypeSizes.BOOL_SIZE;
             if (reference.column != null)
-                size += columnMetadataSerializer.serializedSize(reference.column);
+            {
+                size += tables.serializedSize(reference.table);
+                size += columnMetadataSerializer.serializedSize(reference.column, reference.table);
+            }
             size += TypeSizes.BOOL_SIZE;
             if (reference.path != null)
                 size += CollectionType.cellPathSerializer.serializedSize(reference.path);

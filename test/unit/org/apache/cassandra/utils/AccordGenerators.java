@@ -80,6 +80,7 @@ import org.apache.cassandra.service.accord.AccordTestUtils;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.TableMetadatas;
 import org.apache.cassandra.service.accord.txn.TxnData;
 import org.apache.cassandra.service.accord.txn.TxnWrite;
 import org.quicktheories.impl.JavaRandom;
@@ -265,7 +266,7 @@ public class AccordGenerators
             if (saveStatus.hasBeen(Status.PreApplied) && !saveStatus.hasBeen(Status.Truncated))
             {
                 if (txnId.is(Write))
-                    builder.writes(new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(Collections.emptyList(), true)));
+                    builder.writes(new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(TableMetadatas.none(), Collections.emptyList(), true)));
                 builder.result(new TxnData());
             }
             return builder;
@@ -320,8 +321,8 @@ public class AccordGenerators
                     else return Truncated.truncated(command, saveStatus, executeAt, null, null, null, null);
 
                 case TruncatedApplyWithOutcome:
-                    if (txnId.kind().awaitsOnlyDeps()) return Truncated.truncated(command, saveStatus, executeAt, command.partialDeps(), txnId.is(Write) ? new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(Collections.emptyList(), true)) : null, new TxnData(), txnId);
-                    else return Truncated.truncated(command, saveStatus, executeAt, command.partialDeps(), txnId.is(Write) ? new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(Collections.emptyList(), true)) : null, new TxnData(), null);
+                    if (txnId.kind().awaitsOnlyDeps()) return Truncated.truncated(command, saveStatus, executeAt, command.partialDeps(), txnId.is(Write) ? new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(TableMetadatas.none(), Collections.emptyList(), true)) : null, new TxnData(), txnId);
+                    else return Truncated.truncated(command, saveStatus, executeAt, command.partialDeps(), txnId.is(Write) ? new Writes(txnId, executeAt, keysOrRanges, new TxnWrite(TableMetadatas.none(), Collections.emptyList(), true)) : null, new TxnData(), null);
 
                 case Erased:
                 case Vestigial:

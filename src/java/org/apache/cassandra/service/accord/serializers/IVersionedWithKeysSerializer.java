@@ -22,10 +22,12 @@ import java.io.IOException;
 import java.util.function.BiFunction;
 import java.util.function.IntFunction;
 
+import accord.api.Key;
 import accord.api.RoutingKey;
 import accord.primitives.AbstractKeys;
 import accord.primitives.AbstractRanges;
 import accord.primitives.AbstractUnseekableKeys;
+import accord.primitives.Keys;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.Routable;
@@ -34,6 +36,7 @@ import accord.primitives.Routables;
 import accord.primitives.RoutingKeys;
 import accord.utils.UnhandledEnum;
 import net.nicoulaj.compilecommand.annotations.DontInline;
+import net.nicoulaj.compilecommand.annotations.Inline;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -100,10 +103,13 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
             }
             else if (supersetCount < 64)
             {
-                switch (serialize.domain())
+                switch (serialize.domainKind())
                 {
-                    default: throw UnhandledEnum.unknown(serialize.domain());
-                    case Key:
+                    default: throw UnhandledEnum.unknown(serialize.domainKind());
+                    case SeekableKey:
+                        out.writeUnsignedVInt(encodeBitmap((Keys)serialize, (Keys)superset, supersetCount));
+                        break;
+                    case UnseekableKey:
                         out.writeUnsignedVInt(encodeBitmap((AbstractUnseekableKeys)serialize, (AbstractUnseekableKeys)superset, supersetCount));
                         break;
                     case Range:
@@ -113,10 +119,13 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
             }
             else
             {
-                switch (serialize.domain())
+                switch (serialize.domainKind())
                 {
-                    default: throw UnhandledEnum.unknown(serialize.domain());
-                    case Key:
+                    default: throw UnhandledEnum.unknown(serialize.domainKind());
+                    case SeekableKey:
+                        serializeLargeSubset((Keys)serialize, serializeCount, (Keys)superset, supersetCount, out);
+                        break;
+                    case UnseekableKey:
                         serializeLargeSubset((AbstractUnseekableKeys)serialize, serializeCount, (AbstractUnseekableKeys)superset, supersetCount, out);
                         break;
                     case Range:
@@ -126,7 +135,7 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
             }
         }
 
-        public long serializedSubsetSizeInternal(Routables<?> serialize, Routables<?> superset)
+        protected long serializedSubsetSizeInternal(Routables<?> serialize, Routables<?> superset)
         {
             int columnCount = serialize.size();
             int supersetCount = superset.size();
@@ -136,10 +145,12 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
             }
             else if (supersetCount < 64)
             {
-                switch (serialize.domain())
+                switch (serialize.domainKind())
                 {
-                    default: throw UnhandledEnum.unknown(serialize.domain());
-                    case Key:
+                    default: throw UnhandledEnum.unknown(serialize.domainKind());
+                    case SeekableKey:
+                        return TypeSizes.sizeofUnsignedVInt(encodeBitmap((Keys)serialize, (Keys)superset, supersetCount));
+                    case UnseekableKey:
                         return TypeSizes.sizeofUnsignedVInt(encodeBitmap((AbstractUnseekableKeys)serialize, (AbstractUnseekableKeys)superset, supersetCount));
                     case Range:
                         return TypeSizes.sizeofUnsignedVInt(encodeBitmap((AbstractRanges)serialize, (AbstractRanges)superset, supersetCount));
@@ -147,10 +158,12 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
             }
             else
             {
-                switch (serialize.domain())
+                switch (serialize.domainKind())
                 {
-                    default: throw UnhandledEnum.unknown(serialize.domain());
-                    case Key:
+                    default: throw UnhandledEnum.unknown(serialize.domainKind());
+                    case SeekableKey:
+                        return serializeLargeSubsetSize((Keys)serialize, columnCount, (Keys)superset, supersetCount);
+                    case UnseekableKey:
                         return serializeLargeSubsetSize((AbstractUnseekableKeys)serialize, columnCount, (AbstractUnseekableKeys)superset, supersetCount);
                     case Range:
                         return serializeLargeSubsetSize((AbstractRanges)serialize, columnCount, (AbstractRanges)superset, supersetCount);
@@ -230,10 +243,11 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
 
         public Routables<?> deserializeSubsetInternal(Routables<?> superset, DataInputPlus in) throws IOException
         {
-            switch (superset.domain())
+            switch (superset.domainKind())
             {
-                default: throw UnhandledEnum.unknown(superset.domain());
-                case Key: return deserializeRoutingKeySubset((AbstractUnseekableKeys) superset, in, (ks, s) -> ks == null ? s : RoutingKeys.of(ks));
+                default: throw UnhandledEnum.unknown(superset.domainKind());
+                case SeekableKey: return deserializeKeySubset((Keys) superset, in, (ks, s) -> ks == null ? s : Keys.of(ks));
+                case UnseekableKey: return deserializeRoutingKeySubset((AbstractUnseekableKeys) superset, in, (ks, s) -> ks == null ? s : RoutingKeys.of(ks));
                 case Range: return deserializeRangeSubset((AbstractRanges) superset, in, (rs, s) -> rs == null ? s : Ranges.of(rs));
             }
         }
@@ -251,6 +265,18 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
                 count += in.readUnsignedVInt32();
                 in.readUnsignedVInt32();
             }
+        }
+
+        public <T> T deserializeKeySubset(Keys superset, DataInputPlus in, BiFunction<Key[], Keys, T> result) throws IOException
+        {
+            long encoded = in.readUnsignedVInt();
+            int supersetCount = superset.size();
+            if (encoded == 0L)
+                return result.apply(null, superset);
+            else if (supersetCount >= 64)
+                return result.apply(deserializeLargeKeySubset(in, superset, supersetCount, (int) encoded), superset);
+            else
+                return result.apply(deserializeSmallKeySubset(encoded, superset, supersetCount), superset);
         }
 
         public <T, S extends AbstractUnseekableKeys> T deserializeRoutingKeySubset(S superset, DataInputPlus in, BiFunction<RoutingKey[], S, T> result) throws IOException
@@ -275,6 +301,11 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
                 return result.apply(deserializeLargeRangeSubset(in, superset, supersetCount, (int) encoded), superset);
             else
                 return result.apply(deserializeSmallRangeSubsetArray(encoded, superset, supersetCount), superset);
+        }
+
+        private Key[] deserializeSmallKeySubset(long encoded, Keys superset, int supersetCount)
+        {
+            return deserializeSmallSubsetArray(encoded, superset, supersetCount, Key[]::new);
         }
 
         private RoutingKey[] deserializeSmallRoutingKeySubset(long encoded, AbstractUnseekableKeys superset, int supersetCount)
@@ -305,24 +336,26 @@ public interface IVersionedWithKeysSerializer<K extends Routables<?>, T> extends
         @DontInline
         private RoutingKey[] deserializeLargeRoutingKeySubset(DataInputPlus in, AbstractUnseekableKeys superset, int supersetCount, int delta) throws IOException
         {
-            int deserializeCount = supersetCount - delta;
-            RoutingKey[] out = new RoutingKey[deserializeCount];
-            int supersetIndex = 0;
-            int count = 0;
-            while (count < deserializeCount)
-            {
-                int takeCount = in.readUnsignedVInt32();
-                while (takeCount-- > 0) out[count++] = superset.get(supersetIndex++);
-                supersetIndex += in.readUnsignedVInt32();
-            }
-            return out;
+            return deserializeLargeSubset(in, superset, supersetCount, delta, RoutingKey[]::new);
+        }
+
+        @DontInline
+        private Key[] deserializeLargeKeySubset(DataInputPlus in, Keys superset, int supersetCount, int delta) throws IOException
+        {
+            return deserializeLargeSubset(in, superset, supersetCount, delta, Key[]::new);
         }
 
         @DontInline
         private Range[] deserializeLargeRangeSubset(DataInputPlus in, AbstractRanges superset, int supersetCount, int delta) throws IOException
         {
+            return deserializeLargeSubset(in, superset, supersetCount, delta, Range[]::new);
+        }
+
+        @Inline
+        private <T extends Routable> T[] deserializeLargeSubset(DataInputPlus in, Routables<T> superset, int supersetCount, int delta, IntFunction<T[]> allocator) throws IOException
+        {
             int deserializeCount = supersetCount - delta;
-            Range[] out = new Range[deserializeCount];
+            T[] out = allocator.apply(deserializeCount);
             int supersetIndex = 0;
             int count = 0;
             while (count < deserializeCount)
