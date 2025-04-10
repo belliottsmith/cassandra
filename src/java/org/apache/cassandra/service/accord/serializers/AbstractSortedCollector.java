@@ -38,8 +38,8 @@ public abstract class AbstractSortedCollector<T, C> extends AbstractList<T>
     abstract Comparator<Object> comparator();
     abstract C empty();
     abstract C of(T one);
-    abstract C of(Object[] array, int count);
-    abstract C ofBtree(Object[] btree, int count);
+    abstract C copy(Object[] array, int count);
+    abstract C copyBtree(Object[] btree, int count);
 
     public AbstractSortedCollector()
     {
@@ -109,13 +109,13 @@ public abstract class AbstractSortedCollector<T, C> extends AbstractList<T>
         }
         else if (count < BTREE_THRESHOLD)
         {
-            C result = of((Object[])buffer, count);
+            C result = copy((Object[])buffer, count);
             cachedAny().forceDiscard((Object[])buffer, count);
             return result;
         }
         else
         {
-            return ofBtree((Object[])buffer, count);
+            return copyBtree((Object[])buffer, count);
         }
     }
 

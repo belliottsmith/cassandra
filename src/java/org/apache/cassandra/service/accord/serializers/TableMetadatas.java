@@ -59,7 +59,7 @@ public abstract class TableMetadatas extends AbstractList<TableMetadata>
         }
 
         @Override
-        TableMetadatas of(Object[] array, int count)
+        TableMetadatas copy(Object[] array, int count)
         {
             TableMetadata[] result = new TableMetadata[count];
             System.arraycopy(array, 0, result, 0, count);
@@ -67,7 +67,7 @@ public abstract class TableMetadatas extends AbstractList<TableMetadata>
         }
 
         @Override
-        TableMetadatas ofBtree(Object[] btree, int count)
+        TableMetadatas copyBtree(Object[] btree, int count)
         {
             TableMetadata[] result = new TableMetadata[count];
             int i = 0;

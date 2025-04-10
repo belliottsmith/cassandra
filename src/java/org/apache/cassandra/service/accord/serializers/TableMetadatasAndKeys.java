@@ -94,7 +94,7 @@ public class TableMetadatasAndKeys extends IVersionedWithKeysSerializer.Abstract
         }
 
         @Override
-        Keys of(Object[] array, int count)
+        Keys copy(Object[] array, int count)
         {
             Key[] result = new Key[count];
             System.arraycopy(array, 0, result, 0, count);
@@ -102,7 +102,7 @@ public class TableMetadatasAndKeys extends IVersionedWithKeysSerializer.Abstract
         }
 
         @Override
-        Keys ofBtree(Object[] btree, int count)
+        Keys copyBtree(Object[] btree, int count)
         {
             return Keys.ofSortedUnique(new BTreeSet<>(btree, comparator()));
         }
