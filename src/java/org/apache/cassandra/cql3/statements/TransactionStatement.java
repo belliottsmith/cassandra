@@ -337,6 +337,7 @@ public class TransactionStatement implements CQLStatement.CompositeCQLStatement,
         }
         return collector.build();
     }
+    
     private Keys toKeys(SortedSet<Key> keySet)
     {
         return new Keys(keySet);
