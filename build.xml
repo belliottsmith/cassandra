@@ -1199,7 +1199,7 @@
     <attribute name="filelist" default="" />
     <attribute name="testtag" default=""/>
     <attribute name="usejacoco" default="no"/>
-    <attribute name="showoutput" default="false"/>
+    <attribute name="showoutput" default="true"/>
     <attribute name="maxmemory" default="1024m"/>
 
     <sequential>
