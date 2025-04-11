@@ -775,6 +775,7 @@ public class TableMetadata implements SchemaElement
      * and know that only the keyspace and name matter. This creates such "fake" metadata. Use only if you know what
      * you're doing.
      */
+    @VisibleForTesting
     public static TableMetadata minimal(String keyspace, String name, TableId tableId)
     {
         return TableMetadata.builder(keyspace, name, tableId)
