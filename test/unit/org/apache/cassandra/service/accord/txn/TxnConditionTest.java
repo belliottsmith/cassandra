@@ -74,7 +74,7 @@ public class TxnConditionTest
     private static Gen<TxnReference> TXN_REF_GEN = rs -> {
         {
             ColumnMetadata cm = COLUM_METADATA_GEN.next(rs);
-            TableMetadata.Builder builder =TableMetadata.builder("", "", TableId.generate())
+            TableMetadata.Builder builder = TableMetadata.builder("", "", TableId.generate())
                                                         .addColumn(cm);
             if (!cm.isPartitionKey())
                 builder.addPartitionKeyColumn(cm.name.toString().equals("_") ? "__" : "_", Int32Type.instance);
