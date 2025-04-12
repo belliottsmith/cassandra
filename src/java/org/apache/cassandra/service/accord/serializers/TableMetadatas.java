@@ -132,9 +132,10 @@ public abstract class TableMetadatas extends AbstractList<TableMetadata>
         @Override
         public int indexOf(TableMetadata find)
         {
-            if (find.id.equals(table.id))
-                return 0;
-            return -1;
+            int c = find.id == table.id ? 0 : find.id.compareTo(table.id);
+            if (c == 0) return 0;
+            else if (c < 0) return -1;
+            else return -2;
         }
 
         @Override
@@ -274,10 +275,10 @@ public abstract class TableMetadatas extends AbstractList<TableMetadata>
         if (count == 0)
             return none();
         if (count == 1)
-            return new One(Schema.instance.getTableMetadata(TableId.deserializeCompactComparable(in)));
+            return new One(Schema.instance.getExistingTableMetadata(TableId.deserializeCompactComparable(in)));
         TableMetadata[] array = new TableMetadata[count];
         for (int i = 0 ; i < count ; ++i)
-            array[i] = Schema.instance.getTableMetadata(TableId.deserializeCompactComparable(in));
+            array[i] = Schema.instance.getExistingTableMetadata(TableId.deserializeCompactComparable(in));
         return new Multi(array);
     }
 }

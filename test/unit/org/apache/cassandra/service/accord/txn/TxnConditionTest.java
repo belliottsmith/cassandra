@@ -81,7 +81,7 @@ public class TxnConditionTest
             TableMetadata tm = builder.build();
             cm = tm.getColumn(cm.name);
             return rs.nextBoolean() ? new TxnReference(rs.nextInt(0, Integer.MAX_VALUE), cm, tm)
-                                    : new TxnReference(rs.nextInt(0, Integer.MAX_VALUE), cm, tm, CellPath.create(BYTES_GEN.next(rs)));
+                                    : new TxnReference(rs.nextInt(0, Integer.MAX_VALUE), tm, cm, CellPath.create(BYTES_GEN.next(rs)));
         }
     };
     private static Gen<Clustering<?>> CLUSTERING_GEN = Generators.toGen(CassandraGenerators.CLUSTERING_GEN);

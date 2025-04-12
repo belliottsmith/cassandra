@@ -51,21 +51,21 @@ import static org.apache.cassandra.service.accord.AccordSerializers.columnMetada
 public class TxnReference
 {
     private final int tuple;
-    private final ColumnMetadata column;
     private final TableMetadata table;
+    private final ColumnMetadata column;
     private final CellPath path;
 
-    public TxnReference(int tuple, ColumnMetadata column, TableMetadata table, CellPath path)
+    public TxnReference(int tuple, TableMetadata table, ColumnMetadata column, CellPath path)
     {
         this.tuple = tuple;
-        this.column = column;
         this.table = table;
+        this.column = column;
         this.path = path;
     }
 
     public TxnReference(int tuple, ColumnMetadata column, TableMetadata table)
     {
-        this(tuple, column, table, null);
+        this(tuple, table, column, null);
     }
 
     @Override
@@ -332,7 +332,7 @@ public class TxnReference
                 column = columnMetadataSerializer.deserialize(table, in);
             }
             CellPath path = in.readBoolean() ? CollectionType.cellPathSerializer.deserialize(in) : null;
-            return new TxnReference(name, column, table, path);
+            return new TxnReference(name, table, column, path);
         }
 
         @Override

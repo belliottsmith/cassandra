@@ -23,7 +23,6 @@ import java.util.Comparator;
 
 import accord.api.Key;
 import accord.api.Sliceable;
-import accord.primitives.AbstractRanges;
 import accord.primitives.Keys;
 import accord.primitives.Participants;
 import accord.primitives.Ranges;
@@ -130,26 +129,6 @@ public class TableMetadatasAndKeys extends IVersionedWithKeysSerializer.Abstract
         return tables.get(tableId);
     }
 
-    public void serializeSeekables(Seekables seekables, DataOutputPlus out) throws IOException
-    {
-        if (keys.domain() == Range)
-        {
-            // we maybe don't guarantee that all exact Range values are included in the superset?? just in case, anyway
-            boolean containsAll = ((AbstractRanges)keys).foldlExact((AbstractRanges) seekables, (r, p, v, i) -> v + 1, 0, 0, 0) == seekables.size();
-            out.writeBoolean(containsAll);
-            if (!containsAll)
-            {
-                KeySerializers.seekables.serialize(seekables, out);
-                return;
-            }
-        }
-        else
-        {
-            out.writeBoolean(true);
-        }
-        serializeSubsetInternal(seekables, keys, out);
-    }
-
     public void serializeKeys(Keys keys, DataOutputPlus out) throws IOException
     {
         serializeSubsetInternal(keys, this.keys, out);
@@ -192,18 +171,6 @@ public class TableMetadatasAndKeys extends IVersionedWithKeysSerializer.Abstract
     {
         int offset = in.readUnsignedVInt32();
         return (PartitionKey) keys.get(offset);
-    }
-
-    public long serializedSeekablesSize(Seekables seekables)
-    {
-        if (keys.domain() == Range)
-        {
-            // we maybe don't guarantee that all exact Range values are included in the superset?? just in case, anyway
-            boolean containsAll = ((AbstractRanges)keys).foldlExact((AbstractRanges) seekables, (r, p, v, i) -> v + 1, 0, 0, 0) == seekables.size();
-            if (!containsAll)
-                return 1 + KeySerializers.seekables.serializedSize(seekables);
-        }
-        return 1 + serializedSubsetSizeInternal(seekables, keys);
     }
 
     public long serializedKeysSize(Keys keys)

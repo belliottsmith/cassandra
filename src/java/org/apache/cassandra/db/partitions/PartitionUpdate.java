@@ -818,8 +818,6 @@ public class PartitionUpdate extends AbstractBTreePartition
         {
             try (UnfilteredRowIterator iter = update.unfilteredIterator())
             {
-                assert !iter.isReverseOrder();
-
                 tables.serialize(update.metadata, out);
                 Epoch.serializer.serialize(update.metadata.epoch, out);
                 SerializationHeader header = new SerializationHeader(false, update.metadata, iter.columns(), iter.stats());
