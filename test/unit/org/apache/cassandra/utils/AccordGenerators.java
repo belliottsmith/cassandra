@@ -436,7 +436,7 @@ public class AccordGenerators
 
     public static Gen<Ranges> ranges(Gen<Set<TableId>> tableIdGen, Gen<IPartitioner> partitionerGen)
     {
-        Gen.IntGen splitsGen = Gens.ints().between(100, 99);
+        Gen.IntGen splitsGen = Gens.ints().between(10, 99);
         return ranges(tableIdGen, partitionerGen, splitsGen);
     }
 
