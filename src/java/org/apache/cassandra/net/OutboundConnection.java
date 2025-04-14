@@ -21,7 +21,6 @@ package org.apache.cassandra.net;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
