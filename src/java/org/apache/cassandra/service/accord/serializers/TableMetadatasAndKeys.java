@@ -20,6 +20,7 @@ package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.Objects;
 
 import accord.api.Key;
 import accord.api.Sliceable;
@@ -208,6 +209,21 @@ public class TableMetadatasAndKeys extends IVersionedWithKeysSerializer.Abstract
     {
         Invariants.require(tables.equals(merge.tables));
         return new TableMetadatasAndKeys(tables, keys.with(merge.keys));
+    }
+
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        TableMetadatasAndKeys that = (TableMetadatasAndKeys) o;
+        return tables.equals(that.tables) && keys.equals(that.keys);
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return Objects.hash(tables, keys);
     }
 
     public static final UnversionedSerializer<TableMetadatasAndKeys> serializer = new UnversionedSerializer<>()

@@ -86,7 +86,7 @@ public class IVersionedWithKeysSerializerTest
         };
     }
 
-    private static Keys seekablekeysSuperset(RandomSource rs, IPartitioner partitioner)
+    static Keys seekablekeysSuperset(RandomSource rs, IPartitioner partitioner)
     {
         return Keys.of(Gens.lists(AccordGenerators.keys(partitioner)).unique().ofSizeBetween(0, 100).next(rs));
     }
@@ -96,7 +96,7 @@ public class IVersionedWithKeysSerializerTest
         return RoutingKeys.of(Gens.arrays(RoutingKey.class, (Gen<RoutingKey>) (Gen<?>) AccordGenerators.routingKeysGen(partitioner)).unique().ofSizeBetween(0, 100).next(rs));
     }
 
-    private static Ranges rangesSuperset(RandomSource rs, IPartitioner partitioner)
+    static Ranges rangesSuperset(RandomSource rs, IPartitioner partitioner)
     {
         return AccordGenerators.rangesSplitOrArbitrary(partitioner, Gens.ints().between(0, 100)).next(rs);
     }

@@ -61,7 +61,7 @@ public class TableMetadatasTest
         });
     }
 
-    private static SchemaProvider buildSchema(Map<TableId, TableMetadata> tables) throws UnknownTableException
+    static SchemaProvider buildSchema(Map<TableId, TableMetadata> tables) throws UnknownTableException
     {
         SchemaProvider schema = Mockito.mock(SchemaProvider.class);
         Mockito.when(schema.getExistingTableMetadata(Mockito.any())).thenAnswer(new Answer<TableMetadata>()
@@ -78,19 +78,19 @@ public class TableMetadatasTest
         return schema;
     }
 
-    private static TableMetadatas toMetadatas(Map<TableId, TableMetadata> map)
+    static TableMetadatas toMetadatas(Map<TableId, TableMetadata> map)
     {
         TableMetadatas.Collector collector = new TableMetadatas.Collector();
         map.values().forEach(collector::add);
         return collector.build();
     }
 
-    private static Gen<Map<TableId, TableMetadata>> tables()
+    static Gen<LinkedHashMap<TableId, TableMetadata>> tables()
     {
         Gen<TableId> idGen = Generators.toGen(CassandraGenerators.TABLE_ID_GEN);
         return rs -> {
             TableId[] ids = Gens.arrays(TableId.class, idGen).unique().ofSizeBetween(0, 100).next(rs);
-            Map<TableId, TableMetadata> map = new LinkedHashMap<>();
+            LinkedHashMap<TableId, TableMetadata> map = new LinkedHashMap<>();
             for (int i = 0; i < ids.length; i++)
                 map.put(ids[i], forId(ids[i]));
             return map;
