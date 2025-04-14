@@ -436,11 +436,18 @@ public class AccordGenerators
 
     public static Gen<Ranges> ranges(Gen<Set<TableId>> tableIdGen, Gen<IPartitioner> partitionerGen)
     {
+        Gen.IntGen splitsGen = Gens.ints().between(100, 99);
+        return ranges(tableIdGen, partitionerGen, splitsGen);
+    }
+
+    public static Gen<Ranges> ranges(Gen<Set<TableId>> tableIdGen, Gen<IPartitioner> partitionerGen, Gen.IntGen splitsGen)
+    {
         return rs -> {
             Set<TableId> tables = tableIdGen.next(rs);
             IPartitioner partitioner = partitionerGen.next(rs);
             List<Range> ranges = new ArrayList<>();
-            int numSplits = rs.nextInt(10, 100);
+            int numSplits = splitsGen.nextInt(rs);
+            if (numSplits == 0) return Ranges.EMPTY;
             TokenRange range = TokenRange.create(TokenKey.min(TABLE_ID1, partitioner), TokenKey.max(TABLE_ID1, partitioner));
             AccordSplitter splitter = partitioner.accordSplitter().apply(Ranges.of(range));
             BigInteger size = splitter.sizeOf(range);
@@ -465,6 +472,11 @@ public class AccordGenerators
         return ranges(Gens.lists(fromQT(CassandraGenerators.TABLE_ID_GEN)).unique().ofSizeBetween(1, 10).map(l -> new HashSet<>(l)), ignore -> partitioner);
     }
 
+    public static Gen<Ranges> ranges(IPartitioner partitioner, Gen.IntGen splitsGen)
+    {
+        return ranges(Gens.lists(fromQT(CassandraGenerators.TABLE_ID_GEN)).unique().ofSizeBetween(1, 10).map(l -> new HashSet<>(l)), ignore -> partitioner, splitsGen);
+    }
+
     public static Gen<Ranges> ranges(TableId tableId, IPartitioner partitioner)
     {
         Set<TableId> tables = Collections.singleton(tableId);
@@ -473,8 +485,13 @@ public class AccordGenerators
 
     public static Gen<Ranges> rangesArbitrary(IPartitioner partitioner)
     {
-        Gen<Range> rangeGen = range(partitioner);
         Gen.IntGen sizeGen = Gens.ints().between(0, 10);
+        return rangesArbitrary(partitioner, sizeGen);
+    }
+
+    public static Gen<Ranges> rangesArbitrary(IPartitioner partitioner, Gen.IntGen sizeGen)
+    {
+        Gen<Range> rangeGen = range(partitioner);
         return rs -> {
             int targetSize = sizeGen.nextInt(rs);
             List<Range> ranges = new ArrayList<>(targetSize);
@@ -488,6 +505,13 @@ public class AccordGenerators
     {
         Gen<Ranges> split = ranges(partitioner);
         Gen<Ranges> arbitrary = rangesArbitrary(partitioner);
+        return rs -> rs.nextBoolean() ? split.next(rs) : arbitrary.next(rs);
+    }
+
+    public static Gen<Ranges> rangesSplitOrArbitrary(IPartitioner partitioner, Gen.IntGen sizeGen)
+    {
+        Gen<Ranges> split = ranges(partitioner, sizeGen);
+        Gen<Ranges> arbitrary = rangesArbitrary(partitioner, sizeGen);
         return rs -> rs.nextBoolean() ? split.next(rs) : arbitrary.next(rs);
     }
 
