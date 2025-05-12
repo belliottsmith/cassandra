@@ -438,7 +438,6 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
             while (iter.hasNext())
             {
                 Journal.KeyRefs<JournalKey> ref = iter.next();
-
                 if (ref.key().type != JournalKey.Type.COMMAND_DIFF)
                     continue;
 

@@ -869,7 +869,6 @@ public class CompactionIterator extends CompactionInfo.Holder implements Unfilte
         public AccordJournalPurger(AccordCompactionInfos compactionInfos, Version version, ColumnFamilyStore cfs)
         {
             this.userVersion = version;
-
             this.infos = compactionInfos;
             this.recordColumn = cfs.metadata().getColumn(ColumnIdentifier.getInterned("record", false));
             this.versionColumn = cfs.metadata().getColumn(ColumnIdentifier.getInterned("user_version", false));

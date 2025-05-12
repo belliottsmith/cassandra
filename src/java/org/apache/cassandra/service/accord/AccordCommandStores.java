@@ -224,7 +224,7 @@ public class AccordCommandStores extends CommandStores implements CacheSize
         {
             do
             {
-                hadPending = false;
+                hadPending = Stage.MUTATION.executor().getPendingTaskCount() > 0 || Stage.MUTATION.executor().getActiveTaskCount() > 0;
                 List<Future<?>> futures = new ArrayList<>();
                 for (AccordExecutor executor : this.executors)
                 {

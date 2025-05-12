@@ -253,7 +253,6 @@ public class AccordService implements IAccordService, Shutdownable
         {
             CommandsForKey.enableLinearizabilityViolationsReporting();
         }
-
         logger.info("Finished journal replay.");
     }
 
