@@ -37,9 +37,9 @@ import accord.utils.RandomSource;
 import org.apache.cassandra.cache.CacheSize;
 import org.apache.cassandra.config.AccordSpec.QueueShardModel;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.AccordExecutor.AccordExecutorFactory;
-import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.membership.NodeState;
 
 import static org.apache.cassandra.config.AccordSpec.QueueShardModel.THREAD_PER_SHARD;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordQueueShardCount;
@@ -113,30 +113,10 @@ public class AccordCommandStores extends CommandStores implements CacheSize
     }
 
     @Override
-    protected boolean shouldBootstrap(Node node, Topology previous, Topology updated, Range range)
-    {
-        if (!super.shouldBootstrap(node, previous, updated, range))
-            return false;
-        // we see new ranges when a new keyspace is added, so avoid bootstrap in these cases
-        return contains(previous, ((TokenKey)  range.start()).table());
-    }
-
-    @Override
     public SequentialAsyncExecutor someSequentialExecutor()
     {
         int idx = ((int) Thread.currentThread().getId()) & mask;
         return executors[idx].newSequentialExecutor();
-    }
-
-    private static boolean contains(Topology previous, TableId searchTable)
-    {
-        for (Range range : previous.ranges())
-        {
-            TableId table = ((TokenKey)  range.start()).table();
-            if (table.equals(searchTable))
-                return true;
-        }
-        return false;
     }
 
     public synchronized void setCapacity(long bytes)
