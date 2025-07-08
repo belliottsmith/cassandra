@@ -25,9 +25,9 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
@@ -488,56 +488,51 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
     public void replay(CommandStores commandStores)
     {
         final Semaphore concurrency = Semaphore.newSemaphore(FBUtilities.getAvailableProcessors());
-        final ConcurrentLinkedQueue<Throwable> failures = new ConcurrentLinkedQueue<>();
+        final AtomicBoolean abort = new AtomicBoolean();
 
         try (CloseableIterator<Journal.KeyRefs<JournalKey>> iter = journalTable.keyIterator())
         {
             JournalKey prev = null;
             while (iter.hasNext())
             {
-                Journal.KeyRefs<JournalKey> ref = iter.next();
+                if (abort.get())
+                    break;
 
-                if (ref.key().type != JournalKey.Type.COMMAND_DIFF)
-                    continue;
+                JournalKey key;
+                long[] segments;
+                {
+                    Journal.KeyRefs<JournalKey> ref = iter.next();
+                    key = ref.key();
+                    if (key.type != JournalKey.Type.COMMAND_DIFF)
+                        continue;
 
-                CommandStore commandStore = commandStores.forId(ref.key().commandStoreId);
+                    segments = journalTable.shouldIndex(key) ? ref.copyOfSegments() : null;
+                }
+
+                CommandStore commandStore = commandStores.forId(key.commandStoreId);
                 AccordCommandStoreLoader loader = (AccordCommandStoreLoader) commandStore.loader();
-                TxnId txnId = ref.key().id;
-                try
-                {
-                    Invariants.require(prev == null ||
-                                       ref.key().commandStoreId != prev.commandStoreId ||
-                                       ref.key().id.compareTo(prev.id) != 0,
-                                       "duplicate key detected %s == %s", ref.key(), prev);
-                    prev = ref.key();
 
-                    Throwable rethrow = failures.poll();
-                    if (rethrow != null)
-                        throw rethrow;
+                TxnId txnId = key.id;
+                Invariants.require(prev == null ||
+                                   key.commandStoreId != prev.commandStoreId ||
+                                   key.id.compareTo(prev.id) != 0,
+                                   "duplicate key detected %s == %s", key, prev);
+                prev = key;
 
-                    concurrency.acquireThrowUncheckedOnInterrupt(1);
-                    loader.load(txnId)
-                          .map(route -> {
-                              if (journalTable.shouldIndex(ref.key()))
-                              {
-                                  ref.segments(segment -> {
-                                      journalTable.safeNotify(index -> index.update(segment, ref.key().commandStoreId, txnId, route));
-                                  });
-                              }
-                              return null;
-                          }).begin((success, fail) -> {
-                              concurrency.release(1);
-                              if (fail != null)
-                              {
-                                  try { journal.handleError("Could not replay command " + ref.key().id, fail); }
-                                  catch (Throwable fail2) { failures.add(fail2); }
-                              }
-                          });
-                }
-                catch (Throwable t)
-                {
-                    journal.handleError("Could not replay command " + ref.key().id, t);
-                }
+                concurrency.acquireThrowUncheckedOnInterrupt(1);
+                loader.load(txnId)
+                      .map(route -> {
+                          if (segments != null)
+                          {
+                              for (long segment : segments)
+                                  journalTable.safeNotify(index -> index.update(segment, key.commandStoreId, txnId, route));
+                          }
+                          return null;
+                      }).begin((success, fail) -> {
+                          concurrency.release(1);
+                          if (fail != null && !journal.handleError("Could not replay command " + txnId, fail))
+                              abort.set(true);
+                      });
             }
         }
     }
