@@ -94,6 +94,12 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
     {
         DataRange dataRange();
         RowFilter rowFilter();
+        ColumnFilter columnFilter();
+        DataLimits limits();
+        long nowInSeconds();
+        long timestampMicros();
+        long deadlineNanos();
+
         RowCollector row(Object... primaryKeys);
         PartitionCollector partition(Object... partitionKeys);
         UnfilteredPartitionIterator finish();
@@ -140,18 +146,22 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
         final RowFilter rowFilter;
         final DataLimits limits;
 
-        final long startedAt = Clock.Global.nanoTime();
-        final long timeoutAt;
+        final long startedAtNanos = Clock.Global.nanoTime();
+        final long deadlineNanos;
 
         final long nowInSeconds = Clock.Global.nowInSeconds();
-        final long timestamp;
+        final long timestampMicros;
 
         int totalRowCount;
         int lastFilteredTotalRowCount;
 
         @Override public DataRange dataRange() { return dataRange; }
         @Override public RowFilter rowFilter() { return rowFilter; }
-        public ColumnFilter columnFilter() { return columnFilter; }
+        @Override public ColumnFilter columnFilter() { return columnFilter; }
+        @Override public DataLimits limits() { return limits; }
+        @Override public long nowInSeconds() { return nowInSeconds; }
+        @Override public long timestampMicros() { return timestampMicros; }
+        @Override public long deadlineNanos() { return deadlineNanos; }
 
         public SimplePartitionsCollector(TableMetadata metadata, boolean isSorted, DataRange dataRange, ColumnFilter columnFilter, RowFilter rowFilter, DataLimits limits)
         {
@@ -161,8 +171,8 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
             this.columnFilter = columnFilter;
             this.rowFilter = rowFilter;
             this.limits = limits;
-            this.timestamp = FBUtilities.timestampMicros();
-            this.timeoutAt = startedAt + DatabaseDescriptor.getReadRpcTimeout(TimeUnit.NANOSECONDS);
+            this.timestampMicros = FBUtilities.timestampMicros();
+            this.deadlineNanos = startedAtNanos + DatabaseDescriptor.getReadRpcTimeout(TimeUnit.NANOSECONDS);
             this.partitions = new TreeMap<>(dataRange.isReversed() ? DecoratedKey.comparator.reversed() : DecoratedKey.comparator);
             for (ColumnMetadata cm : metadata.columns())
                 columnLookup.put(cm.name.toString(), cm);
@@ -286,7 +296,10 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
 
             ByteBuffer[] clusteringByteBuffers = new ByteBuffer[clusteringValues.length];
             for (int i = 0; i < clusteringValues.length; i++)
-                clusteringByteBuffers[i] = decompose(metadata.clusteringColumns().get(i).type, clusteringValues[i]);
+            {
+                if (clusteringValues[i] instanceof ByteBuffer) clusteringByteBuffers[i] = (ByteBuffer) clusteringValues[i];
+                else clusteringByteBuffers[i] = decompose(metadata.clusteringColumns().get(i).type, clusteringValues[i]);
+            }
             return Clustering.make(clusteringByteBuffers);
         }
 
@@ -317,7 +330,7 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
 
             RowCollector row(Clustering<?> clustering)
             {
-                if (nanoTime() > timeoutAt)
+                if (nanoTime() > deadlineNanos)
                     throw new ReadTimeoutException(ConsistencyLevel.ONE, 0, 1, false);
 
                 if (dropRows || !dataRange.clusteringIndexFilter(key).selects(clustering))
@@ -551,11 +564,13 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
                 for (int i = 0 ; i < columnCount ; i++)
                 {
                     ColumnMetadata cm = (ColumnMetadata) columns[i * 2];
-                    columns[i] = BufferCell.live(cm, timestamp, decompose(cm.type, columns[i * 2 + 1]));
+                    Object value = columns[i * 2 + 1];
+                    ByteBuffer bb = value instanceof ByteBuffer ? (ByteBuffer)value : decompose(cm.type, value);
+                    columns[i] = BufferCell.live(cm, timestampMicros, bb);
                 }
                 Arrays.sort(columns, 0, columnCount, (a, b) -> ColumnData.comparator.compare((BufferCell)a, (BufferCell)b));
                 Object[] btree = BTree.build(BulkIterator.of(columns), columnCount, UpdateFunction.noOp);
-                BTreeRow row = BTreeRow.create(parent.clustering, LivenessInfo.EMPTY, Row.Deletion.LIVE, btree);
+                BTreeRow row = BTreeRow.create(parent.clustering, LivenessInfo.create(timestampMicros, nowInSeconds), Row.Deletion.LIVE, btree);
                 if (!rowFilter.isSatisfiedBy(metadata, parent.partitionKey(), row, nowInSeconds))
                     return null;
                 return new FilteredRow(row);
@@ -577,9 +592,6 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
             }
         }
     }
-
-    // TODO (expected): add e.g. BOTH_ASC_DESC when some vtable supports it
-    public enum Sorted { UNSORTED, ASC, DESC }
 
     protected final TableMetadata metadata;
     private final Sorted sorted;

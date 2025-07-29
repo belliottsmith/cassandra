@@ -1177,7 +1177,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 FilterRange<TxnId> filterTxnId = collector.filters("txn_id", TxnId::parse, UnaryOperator.identity(), UnaryOperator.identity());
                 FilterRange<Integer> filterCommandStoreId = collector.filters("command_store_id", UnaryOperator.identity(), i -> i + 1, i -> i - 1);
 
-                int minCommandStoreId = filterCommandStoreId.min == null ? 0 : filterCommandStoreId.min;
+                int minCommandStoreId = filterCommandStoreId.min == null ? -1 : filterCommandStoreId.min;
                 int maxCommandStoreId = filterCommandStoreId.max == null ? Integer.MAX_VALUE : filterCommandStoreId.max;
 
                 if (filterTxnId.min != null && filterTxnId.max != null && filterTxnId.min.equals(filterTxnId.max))
@@ -1198,10 +1198,11 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                     return;
                 }
 
-                if (filterTxnId.min != null || minCommandStoreId > 0)
-                    min = new JournalKey(filterTxnId.min == null ? TxnId.NONE : filterTxnId.min, JournalKey.Type.COMMAND_DIFF, minCommandStoreId);
-                if (filterTxnId.max != null || maxCommandStoreId < Integer.MAX_VALUE)
+                if (filterTxnId.min != null || filterTxnId.max != null || minCommandStoreId >= 0 || maxCommandStoreId < Integer.MAX_VALUE)
+                {
+                    min = new JournalKey(filterTxnId.min == null ? TxnId.NONE : filterTxnId.min, JournalKey.Type.COMMAND_DIFF, Math.max(0, minCommandStoreId));
                     max = new JournalKey(filterTxnId.max == null ? TxnId.MAX.withoutNonIdentityFlags() : filterTxnId.max, JournalKey.Type.COMMAND_DIFF, maxCommandStoreId);
+                }
             }
 
             accord.journal().forEach(key -> {
