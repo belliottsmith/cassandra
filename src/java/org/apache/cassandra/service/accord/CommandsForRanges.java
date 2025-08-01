@@ -21,18 +21,14 @@ package org.apache.cassandra.service.accord;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
-import java.util.function.UnaryOperator;
 import javax.annotation.Nullable;
 
 import accord.api.RoutingKey;
@@ -49,7 +45,6 @@ import accord.primitives.RangeRoute;
 import accord.primitives.Ranges;
 import accord.primitives.Routable;
 import accord.primitives.Timestamp;
-import accord.primitives.Txn;
 import accord.primitives.Txn.Kind.Kinds;
 import accord.primitives.TxnId;
 import accord.primitives.Unseekable;
@@ -65,7 +60,6 @@ import org.apache.cassandra.utils.btree.BTreeSet;
 import org.apache.cassandra.utils.btree.IntervalBTree;
 import org.apache.cassandra.utils.concurrent.IntrusiveStack;
 
-import static accord.local.CommandSummaries.SummaryStatus.NOT_DIRECTLY_WITNESSED;
 import static org.apache.cassandra.utils.btree.IntervalBTree.InclusiveEndHelper.endWithStart;
 import static org.apache.cassandra.utils.btree.IntervalBTree.InclusiveEndHelper.keyEndWithStart;
 import static org.apache.cassandra.utils.btree.IntervalBTree.InclusiveEndHelper.keyStartWithEnd;
@@ -176,7 +170,6 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
 
         private final AccordCommandStore commandStore;
         private final RangeSearcher searcher;
-        private final AtomicReference<NavigableMap<TxnId, Ranges>> transitive = new AtomicReference<>(new TreeMap<>());
         // TODO (desired): manage memory consumed by this auxillary information
         private final Object2ObjectHashMap<TxnId, RangeRoute> cachedRangeTxnsById = new Object2ObjectHashMap<>();
         private Object[] cachedRangeTxnsByRange = IntervalBTree.empty();
@@ -356,75 +349,24 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
         public CommandsForRanges.Loader loader(@Nullable TxnId primaryTxnId, LoadKeysFor loadKeysFor, Unseekables<?> keysOrRanges)
         {
             RedundantBefore redundantBefore = commandStore.unsafeGetRedundantBefore();
-            return Loader.loader(redundantBefore, primaryTxnId, loadKeysFor, keysOrRanges, this::newLoader);
+            MaxDecidedRX maxDecidedRX = commandStore.unsafeGetMaxDecidedRX();
+            return SummaryLoader.loader(redundantBefore, maxDecidedRX, primaryTxnId, loadKeysFor, keysOrRanges, this::newLoader);
         }
 
-        private Loader newLoader(@Nullable TxnId primaryTxnId, Unseekables<?> searchKeysOrRanges, RedundantBefore redundantBefore, Kinds testKind, TxnId minTxnId, Timestamp maxTxnId, @Nullable TxnId findAsDep)
+        private Loader newLoader(RedundantBefore redundantBefore, MaxDecidedRX maxDecidedRX, @Nullable TxnId primaryTxnId, Unseekables<?> searchKeysOrRanges, Kinds testKind, TxnId minTxnId, Timestamp maxTxnId, @Nullable TxnId findAsDep)
         {
-            MaxDecidedRX maxDecidedRX = null;
-            if (primaryTxnId != null && primaryTxnId.is(Txn.Kind.ExclusiveSyncPoint) && findAsDep == null)
-                maxDecidedRX = commandStore.unsafeGetMaxDecidedRX();
-            return new Loader(this, primaryTxnId, searchKeysOrRanges, redundantBefore, testKind, minTxnId, maxTxnId, findAsDep, maxDecidedRX);
-        }
-
-        private void updateTransitive(UnaryOperator<NavigableMap<TxnId, Ranges>> update)
-        {
-            while (true)
-            {
-                NavigableMap<TxnId, Ranges> prev = transitive.get();
-                NavigableMap<TxnId, Ranges> next = update.apply(prev);
-                if (next == null || prev == next)
-                    return;
-                if (transitive.compareAndSet(prev, next))
-                    return;
-            }
-        }
-
-        public void mergeTransitive(TxnId txnId, Ranges ranges, BiFunction<? super Ranges, ? super Ranges, ? extends Ranges> remappingFunction)
-        {
-            updateTransitive(transitive -> {
-                NavigableMap<TxnId, Ranges> next = new TreeMap<>(transitive);
-                next.merge(txnId, ranges, remappingFunction);
-                return next;
-            });
-        }
-
-        public void gcBefore(TxnId gcBefore, Ranges ranges)
-        {
-            updateTransitive(transitive -> {
-                NavigableMap<TxnId, Ranges> next = null;
-                Iterator<Map.Entry<TxnId, Ranges>> iterator = transitive.headMap(gcBefore).entrySet().iterator();
-                while (iterator.hasNext())
-                {
-                    Map.Entry<TxnId, Ranges> e = iterator.next();
-                    Ranges newRanges = e.getValue().without(ranges);
-                    if (!newRanges.isEmpty())
-                    {
-                        if (next == null)
-                            next = new TreeMap<>();
-                        next.put(e.getKey(), newRanges);
-                    }
-                }
-                return next;
-            });
+            return new Loader(this, redundantBefore, maxDecidedRX, primaryTxnId, searchKeysOrRanges, testKind, minTxnId, maxTxnId, findAsDep);
         }
     }
 
-    public static class Loader extends Summary.Loader
+    public static class Loader extends SummaryLoader
     {
         private final Manager manager;
-        private final MaxDecidedRX maxDecidedRX;
-        private final TxnId primaryTxnId;
-        @Nullable
-        private final TxnId minDecidedId;
 
-        public Loader(Manager manager, TxnId primaryTxnId, Unseekables<?> searchKeysOrRanges, RedundantBefore redundantBefore, Kinds testKinds, TxnId minTxnId, Timestamp maxTxnId, @Nullable TxnId findAsDep, @Nullable MaxDecidedRX maxDecidedRX)
+        public Loader(Manager manager, RedundantBefore redundantBefore, MaxDecidedRX maxDecidedRX, TxnId primaryTxnId, Unseekables<?> searchKeysOrRanges, Kinds testKinds, TxnId minTxnId, Timestamp maxTxnId, @Nullable TxnId findAsDep)
         {
-            super(primaryTxnId, searchKeysOrRanges, redundantBefore, testKinds, minTxnId, maxTxnId, findAsDep);
+            super(redundantBefore, maxDecidedRX, primaryTxnId, searchKeysOrRanges, testKinds, minTxnId, maxTxnId, findAsDep);
             this.manager = manager;
-            this.maxDecidedRX = maxDecidedRX;
-            this.primaryTxnId = primaryTxnId;
-            this.minDecidedId = MaxDecidedRX.minDecidedDependencyId(maxDecidedRX, searchKeysOrRanges, primaryTxnId);
         }
 
         public void intersects(Consumer<TxnId> forEach)
@@ -439,16 +381,6 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
                 case Key:
                     for (Unseekable key : searchKeysOrRanges)
                         manager.searcher.search(manager.commandStore.id(), (TokenKey) key, minTxnId, maxTxnId, minDecidedId).consume(forEach);
-            }
-
-            NavigableMap<TxnId, Ranges> transitive = manager.transitive.get();
-            if (!transitive.isEmpty())
-            {
-                for (Map.Entry<TxnId, Ranges> e : transitive.tailMap(minTxnId, true).entrySet())
-                {
-                    if (e.getValue().intersects(searchKeysOrRanges))
-                        forEach.accept(e.getKey());
-                }
             }
         }
 
@@ -540,15 +472,7 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
                     return ifRelevant(cmd);
             }
 
-            Ranges ranges = manager.transitive.get().get(txnId);
-            if (ranges == null)
-                return null;
-
-            ranges = ranges.intersecting(searchKeysOrRanges);
-            if (ranges.isEmpty())
-                return null;
-
-            return new Summary(txnId, txnId, NOT_DIRECTLY_WITNESSED, ranges, null, null);
+            return null;
         }
 
         public Summary ifRelevant(AccordCacheEntry<TxnId, Command> state)
@@ -579,11 +503,6 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
             if (command == null)
                 return null;
             return ifRelevant(command);
-        }
-
-        public Summary ifRelevant(Command cmd)
-        {
-            return ifRelevant(cmd.txnId(), cmd.executeAt(), cmd.saveStatus(), cmd.participants(), cmd.partialDeps());
         }
 
         public Summary ifRelevant(Command.Minimal cmd)

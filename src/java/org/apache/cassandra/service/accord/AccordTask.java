@@ -1038,7 +1038,7 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
             {
                 CommandsForRanges.Summary summary = summaryLoader.ifRelevant(state);
                 if (summary != null)
-                    summaries.put(summary.txnId, summary);
+                    summaries.put(summary.plainTxnId(), summary);
             }
         }
 
@@ -1086,7 +1086,7 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
         void startInternal(Caches caches)
         {
             summaryLoader = commandStore.commandsForRanges().loader(preLoadContext.primaryTxnId(), preLoadContext.loadKeysFor(), keysOrRanges);
-            summaryLoader.forEachInCache(keysOrRanges, summary -> summaries.put(summary.txnId, summary), caches);
+            summaryLoader.forEachInCache(keysOrRanges, summary -> summaries.put(summary.plainTxnId(), summary), caches);
             caches.commands().register(commandWatcher);
         }
 
