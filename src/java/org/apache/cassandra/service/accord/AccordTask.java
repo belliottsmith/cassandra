@@ -1059,7 +1059,10 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
 
                 CommandsForRanges.Summary summary = summaryLoader.load(txnId);
                 if (summary != null)
+                {
                     summaries.putIfAbsent(txnId, summary);
+                    summaryLoader.maybeRecordFutureRx(summary);
+                }
             });
         }
 

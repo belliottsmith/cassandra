@@ -371,7 +371,6 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
 
         public void intersects(Consumer<TxnId> forEach)
         {
-            // TODO (expected): use the ranges we find to filter results by MaxDecidedRX (don't just consume the TxnId)
             switch (searchKeysOrRanges.domain())
             {
                 case Range:
@@ -384,26 +383,9 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
             }
         }
 
-        boolean isRelevant(TxnIdInterval txnIdInterval)
+        boolean isMaybeRelevant(TxnIdInterval txnIdInterval)
         {
-            if (maxDecidedRX == null)
-                return true;
-
-            if (!isMaybeRelevant(txnIdInterval.txnId))
-                return false;
-
-            TxnId minRelevantId = MaxDecidedRX.minDecidedDependencyId(maxDecidedRX, Ranges.of(txnIdInterval), primaryTxnId);
-            return isRelevant(minRelevantId, primaryTxnId);
-        }
-
-        private boolean isRelevant(@Nullable TxnId minRelevantId, TxnId txnId)
-        {
-            return minRelevantId == null || minRelevantId.compareTo(txnId) <= 0;
-        }
-
-        boolean isMaybeRelevant(TxnId txnId)
-        {
-            return isRelevant(minDecidedId, txnId);
+            return isMaybeRelevant(txnIdInterval.txnId, null, Ranges.of(txnIdInterval));
         }
 
         public void forEachInCache(Unseekables<?> keysOrRanges, Consumer<Summary> forEach, AccordCommandStore.Caches caches)
@@ -416,10 +398,9 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
                     for (RoutingKey key : (AbstractUnseekableKeys)keysOrRanges)
                     {
                         IntervalBTree.accumulate(manager.cachedRangeTxnsByRange(), KEY_COMPARATORS, key, (f, s, i, c) -> {
-                            TxnIdInterval interval = (TxnIdInterval)i;
-                            if (isRelevant(interval))
+                            if (isMaybeRelevant(i))
                             {
-                                TxnId txnId = ((TxnIdInterval)i).txnId;
+                                TxnId txnId = i.txnId;
                                 Summary summary = ifRelevant(c.getUnsafe(txnId));
                                 if (summary != null)
                                     f.accept(summary);
@@ -434,7 +415,7 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
                     for (Range range : (AbstractRanges)keysOrRanges)
                     {
                         IntervalBTree.accumulate(manager.cachedRangeTxnsByRange(), COMPARATORS, new TxnIdInterval(range.start(), range.end(), TxnId.NONE), (f, s, i, c) -> {
-                            if (isRelevant(i))
+                            if (isMaybeRelevant(i))
                             {
                                 TxnId txnId = i.txnId;
                                 AccordCacheEntry<TxnId, Command> entry = c.getUnsafe(txnId);
@@ -508,7 +489,7 @@ public class CommandsForRanges extends TreeMap<Timestamp, Summary> implements Co
         public Summary ifRelevant(Command.Minimal cmd)
         {
             Invariants.require(findAsDep == null);
-            return ifRelevant(cmd.txnId, cmd.executeAt, cmd.saveStatus, cmd.participants, null);
+            return ifRelevant(cmd.txnId, cmd.executeAt, cmd.saveStatus, cmd.durability, cmd.participants, null);
         }
     }
 }
