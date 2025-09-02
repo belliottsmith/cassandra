@@ -16,36 +16,23 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.io;
+package org.apache.cassandra.utils;
 
-import java.io.IOException;
+import org.junit.Test;
 
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputPlus;
+import accord.utils.Gens;
+import accord.utils.SmallBitSet;
+import org.apache.cassandra.io.Serializers;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 
-public interface UnversionedSerializer<T> extends AsymmetricUnversionedSerializer<T, T>
+import static accord.utils.Property.qt;
+
+public class SmallBitSetSerializerTest
 {
-    static <T> UnversionedSerializer<T> singleton(T value)
+    @Test
+    public void test()
     {
-        return new UnversionedSerializer<T>()
-        {
-            @Override
-            public void serialize(T t, DataOutputPlus out) throws IOException
-            {
-
-            }
-
-            @Override
-            public T deserialize(DataInputPlus in) throws IOException
-            {
-                return value;
-            }
-
-            @Override
-            public long serializedSize(T t)
-            {
-                return 0;
-            }
-        };
+        @SuppressWarnings({ "resource", "IOResourceOpenedButNotSafelyClosed" }) DataOutputBuffer output = new DataOutputBuffer();
+        qt().forAll(Gens.longs().all().map(SmallBitSet::new)).check(bits -> Serializers.testSerde(output, SimpleBitSetSerializers.small, bits));
     }
 }
