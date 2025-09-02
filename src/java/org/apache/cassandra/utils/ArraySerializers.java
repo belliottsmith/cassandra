@@ -23,6 +23,7 @@ import java.util.function.IntFunction;
 
 import org.apache.cassandra.io.AsymmetricVersionedSerializer;
 import org.apache.cassandra.io.IVersionedSerializer;
+import org.apache.cassandra.io.ParameterisedUnversionedSerializer;
 import org.apache.cassandra.io.ParameterisedVersionedSerializer;
 import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -69,11 +70,12 @@ public class ArraySerializers
         return items;
     }
 
-    public static <T, P, Version> void skipArray(DataInputPlus in, UnversionedSerializer<T> serializer) throws IOException
+    public static <T> int skipArray(DataInputPlus in, UnversionedSerializer<T> serializer) throws IOException
     {
         int size = in.readUnsignedVInt32();
         for (int i = 0; i < size; i++)
             serializer.skip(in);
+        return size;
     }
 
     public static <T> T[] deserializeArray(DataInputPlus in, int version, IVersionedSerializer<T> serializer, IntFunction<T[]> arrayFactory) throws IOException
@@ -116,6 +118,13 @@ public class ArraySerializers
         int size = in.readUnsignedVInt32();
         for (int i = 0; i < size; i++)
             serializer.skip(p, in, version);
+    }
+
+    public static <T, P> void skipArray(P p, DataInputPlus in, ParameterisedUnversionedSerializer<T, P> serializer) throws IOException
+    {
+        int size = in.readUnsignedVInt32();
+        for (int i = 0; i < size; i++)
+            serializer.skip(p, in);
     }
 
     public static <T> long serializedArraySize(T[] array, UnversionedSerializer<T> serializer)

@@ -25,11 +25,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import accord.api.Data;
+import accord.api.Key;
 import accord.api.Update;
 import accord.primitives.Keys;
 import accord.primitives.Participants;
@@ -37,9 +40,14 @@ import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Timestamp;
 import accord.utils.Invariants;
+import accord.utils.SimpleBitSet;
+import accord.utils.SimpleBitSets;
+import accord.utils.SortedArrays;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.io.ParameterisedUnversionedSerializer;
+import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -48,6 +56,7 @@ import org.apache.cassandra.service.PreserveTimestamp;
 import org.apache.cassandra.service.accord.AccordObjectSizes;
 import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.api.PartitionKey;
+import org.apache.cassandra.service.accord.serializers.SerializePacked;
 import org.apache.cassandra.service.accord.serializers.TableMetadatas;
 import org.apache.cassandra.service.accord.serializers.TableMetadatasAndKeys;
 import org.apache.cassandra.service.accord.serializers.Version;
@@ -55,17 +64,18 @@ import org.apache.cassandra.service.accord.txn.TxnCondition.SerializedTxnConditi
 import org.apache.cassandra.service.accord.txn.TxnWrite.Fragment;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
+import org.apache.cassandra.utils.ArraySerializers;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CollectionSerializers;
 import org.apache.cassandra.utils.ObjectSizes;
+import org.apache.cassandra.utils.Pair;
+import org.apache.cassandra.utils.SimpleBitSetSerializers;
 
 import static accord.utils.Invariants.requireArgument;
 import static accord.utils.SortedArrays.Search.CEIL;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Boolean.FALSE;
 import static org.apache.cassandra.service.accord.AccordSerializers.consistencyLevelSerializer;
-import static org.apache.cassandra.utils.ArraySerializers.deserializeArray;
-import static org.apache.cassandra.utils.ArraySerializers.serializeArray;
-import static org.apache.cassandra.utils.ArraySerializers.serializedArraySize;
 import static org.apache.cassandra.utils.ArraySerializers.skipArray;
 import static org.apache.cassandra.utils.ByteBufferUtil.readWithVIntLength;
 import static org.apache.cassandra.utils.ByteBufferUtil.serializedSizeWithVIntLength;
@@ -77,13 +87,348 @@ import static org.apache.cassandra.utils.NullableSerializer.serializedNullableSi
 
 public class TxnUpdate extends AccordUpdate
 {
-    private static final long EMPTY_SIZE = ObjectSizes.measure(new TxnUpdate(TableMetadatas.none(), null, new ByteBuffer[0], null, null, PreserveTimestamp.no));
+    static class ConditionalBlock
+    {
+        public static final UnversionedSerializer<ConditionalBlock> serializer = new UnversionedSerializer<>()
+        {
+            @Override
+            public void serialize(ConditionalBlock t, DataOutputPlus out) throws IOException
+            {
+                out.writeUnsignedVInt32(t.id);
+                writeWithVIntLength(t.condition.bytes(), out);
+                SerializePacked.serializePackedSortedIntsAndLength(t.fragments, out);
+            }
+
+            @Override
+            public ConditionalBlock deserialize(DataInputPlus in) throws IOException
+            {
+                int id = in.readUnsignedVInt32();
+                ByteBuffer conditionBytes = readWithVIntLength(in);
+                SerializedTxnCondition condition = new SerializedTxnCondition(conditionBytes);
+
+                // Deserialize mutations
+                int[] mutations = SerializePacked.deserializePackedSortedIntsAndLength(in);
+                return new ConditionalBlock(id, condition, mutations);
+            }
+
+            @Override
+            public void skip(DataInputPlus in) throws IOException
+            {
+                in.readUnsignedVInt32();
+                skipWithVIntLength(in);
+                SerializePacked.skipPackedSortedIntsAndLength(in);
+            }
+
+            @Override
+            public long serializedSize(ConditionalBlock t)
+            {
+                long size = TypeSizes.sizeofUnsignedVInt(t.id);
+                size += serializedSizeWithVIntLength(t.condition.bytes());
+                size += SerializePacked.serializedSizeOfPackedSortedIntsAndLength(t.fragments);
+                return size;
+            }
+        };
+
+        final int id;
+        @Nonnull final SerializedTxnCondition condition;
+        final int[] fragments;
+
+        ConditionalBlock(int id, @Nonnull SerializedTxnCondition condition, int[] fragments)
+        {
+            this.id = id;
+            this.condition = Invariants.nonNull(condition);
+            this.fragments = fragments;
+        }
+
+        public long estimatedSizeOnHeap()
+        {
+            long size = 0; //TODO (correctness): EMPTY_SIZE
+            size += condition.estimatedSizeOnHeap();
+            size += ObjectSizes.sizeOfArray(fragments);
+            return size;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (o == null || getClass() != o.getClass()) return false;
+            ConditionalBlock that = (ConditionalBlock) o;
+            return id == that.id && Objects.equals(condition, that.condition) && Arrays.equals(fragments, that.fragments);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(id, condition, Arrays.hashCode(fragments));
+        }
+
+        public void toString(StringBuilder sb, TableMetadatas tables, Keys keys, Block block)
+        {
+            sb.append("{condition=")
+              .append(condition.deserialize(tables))
+              .append(", fragments=")
+              .append(deserialize(keys, tables, block, fragments))
+              .append('}');
+        }
+    }
+
+    static class Block
+    {
+        private static SimpleBitSet bitset(Keys superset, Keys subset)
+        {
+            SimpleBitSet bits = SimpleBitSet.allocate(superset.size());
+            int i = 0, m = 0;
+            while (true)
+            {
+                long im = superset.findNextIntersection(i, subset, m);
+                if (im < 0)
+                    break;
+                i = (int)(im);
+                m = (int)(im >>> 32);
+                bits.set(i);
+
+                i++; m++;
+            }
+            return bits;
+        }
+
+        public static final ParameterisedUnversionedSerializer<Block, Keys> serializer = new ParameterisedUnversionedSerializer<>()
+        {
+            @Override
+            public void serialize(Block t, Keys superset, DataOutputPlus out) throws IOException
+            {
+                SimpleBitSetSerializers.any.serialize(bitset(superset, t.keys), out);
+                ArraySerializers.serializeArray(t.fragments, out, ByteBufferUtil.byteBufferSerializer);
+                SerializePacked.serializePackedSortedInts(t.fragmentIds, out);
+                ArraySerializers.serializeArray(t.conditionalBlocks, out, ConditionalBlock.serializer);
+            }
+
+            @Override
+            public Block deserialize(Keys superset, DataInputPlus in) throws IOException
+            {
+                SimpleBitSet knownKeys = SimpleBitSetSerializers.any.deserialize(in);
+                Key[] keyArray = new Key[knownKeys.getSetBitCount()];
+                int c = 0;
+                for (int i = knownKeys.nextSetBit(0); i >= 0; i = knownKeys.nextSetBit(i + 1))
+                    keyArray[c++] = superset.get(i);
+                Keys keys = Keys.ofSortedUnique(keyArray);
+                ByteBuffer[] fragments = ArraySerializers.deserializeArray(in, ByteBufferUtil.byteBufferSerializer, ByteBuffer[]::new);
+                int[] fragmentIds = SerializePacked.deserializePackedSortedInts(fragments.length, in);
+                ConditionalBlock[] conditionalBlocks = ArraySerializers.deserializeArray(in, ConditionalBlock.serializer, ConditionalBlock[]::new);
+                return new Block(keys, fragmentIds, fragments, conditionalBlocks);
+            }
+
+            @Override
+            public void skip(Keys superset, DataInputPlus in) throws IOException
+            {
+                SimpleBitSetSerializers.any.skip(in);
+                int length = ArraySerializers.skipArray(in, ByteBufferUtil.byteBufferSerializer);
+                SerializePacked.skipPackedSortedInts(length, in);
+                // array / collection share the same binary format, so its safe to mix and match
+                ArraySerializers.skipArray(in, ConditionalBlock.serializer);
+            }
+
+            @Override
+            public long serializedSize(Block t, Keys outter)
+            {
+                long size = 0;
+                size += SimpleBitSetSerializers.any.serializedSize(bitset(outter, t.keys));
+                size += ArraySerializers.serializedArraySize(t.fragments, ByteBufferUtil.byteBufferSerializer);
+                size += SerializePacked.serializedSizeOfPackedSortedInts(t.fragmentIds);
+                size += ArraySerializers.serializedArraySize(t.conditionalBlocks, ConditionalBlock.serializer);
+                return size;
+            }
+
+        };
+
+        final Keys keys;
+        final int[] fragmentIds;
+        final ByteBuffer[] fragments;
+        final ConditionalBlock[] conditionalBlocks;
+
+        Block(Keys keys, int[] fragmentIds, ByteBuffer[] fragments, ConditionalBlock[] conditionalBlocks)
+        {
+            this.keys = keys;
+            this.fragmentIds = fragmentIds;
+            this.fragments = fragments;
+            this.conditionalBlocks = conditionalBlocks;
+        }
+
+        public long estimatedSizeOnHeap()
+        {
+            long size = 0; //TODO (correctness): EMPTY_SIZE, keys
+            size += ObjectSizes.sizeOfArray(fragmentIds);
+            for (ByteBuffer bb : fragments)
+                size += ByteBufferUtil.estimatedSizeOnHeap(bb);
+            for (ConditionalBlock conditionalBlock : conditionalBlocks)
+                size += conditionalBlock.estimatedSizeOnHeap();
+            return size;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (o == null || getClass() != o.getClass()) return false;
+            Block block = (Block) o;
+            return Objects.equals(keys, block.keys) && Arrays.equals(fragmentIds, block.fragmentIds) && Arrays.equals(fragments, block.fragments) && Arrays.equals(conditionalBlocks, block.conditionalBlocks);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hash(keys, Arrays.hashCode(fragmentIds), Arrays.hashCode(fragments), Arrays.hashCode(conditionalBlocks));
+        }
+
+        public void toString(StringBuilder sb, TableMetadatas tables)
+        {
+            sb.append("{conditionalBlocks=[");
+            for (int j = 0; j < conditionalBlocks.length; j++)
+            {
+                if (j > 0) sb.append(", ");
+                conditionalBlocks[j].toString(sb, tables, keys, this);
+            }
+            sb.append("]}");
+        }
+
+        public Block select(Function<Keys, Keys> fn)
+        {
+            Keys out = fn.apply(keys);
+            if (keys.equals(out)) return this;
+
+            int[] outFragmentIds = new int[out.size()];
+            ByteBuffer[] outFragments = new ByteBuffer[out.size()];
+            {
+                int j = 0;
+                for (int i = 0 ; i < out.size() ; ++i)
+                {
+                    j = keys.findNext(j, out.get(i), CEIL);
+                    outFragmentIds[i] = fragmentIds[j];
+                    outFragments[i] = fragments[j];
+                    ++j;
+                }
+            }
+
+            ConditionalBlock[] outConditions;
+            if (outFragmentIds.length == 0) outConditions = new ConditionalBlock[0];
+            else
+            {
+                List<ConditionalBlock> collect = new ArrayList<>(conditionalBlocks.length);
+                int[] is = outFragmentIds;
+                for (ConditionalBlock conditionalBlock : conditionalBlocks)
+                {
+                    boolean include = conditionalBlock.fragments.length == 0;
+                    if (!include)
+                    {
+                        int i = 0, j = 0;
+                        int[] js = conditionalBlock.fragments;
+                        while (true)
+                        {
+                            i = SortedArrays.exponentialSearch(is, i, is.length, js[j]);
+                            if (i >= 0)
+                            {
+                                include = true;
+                                break;
+                            }
+
+                            i = -1 - i;
+                            if (i == is.length)
+                                break;
+
+                            j = SortedArrays.exponentialSearch(js, j, js.length, is[i]);
+                            if (j >= 0)
+                            {
+                                include = true;
+                                break;
+                            }
+
+                            j = -1 - j;
+                            if (j == js.length)
+                                break;
+                        }
+                    }
+                    if (include)
+                        collect.add(conditionalBlock);
+                }
+                if (collect.size() == conditionalBlocks.length) outConditions = conditionalBlocks;
+                else outConditions = collect.toArray(ConditionalBlock[]::new);
+            }
+
+            return new Block(out, outFragmentIds, outFragments, outConditions);
+        }
+
+        public Block merge(Block that)
+        {
+            Keys outKeys = keys.with(that.keys);
+            int[] outFragmentIds = new int[outKeys.size()];
+            ByteBuffer[] outFragments = new ByteBuffer[outKeys.size()];
+            {
+                int i = 0, j = 0, count = 0;
+                while (i < this.fragments.length || j < that.fragments.length)
+                {
+                    int cmp;
+                    if (i == this.fragments.length) cmp = 1;
+                    else if (j == that.fragments.length) cmp = -1;
+                    else cmp = this.fragmentIds[i] - that.fragmentIds[j];
+
+                    if (cmp <= 0)
+                    {
+                        outFragmentIds[count] = this.fragmentIds[i];
+                        outFragments[count] = this.fragments[i];
+                        ++i;
+                        j += cmp == 0 ? 1 : 0;
+                    }
+                    else
+                    {
+                        outFragmentIds[count] = that.fragmentIds[j];
+                        outFragments[count] = that.fragments[j];
+                        ++j;
+                    }
+                    ++count;
+                }
+            }
+
+            ConditionalBlock[] outConditions;
+            if (this.conditionalBlocks.length == 0) outConditions = that.conditionalBlocks;
+            else if (that.conditionalBlocks.length == 0) outConditions = this.conditionalBlocks;
+            else
+            {
+                int minId = Math.min(this.conditionalBlocks[0].id, that.conditionalBlocks[0].id);
+                int maxId = Math.max(this.conditionalBlocks[this.conditionalBlocks.length - 1].id, that.conditionalBlocks[that.conditionalBlocks.length - 1].id);
+                outConditions = new ConditionalBlock[Math.min(this.conditionalBlocks.length + that.conditionalBlocks.length, 1 + maxId - minId)];
+                int i = 0, j = 0, count = 0;
+                while (i < this.conditionalBlocks.length || j < that.conditionalBlocks.length)
+                {
+                    int cmp;
+                    if (i == this.conditionalBlocks.length) cmp = 1;
+                    else if (j == that.conditionalBlocks.length) cmp = -1;
+                    else cmp = this.conditionalBlocks[i].id - that.conditionalBlocks[j].id;
+
+                    if (cmp <= 0)
+                    {
+                        outConditions[count] = this.conditionalBlocks[i];
+                        ++i;
+                        j += cmp == 0 ? 1 : 0;
+                    }
+                    else
+                    {
+                        outConditions[count] = that.conditionalBlocks[j];
+                        ++j;
+                    }
+                    ++count;
+                }
+                if (count < outConditions.length)
+                    outConditions = Arrays.copyOf(outConditions, count);
+            }
+            return new Block(outKeys, outFragmentIds, outFragments, outConditions);
+        }
+    }
+
+    private static final long EMPTY_SIZE = ObjectSizes.measure(new TxnUpdate(TableMetadatas.none(), Keys.EMPTY, Collections.emptyList(), null, PreserveTimestamp.no));
     private static final int FLAG_PRESERVE_TIMESTAMPS = 0x1;
 
     final TableMetadatas tables;
     private final Keys keys;
-    private final ByteBuffer[] fragments;
-    private final SerializedTxnCondition condition;
+    final List<Block> blocks;
 
     @Nullable
     private final ConsistencyLevel cassandraCommitCL;
@@ -94,7 +439,7 @@ public class TxnUpdate extends AccordUpdate
     private final PreserveTimestamp preserveTimestamps;
 
     // Memoize computation of condition
-    private Boolean conditionResult;
+    private Boolean anyConditionResult;
 
     public TxnUpdate(TableMetadatas tables, List<Fragment> fragments, TxnCondition condition, @Nullable ConsistencyLevel cassandraCommitCL, PreserveTimestamp preserveTimestamps)
     {
@@ -104,36 +449,40 @@ public class TxnUpdate extends AccordUpdate
         fragments.sort(Fragment::compareKeys);
         // TODO (required): this node could be on version N while the peers are on N-1, which would have issues as the peers wouldn't know about N yet.
         //  Can not eagerly serialize until we know the "correct" version, else we need a way to fallback on mismatch.
-        this.fragments = toSerializedValuesArray(keys, fragments, tables, Version.LATEST);
-        // TODO (desired): slice TxnCondition, or pick a single shard to persist it
-        this.condition = new SerializedTxnCondition(condition, tables);
-        this.condition.unmemoize();
-        this.condition.deserialize(tables);
+        ByteBuffer[] serializedFragments = toSerializedValuesArray(keys, fragments, tables, Version.LATEST);
+        int[] fragmentIds = new int[serializedFragments.length];
+        for (int i = 0; i < serializedFragments.length; i++)
+            fragmentIds[i] = i;
+
+        SerializedTxnCondition serializedCondition = new SerializedTxnCondition(condition, tables);
+        serializedCondition.unmemoize();
+        serializedCondition.deserialize(tables);
+
+        this.blocks = Collections.singletonList(new Block(keys, fragmentIds, serializedFragments, new ConditionalBlock[] { new ConditionalBlock(0, serializedCondition, fragmentIds) }));
         this.cassandraCommitCL = cassandraCommitCL;
         this.preserveTimestamps = preserveTimestamps;
     }
 
-    private TxnUpdate(TableMetadatas tables, Keys keys, ByteBuffer[] fragments, SerializedTxnCondition condition, ConsistencyLevel cassandraCommitCL, PreserveTimestamp preserveTimestamps)
+    private TxnUpdate(TableMetadatas tables, Keys keys, List<Block> blocks, ConsistencyLevel cassandraCommitCL, PreserveTimestamp preserveTimestamps)
     {
         this.tables = tables;
         this.keys = keys;
-        this.fragments = fragments;
-        this.condition = condition;
+        this.blocks = blocks;
         this.cassandraCommitCL = cassandraCommitCL;
         this.preserveTimestamps = preserveTimestamps;
     }
 
     public static TxnUpdate empty()
     {
-        return new TxnUpdate(TableMetadatas.none(), Collections.emptyList(), TxnCondition.none(), null, PreserveTimestamp.no);
+        return new TxnUpdate(TableMetadatas.none(), Keys.EMPTY, Collections.emptyList(), null, PreserveTimestamp.no);
     }
 
     @Override
     public long estimatedSizeOnHeap()
     {
-        long size = EMPTY_SIZE + condition.estimatedSizeOnHeap();
-        for (ByteBuffer update : fragments)
-            size += ByteBufferUtil.estimatedSizeOnHeap(update);
+        long size = EMPTY_SIZE;
+        for (Block block : blocks)
+            size += block.estimatedSizeOnHeap();
         size += AccordObjectSizes.keys(keys);
         return size;
     }
@@ -141,8 +490,14 @@ public class TxnUpdate extends AccordUpdate
     @Override
     public String toString()
     {
-        return "TxnUpdate{updates=" + deserialize(keys, tables, fragments) +
-               ", condition=" + condition.deserialize(tables) + '}';
+        StringBuilder sb = new StringBuilder("TxnUpdate{blocks=[");
+        for (int i = 0; i < blocks.size(); i++)
+        {
+            if (i > 0) sb.append(", ");
+            blocks.get(i).toString(sb, tables);
+        }
+        sb.append("]}");
+        return sb.toString();
     }
 
     @Override
@@ -151,15 +506,13 @@ public class TxnUpdate extends AccordUpdate
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TxnUpdate txnUpdate = (TxnUpdate) o;
-        return Arrays.equals(fragments, txnUpdate.fragments) && Objects.equals(condition, txnUpdate.condition);
+        return Objects.equals(blocks, txnUpdate.blocks);
     }
 
     @Override
     public int hashCode()
     {
-        int result = Objects.hash(condition);
-        result = 31 * result + Arrays.hashCode(fragments);
-        return result;
+        return Objects.hash(blocks);
     }
 
     @Override
@@ -177,58 +530,38 @@ public class TxnUpdate extends AccordUpdate
     }
 
     @Override
-    public Update slice(Ranges ranges)
+    public TxnUpdate slice(Ranges ranges)
     {
-        Keys keys = this.keys.slice(ranges);
-        // TODO (desired): Slice the condition.
-        return new TxnUpdate(tables, keys, select(this.keys, keys, fragments), condition, cassandraCommitCL, preserveTimestamps);
+        return getTxnUpdate(keys -> keys.slice(ranges));
     }
 
     @Override
-    public Update intersecting(Participants<?> participants)
+    public TxnUpdate intersecting(Participants<?> participants)
     {
-        Keys keys = this.keys.intersecting(participants);
-        // TODO (desired): Slice the condition.
-        return new TxnUpdate(tables, keys, select(this.keys, keys, fragments), condition, cassandraCommitCL, preserveTimestamps);
+        return getTxnUpdate(keys -> keys.intersecting(participants));
     }
 
-    private static ByteBuffer[] select(Keys in, Keys out, ByteBuffer[] from)
+    @VisibleForTesting
+    TxnUpdate getTxnUpdate(Function<Keys, Keys> fn)
     {
-        ByteBuffer[] result = new ByteBuffer[out.size()];
-        int j = 0;
-        for (int i = 0 ; i < out.size() ; ++i)
-        {
-            j = in.findNext(j, out.get(i), CEIL);
-            result[i] = from[j];
-        }
-        return result;
+        List<Block> outterUpdate = new ArrayList<>();
+        for (Block block : blocks)
+            outterUpdate.add(block.select(fn));
+        return new TxnUpdate(tables, fn.apply(keys), outterUpdate, cassandraCommitCL, preserveTimestamps);
     }
 
     @Override
-    public Update merge(Update update)
+    public TxnUpdate merge(Update update)
     {
         TxnUpdate that = (TxnUpdate) update;
+        requireArgument(that.blocks.size() == this.blocks.size(), "Blocks dont have the same sizes; expected %d but was %d", this.blocks.size(), that.blocks.size());
         Keys mergedKeys = this.keys.with(that.keys);
-        // TODO (desired): special method for linear merging keyed and non-keyed lists simultaneously
-        ByteBuffer[] mergedFragments = merge(this.keys, that.keys, this.fragments, that.fragments, mergedKeys.size());
-        return new TxnUpdate(tables, mergedKeys, mergedFragments, condition, cassandraCommitCL, preserveTimestamps);
-    }
-
-    private static ByteBuffer[] merge(Keys leftKeys, Keys rightKeys, ByteBuffer[] left, ByteBuffer[] right, int outputSize)
-    {
-        ByteBuffer[] out = new ByteBuffer[outputSize];
-        int l = 0, r = 0, o = 0;
-        while (l < leftKeys.size() && r < rightKeys.size())
-        {
-            int c = leftKeys.get(l).compareTo(rightKeys.get(r));
-            if (c < 0) { out[o++] = left[l++]; }
-            else if (c > 0) { out[o++] = right[r++]; }
-            else if (ByteBufferUtil.compareUnsigned(left[l], right[r]) != 0) { throw new IllegalStateException("The same keys have different values in each input"); }
-            else { out[o++] = left[l++]; r++; }
-        }
-        while (l < leftKeys.size()) { out[o++] = left[l++]; }
-        while (r < rightKeys.size()) { out[o++] = right[r++]; }
-        return out;
+        
+        List<Block> mergedBlocks = new ArrayList<>(this.blocks.size());
+        for (int i = 0; i < this.blocks.size(); i++)
+            mergedBlocks.add(this.blocks.get(i).merge(that.blocks.get(i)));
+        
+        return new TxnUpdate(tables, mergedKeys, mergedBlocks, cassandraCommitCL, preserveTimestamps);
     }
 
     @Override
@@ -236,33 +569,45 @@ public class TxnUpdate extends AccordUpdate
     {
         ClusterMetadata cm = ClusterMetadata.current();
         checkState(cm.epoch.getEpoch() >= executeAt.epoch(), "TCM epoch %d is < executeAt epoch %d", cm.epoch.getEpoch(), executeAt.epoch());
-        if (!checkCondition(data))
-            return TxnWrite.EMPTY_CONDITION_FAILED;
 
+        Pair<List<TxnWrite.Update>, SimpleBitSet> pair = processCondition(executeAt, data);
+        if (pair == null)
+            return new TxnWrite(TableMetadatas.none(), Collections.emptyList(), SimpleBitSets.allUnset(numConditionalBlocks()));
+
+        List<TxnWrite.Update> allUpdates = pair.left;
+        SimpleBitSet conditionalBlockBitSet = pair.right;
         if (keys.isEmpty())
-            return new TxnWrite(TableMetadatas.none(), Collections.emptyList(), true);
+            return new TxnWrite(TableMetadatas.none(), Collections.emptyList(), SimpleBitSets.allSet(numConditionalBlocks()));
 
-        List<Fragment> fragments = deserialize(keys, tables, this.fragments);
-        List<TxnWrite.Update> updates = new ArrayList<>(fragments.size());
-        QueryOptions options = QueryOptions.forProtocolVersion(ProtocolVersion.CURRENT);
-        AccordUpdateParameters parameters = new AccordUpdateParameters((TxnData) data, options, executeAt.uniqueHlc());
-
-        for (Fragment fragment : fragments)
-            // Filter out fragments that already constitute complete updates to avoid persisting them via TxnWrite:
-            if (!fragment.isComplete())
-                updates.add(fragment.complete(parameters, tables));
-
-        return new TxnWrite(tables, updates, true);
+        return new TxnWrite(tables, allUpdates, conditionalBlockBitSet);
     }
 
-    public List<TxnWrite.Update> completeUpdatesForKey(RoutableKey key)
+    
+    private boolean checkCondition(Data data, @Nullable SerializedTxnCondition condition)
     {
-        List<Fragment> fragments = deserialize(keys, tables, this.fragments);
-        List<TxnWrite.Update> updates = new ArrayList<>(fragments.size());
+        if (condition == null)
+            return true;
+        TxnCondition deserializedCondition = condition.deserialize(tables);
+        if (deserializedCondition == TxnCondition.none())
+            return true;
+        return deserializedCondition.applies((TxnData) data);
+    }
 
-        for (Fragment fragment : fragments)
-            if (fragment.isComplete() && fragment.key.equals(key))
-                updates.add(fragment.toUpdate(tables));
+    public List<TxnWrite.Update> completeUpdatesForKey(SimpleBitSet conditionalBlockBitSet, RoutableKey key)
+    {
+        List<TxnWrite.Update> updates = new ArrayList<>();
+        
+        for (Block block : blocks)
+        {
+            for (ConditionalBlock conditionalBlock : block.conditionalBlocks)
+            {
+                if (!conditionalBlockBitSet.get(conditionalBlock.id)) continue;
+                List<Fragment> fragments = deserialize(block.keys, tables, block, conditionalBlock.fragments);
+                for (Fragment fragment : fragments)
+                    if (fragment.isComplete() && fragment.key.equals(key))
+                        updates.add(fragment.toUpdate(tables));
+            }
+        }
 
         return updates;
     }
@@ -273,13 +618,12 @@ public class TxnUpdate extends AccordUpdate
         public void serialize(TxnUpdate update, TableMetadatasAndKeys tablesAndKeys, DataOutputPlus out, Version version) throws IOException
         {
             // Serializing it with the condition result set shouldn't be needed
-            checkState(update.conditionResult == null, "Can't serialize if conditionResult is set without adding it to serialization");
+            checkState(update.anyConditionResult == null, "Can't serialize if conditionResult is set without adding it to serialization");
             // Once in accord "mixedTimeSource" and "yes" are the same, so only care about the side effect: that the timestamp is preserved or not
             out.writeByte(update.preserveTimestamps.preserve ? FLAG_PRESERVE_TIMESTAMPS : 0);
             tablesAndKeys.serializeKeys(update.keys, out);
-            writeWithVIntLength(update.condition.bytes(), out);
-            serializeArray(update.fragments, out, ByteBufferUtil.byteBufferSerializer);
             serializeNullable(update.cassandraCommitCL, out, consistencyLevelSerializer);
+            CollectionSerializers.serializeList(update.blocks, update.keys, out, Block.serializer);
         }
 
         @Override
@@ -288,20 +632,19 @@ public class TxnUpdate extends AccordUpdate
             int flags = in.readByte();
             boolean preserveTimestamps = (FLAG_PRESERVE_TIMESTAMPS & flags) == 1;
             Keys keys = tablesAndKeys.deserializeKeys(in);
-            ByteBuffer condition = readWithVIntLength(in);
-            ByteBuffer[] fragments = deserializeArray(in, ByteBufferUtil.byteBufferSerializer, ByteBuffer[]::new);
             ConsistencyLevel consistencyLevel = deserializeNullable(in, consistencyLevelSerializer);
-            return new TxnUpdate(tablesAndKeys.tables, keys, fragments, new SerializedTxnCondition(condition), consistencyLevel, preserveTimestamps ? PreserveTimestamp.yes : PreserveTimestamp.no);
+            List<Block> blocks = CollectionSerializers.deserializeList(keys, in, Block.serializer);
+
+            return new TxnUpdate(tablesAndKeys.tables, keys, blocks, consistencyLevel, preserveTimestamps ? PreserveTimestamp.yes : PreserveTimestamp.no);
         }
 
         @Override
         public void skip(TableMetadatasAndKeys tablesAndKeys, DataInputPlus in, Version version) throws IOException
         {
-            in.readByte();
-            tablesAndKeys.skipKeys(in);
-            skipWithVIntLength(in);
-            skipArray(in, ByteBufferUtil.byteBufferSerializer);
-            deserializeNullable(in, consistencyLevelSerializer);
+            in.readByte(); // flags
+            Keys keys = tablesAndKeys.deserializeKeys(in);
+            deserializeNullable(in, consistencyLevelSerializer); // consistency level
+            skipArray(keys, in, Block.serializer);
         }
 
         @Override
@@ -309,9 +652,8 @@ public class TxnUpdate extends AccordUpdate
         {
             long size = 1; // flags
             size += tablesAndKeys.serializedKeysSize(update.keys);
-            size += serializedSizeWithVIntLength(update.condition.bytes());
-            size += serializedArraySize(update.fragments, ByteBufferUtil.byteBufferSerializer);
             size += serializedNullableSize(update.cassandraCommitCL, consistencyLevelSerializer);
+            size += CollectionSerializers.serializedListSize(update.blocks, update.keys(), Block.serializer);
             return size;
         }
     };
@@ -383,31 +725,85 @@ public class TxnUpdate extends AccordUpdate
         }
     }
 
-    private static List<Fragment> deserialize(Keys keys, TableMetadatas tables, ByteBuffer[] buffers)
+    private static List<Fragment> deserialize(Keys keys, TableMetadatas tables, Block block, int[] fragments)
     {
-        Invariants.require(keys.size() == buffers.length);
-        List<Fragment> result = new ArrayList<>(buffers.length);
+        Invariants.require(keys.size() == fragments.length);
+        List<Fragment> result = new ArrayList<>(fragments.length);
         for (int i = 0 ; i < keys.size() ; ++i)
-            result.addAll(deserialize((PartitionKey) keys.get(i), tables, buffers[i]));
+        {
+            ByteBuffer fragment = block.fragments[fragments[i]];
+            Invariants.nonNull(fragment);
+            result.addAll(deserialize((PartitionKey) keys.get(i), tables, fragment));
+        }
         return result;
     }
 
     @Override
     public void failCondition()
     {
-        conditionResult = FALSE;
+        anyConditionResult = FALSE;
     }
 
     @Override
-    public boolean checkCondition(Data data)
+    public boolean checkAnyConditionMatch(Data data)
     {
         // Assert data that was memoized is same as data that is provided?
-        if (conditionResult != null)
-            return conditionResult;
-        TxnCondition condition = this.condition.deserialize(tables);
-        if (condition == TxnCondition.none())
-            return conditionResult = true;
-        return conditionResult = condition.applies((TxnData) data);
+        if (anyConditionResult != null)
+            return anyConditionResult;
+            
+        // Check if any block has a matching condition
+        for (Block block : blocks)
+        {
+            for (ConditionalBlock conditionalBlock : block.conditionalBlocks)
+            {
+                if (checkCondition(data, conditionalBlock.condition))
+                    return anyConditionResult = true;
+            }
+        }
+        return anyConditionResult = false;
+    }
+
+    @Nullable
+    private Pair<List<TxnWrite.Update>, SimpleBitSet> processCondition(Timestamp executeAt, Data data)
+    {
+        int numConditionalBlocks = numConditionalBlocks();
+        SimpleBitSet conditionalBlocksMatched = SimpleBitSet.allocate(numConditionalBlocks);
+        List<Fragment> fragments = null;
+        // Each block is executed indepdendently so a match in one block has no effect on another block,
+        // this is done this way to support conditional with unconditional writes, and multiple if/end if blocks
+        for (Block block : blocks)
+        {
+            // This loop needs to support the expected semantics of if/else if/else blocks;
+            // first condition that is true is the only one that applies.
+            for (ConditionalBlock conditionalBlock : block.conditionalBlocks)
+            {
+                if (checkCondition(data, conditionalBlock.condition))
+                {
+                    conditionalBlocksMatched.set(conditionalBlock.id);
+                    if (fragments == null) fragments = new ArrayList<>();
+                    fragments.addAll(deserialize(block.keys, tables, block, conditionalBlock.fragments));
+                    break;
+                }
+            }
+        }
+        if (fragments == null) return null;
+
+        List<TxnWrite.Update> allUpdates = new ArrayList<>(fragments.size());
+        QueryOptions options = QueryOptions.forProtocolVersion(ProtocolVersion.CURRENT);
+        AccordUpdateParameters parameters = new AccordUpdateParameters((TxnData) data, options, executeAt.uniqueHlc());
+
+        for (Fragment fragment : fragments)
+            if (!fragment.isComplete())
+                allUpdates.add(fragment.complete(parameters, tables));
+        return Pair.create(allUpdates, conditionalBlocksMatched);
+    }
+
+    private int numConditionalBlocks()
+    {
+        int numConditionalBlocks = 0;
+        for (Block block : blocks)
+            numConditionalBlocks += block.conditionalBlocks.length;
+        return numConditionalBlocks;
     }
 
     @Override
@@ -425,6 +821,11 @@ public class TxnUpdate extends AccordUpdate
     @VisibleForTesting
     public void unsafeResetCondition()
     {
-        conditionResult = null;
+        anyConditionResult = null;
+    }
+
+    private static int maxSorted(int[] sortedInts)
+    {
+        return sortedInts.length == 0 ? 0 : sortedInts[sortedInts.length - 1];
     }
 }
