@@ -18,34 +18,6 @@
 
 package org.apache.cassandra.io;
 
-import java.io.IOException;
-
-import org.apache.cassandra.io.util.DataInputPlus;
-import org.apache.cassandra.io.util.DataOutputPlus;
-
 public interface UnversionedSerializer<T> extends AsymmetricUnversionedSerializer<T, T>
 {
-    static <T> UnversionedSerializer<T> singleton(T value)
-    {
-        return new UnversionedSerializer<T>()
-        {
-            @Override
-            public void serialize(T t, DataOutputPlus out) throws IOException
-            {
-
-            }
-
-            @Override
-            public T deserialize(DataInputPlus in) throws IOException
-            {
-                return value;
-            }
-
-            @Override
-            public long serializedSize(T t)
-            {
-                return 0;
-            }
-        };
-    }
 }
