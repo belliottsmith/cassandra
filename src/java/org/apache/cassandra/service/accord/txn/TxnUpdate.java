@@ -496,7 +496,7 @@ public class TxnUpdate extends AccordUpdate
         int[] fragmentIds = new int[fragments.size()];
         for (int i = 0 ; i < fragments.size() ; ++i)
         {
-            blockFragments[i] = new BlockFragment(i, fragments.get(i).key, Fragment.serializer.serialize(fragments.get(i), tables, Version.LATEST));
+            blockFragments[i] = new BlockFragment(i, fragments.get(i).key, Fragment.FragmentSerializer.serialize(fragments.get(i), tables, Version.LATEST));
             fragmentIds[i] = i;
         }
 
@@ -756,10 +756,10 @@ public class TxnUpdate extends AccordUpdate
         SimpleBitSet conditionalBlocksMatched = SimpleBitSet.allocate(numConditionalBlocks);
         List<Fragment> fragments = null;
         // Each block is executed indepdendently so a match in one block has no effect on another block,
-        // this is done this way to support conditional with unconditional writes, and multiple if/end if blocks
+        // this is done this way to support conditional with unconditional writes, and multiple IF/END IF blocks
         for (Block block : blocks)
         {
-            // This loop needs to support the expected semantics of if/else if/else blocks;
+            // This loop needs to support the expected semantics of IF/ELSE IF/ELSE blocks;
             // first condition that is true is the only one that applies.
             for (ConditionalBlock conditionalBlock : block.conditionalBlocks)
             {
@@ -808,10 +808,5 @@ public class TxnUpdate extends AccordUpdate
     public void unsafeResetCondition()
     {
         anyConditionResult = null;
-    }
-
-    private static int maxSorted(int[] sortedInts)
-    {
-        return sortedInts.length == 0 ? 0 : sortedInts[sortedInts.length - 1];
     }
 }
