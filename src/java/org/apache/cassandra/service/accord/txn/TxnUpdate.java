@@ -26,7 +26,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -96,7 +95,9 @@ public class TxnUpdate extends AccordUpdate
             public void serialize(ConditionalBlock t, DataOutputPlus out) throws IOException
             {
                 out.writeUnsignedVInt32(t.id);
-                writeWithVIntLength(t.condition.bytes(), out);
+                out.writeBoolean(t.condition != null);
+                if (t.condition != null)
+                    writeWithVIntLength(t.condition.bytes(), out);
                 SerializePacked.serializePackedSortedIntsAndLength(t.fragmentIds, out);
             }
 
@@ -104,8 +105,7 @@ public class TxnUpdate extends AccordUpdate
             public ConditionalBlock deserialize(DataInputPlus in) throws IOException
             {
                 int id = in.readUnsignedVInt32();
-                ByteBuffer conditionBytes = readWithVIntLength(in);
-                SerializedTxnCondition condition = new SerializedTxnCondition(conditionBytes);
+                SerializedTxnCondition condition = !in.readBoolean() ? null : new SerializedTxnCondition(readWithVIntLength(in));
 
                 // Deserialize mutations
                 int[] mutations = SerializePacked.deserializePackedSortedIntsAndLength(in);
@@ -116,7 +116,8 @@ public class TxnUpdate extends AccordUpdate
             public void skip(DataInputPlus in) throws IOException
             {
                 in.readUnsignedVInt32();
-                skipWithVIntLength(in);
+                if (in.readBoolean())
+                    skipWithVIntLength(in);
                 SerializePacked.skipPackedSortedIntsAndLength(in);
             }
 
@@ -124,27 +125,29 @@ public class TxnUpdate extends AccordUpdate
             public long serializedSize(ConditionalBlock t)
             {
                 long size = TypeSizes.sizeofUnsignedVInt(t.id);
-                size += serializedSizeWithVIntLength(t.condition.bytes());
+                size += TypeSizes.sizeof(t.condition != null);
+                if (t.condition != null)
+                    size += serializedSizeWithVIntLength(t.condition.bytes());
                 size += SerializePacked.serializedSizeOfPackedSortedIntsAndLength(t.fragmentIds);
                 return size;
             }
         };
 
         final int id;
-        @Nonnull final SerializedTxnCondition condition;
+        @Nullable final SerializedTxnCondition condition;
         final int[] fragmentIds;
 
-        ConditionalBlock(int id, @Nonnull SerializedTxnCondition condition, int[] fragmentIds)
+        ConditionalBlock(int id, @Nullable SerializedTxnCondition condition, int[] fragmentIds)
         {
             this.id = id;
-            this.condition = Invariants.nonNull(condition);
+            this.condition = condition;
             this.fragmentIds = fragmentIds;
         }
 
         public long estimatedSizeOnHeap()
         {
             long size = 0; //TODO (correctness): EMPTY_SIZE
-            size += condition.estimatedSizeOnHeap();
+            size += condition == null ? 0 : condition.estimatedSizeOnHeap();
             size += ObjectSizes.sizeOfArray(fragmentIds);
             return size;
         }
@@ -166,7 +169,7 @@ public class TxnUpdate extends AccordUpdate
         public void toString(StringBuilder sb, TableMetadatas tables, Block block)
         {
             sb.append("{condition=")
-              .append(condition.deserialize(tables))
+              .append(condition == null ? "null" : condition.deserialize(tables))
               .append(", fragments=")
               .append(deserialize(tables, block, fragmentIds))
               .append('}');
@@ -372,12 +375,13 @@ public class TxnUpdate extends AccordUpdate
                 {
                     ConditionalBlock cb = conditionalBlocks[i];
                     int[] cbOutFragmentIds = SortedArrays.linearIntersection(cb.fragmentIds, 0, cb.fragmentIds.length, outFragmentIds, 0, count, cachedInts());
-                    if (cbOutFragmentIds != cb.fragmentIds)
+                    //noinspection ArrayEquality
+                    if (cbOutFragmentIds != cb.fragmentIds) // when arrays are equal the cb.fragmentIds gets returned unchanged, so can do a pointer check to detect a change
                     {
                         if (collect == null)
                         {
                             collect = new ArrayList<>(conditionalBlocks.length - 1);
-                            for (int j = 0 ; j < i ; ++j)
+                            for (int j = 0 ; j < i ; ++j) //TODO (review): why do we include the previous blocks that "should" have empty fragments, but we provide them without empty fragments?
                                 collect.add(conditionalBlocks[j]);
                         }
                         if (cbOutFragmentIds.length > 0)

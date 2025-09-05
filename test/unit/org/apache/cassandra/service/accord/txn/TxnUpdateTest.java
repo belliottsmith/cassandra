@@ -205,7 +205,7 @@ public class TxnUpdateTest
         Gen<int[]> fragmentsGen = Gens.arrays(Gens.ints().between(0, Integer.MAX_VALUE)).ofSizeBetween(0, 10).map(vs -> { Arrays.sort(vs); return vs; });
         return rs -> {
             int id = rs.nextInt(-1, Integer.MAX_VALUE) + 1;
-            SerializedTxnCondition condition = serializedTxnConditionGen.next(rs);
+            SerializedTxnCondition condition = rs.decide(.2) ? null : serializedTxnConditionGen.next(rs);
             int[] fragments = fragmentsGen.next(rs);
             return new ConditionalBlock(id, condition, fragments);
         };
