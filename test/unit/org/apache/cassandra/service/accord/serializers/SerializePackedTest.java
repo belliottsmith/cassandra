@@ -1,0 +1,136 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.cassandra.service.accord.serializers;
+
+import java.io.IOException;
+import java.util.Arrays;
+
+import org.junit.Test;
+
+import accord.utils.Gen;
+import accord.utils.Gens;
+import com.carrotsearch.hppc.IntHashSet;
+import com.carrotsearch.hppc.IntSet;
+import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.io.Serializers;
+import org.apache.cassandra.io.UnversionedSerializer;
+import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.DataOutputPlus;
+import org.assertj.core.api.Assertions;
+
+import static accord.utils.Property.qt;
+
+public class SerializePackedTest
+{
+//    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, Integer.MAX_VALUE));
+    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, 1 << 4));
+
+    @Test
+    public void serde()
+    {
+        @SuppressWarnings({ "resource", "IOResourceOpenedButNotSafelyClosed" }) DataOutputBuffer output = new DataOutputBuffer();
+        qt().withSeed(3448762648001209041L).forAll(zeroAndPositive).check(array -> Serializers.testSerde(output, PackedSortedSerializer.instance, array));
+    }
+
+    @Test
+    public void serializerIsSmallerThanSimpleList()
+    {
+        qt().withExamples(Integer.MAX_VALUE).forAll(zeroAndPositive).check(array -> {
+            var list = SimpleListSerializer.instance.serialize(array);
+            var packed = PackedSortedSerializer.instance.serialize(array);
+
+            Assertions.assertThat(packed.remaining()).isLessThan(list.remaining());
+        });
+    }
+
+    private static Gen<int[]> sortedUniqueInts(Gen.IntGen valueGen)
+    {
+        return rs -> {
+//            int size = rs.nextInt(0, 20);
+            int size = rs.nextInt(2, 10);
+            int[] array = new int[size];
+            IntSet dedup = new IntHashSet();
+            int count = 0;
+            while (count < size)
+            {
+                int value = valueGen.nextInt(rs);
+                if (!dedup.add(value)) continue;
+                array[count++] = value;
+            }
+            Arrays.sort(array);
+            return array;
+        };
+    }
+
+    public static class PackedSortedSerializer implements UnversionedSerializer<int[]>
+    {
+        public static final PackedSortedSerializer instance = new PackedSortedSerializer();
+
+        @Override
+        public void serialize(int[] t, DataOutputPlus out) throws IOException
+        {
+            SerializePacked.serializePackedSortedIntsAndLength(t, out);
+        }
+
+        @Override
+        public int[] deserialize(DataInputPlus in) throws IOException
+        {
+            return SerializePacked.deserializePackedSortedIntsAndLength(in);
+        }
+
+        @Override
+        public long serializedSize(int[] t)
+        {
+            return SerializePacked.serializedSizeOfPackedSortedInts(t);
+        }
+    }
+
+    public static class SimpleListSerializer implements UnversionedSerializer<int[]>
+    {
+        public static final SimpleListSerializer instance = new SimpleListSerializer();
+
+        @Override
+        public void serialize(int[] t, DataOutputPlus out) throws IOException
+        {
+            out.writeUnsignedVInt32(t.length);
+            for (int i : t)
+                out.writeVInt32(i);
+        }
+
+        @Override
+        public int[] deserialize(DataInputPlus in) throws IOException
+        {
+            int size = in.readUnsignedVInt32();
+            int[] array = new int[size];
+            for (int i = 0; i < size; i++)
+                array[i] = in.readVInt32();
+            return array;
+        }
+
+        @Override
+        public long serializedSize(int[] t)
+        {
+            long size = TypeSizes.sizeofUnsignedVInt(t.length);
+            for (int i = 0; i < t.length; i++)
+                size += TypeSizes.sizeofVInt(t[i]);
+            return size;
+        }
+    }
+}

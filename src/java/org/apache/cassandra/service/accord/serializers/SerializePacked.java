@@ -32,6 +32,7 @@ import org.apache.cassandra.io.util.DataOutputPlus;
  * These are packed into an "array" of fixed bit width, so that the total size consumed is ceil((bits*elements)/8).
  * This can (in future) be read directly without deserialization, by indexing into the byte stream directly.
  */
+//TODO (review): In testing I find that arrays with values smaller than 1<<8 produce the same amount of bytes as the regular serialization loop in ArraySerializers using signed vint.  Once you have values larger than 1<<8 this starts to produce more bytes than the array serializer.  Even when limiting values to 1<<4 (so 2 values can fit in 1 byte) this still produces the same size bytes
 public class SerializePacked
 {
     public static void serializePackedSortedIntsAndLength(int[] vs, DataOutputPlus out) throws IOException
