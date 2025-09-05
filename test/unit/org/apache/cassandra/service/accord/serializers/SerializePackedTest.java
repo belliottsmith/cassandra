@@ -41,12 +41,20 @@ public class SerializePackedTest
 {
 //    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, Integer.MAX_VALUE));
     private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, 1 << 4));
+    private static final Gen<int[]> zeros = rs -> new int[rs.nextInt(0, 10)];
 
     @Test
     public void serde()
     {
         @SuppressWarnings({ "resource", "IOResourceOpenedButNotSafelyClosed" }) DataOutputBuffer output = new DataOutputBuffer();
         qt().withSeed(3448762648001209041L).forAll(zeroAndPositive).check(array -> Serializers.testSerde(output, PackedSortedSerializer.instance, array));
+    }
+
+    @Test
+    public void serdeZeros()
+    {
+        @SuppressWarnings({ "resource", "IOResourceOpenedButNotSafelyClosed" }) DataOutputBuffer output = new DataOutputBuffer();
+        qt().withSeed(-5724829247653354287L).forAll(zeros).check(array -> Serializers.testSerde(output, PackedSortedSerializer.instance, array));
     }
 
     @Test
