@@ -534,6 +534,9 @@ public class TxnUpdate extends AccordUpdate
      *       mutation1
      *     END IF
      * </code>
+     * <p>
+     * When a non-conditional set of mutations exists with conditional ones, then the non-conditional mutations should
+     * be in their own block with a null/empty condition.
      */
     final List<Block> blocks;
 
