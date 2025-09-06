@@ -88,6 +88,7 @@ public class TxnUpdate extends AccordUpdate
 {
     static class ConditionalBlock
     {
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new ConditionalBlock(0, null, null));
         static final ConditionalBlock[] NO_CONDITIONAL_BLOCKS = new ConditionalBlock[0];
         public static final UnversionedSerializer<ConditionalBlock> serializer = new UnversionedSerializer<>()
         {
@@ -146,7 +147,7 @@ public class TxnUpdate extends AccordUpdate
 
         public long estimatedSizeOnHeap()
         {
-            long size = 0; //TODO (correctness): EMPTY_SIZE
+            long size = EMPTY_SIZE;
             size += condition == null ? 0 : condition.estimatedSizeOnHeap();
             size += ObjectSizes.sizeOfArray(fragmentIds);
             return size;
@@ -184,6 +185,7 @@ public class TxnUpdate extends AccordUpdate
 
     static class BlockFragment
     {
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new BlockFragment(0, null, null));
         static final BlockFragment[] NO_BLOCK_FRAGMENTS = new BlockFragment[0];
         public static final ParameterisedUnversionedSerializer<BlockFragment, TableMetadatasAndKeys> serializer = new ParameterisedUnversionedSerializer<>()
         {
@@ -245,7 +247,7 @@ public class TxnUpdate extends AccordUpdate
 
         public long estimatedSizeOnHeap()
         {
-            long size = 0; //TODO (correctness): EMPTY_SIZE
+            long size = EMPTY_SIZE;
             size += ObjectSizes.sizeOnHeapOf(bytes);
             // don't count key as reference to key in parent
             return size;
@@ -254,6 +256,7 @@ public class TxnUpdate extends AccordUpdate
 
     static class Block
     {
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new Block(null, null));
         public static final ParameterisedUnversionedSerializer<Block, TableMetadatasAndKeys> serializer = new ParameterisedUnversionedSerializer<>()
         {
             @Override
@@ -299,7 +302,7 @@ public class TxnUpdate extends AccordUpdate
 
         public long estimatedSizeOnHeap()
         {
-            long size = 0; //TODO (correctness): EMPTY_SIZE, keys
+            long size = EMPTY_SIZE;
             size += ObjectSizes.sizeOfArray(fragments);
             for (BlockFragment bf : fragments)
                 size += bf.estimatedSizeOnHeap();
