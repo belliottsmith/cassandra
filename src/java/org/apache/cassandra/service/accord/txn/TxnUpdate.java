@@ -473,6 +473,68 @@ public class TxnUpdate extends AccordUpdate
 
     final TableMetadatas tables;
     final Keys keys;
+    /**
+     * CASSANDRA-20883 added this logic in, but didn't update the CQL layer to leverage it; left for follow-up work.
+     * <p>
+     * The reason for this setup is to allow the following in CQL (any any combination of them):
+     * <p>
+     * <code>
+     *     IF cond1 THEN
+     *       mutation1
+     *     ELSE
+     *       mutation2
+     *     END IF
+     * </code>
+     * <p>
+     * <code>
+     *     IF cond1 THEN
+     *       mutation1
+     *       IF cond2 THEN
+     *         mutation2
+     *       ELSE
+     *         mutation3
+     *       END IF
+     *     ELSE IF cond3 THEN
+     *       mutation4
+     *     END IF
+     * </code>
+     * <p>
+     * and lastly
+     * <p>
+     * <code>
+     *     IF cond THEN
+     *       mutation1
+     *     END IF
+     *     mutation2
+     * </code>
+     *
+     * Each {@link Block} represents a single <code>IF / END IF</code> block.
+     * Each {@link ConditionalBlock} represents a single condition with its mutations
+     *
+     * Given the flat structure, you must rewrite the <code>IF / END IF</code> into this structure, so for cases like nested IF they should uplift the conditions as so
+     *
+     * Before
+     * <code>
+     *     IF cond1 THEN
+     *       mutation1
+     *       IF cond2 THEN
+     *         mutation2
+     *       ELSE
+     *         mutation3
+     *       END IF
+     *     END IF
+     * </code>
+     *
+     * After
+     * <code>
+     *     IF cond1 AND cond2 THEN
+     *       mutation1
+     *       mutation2
+     *     ELSE IF cond1
+     *       mutation1
+     *     END IF
+     * </code>
+     */
     final List<Block> blocks;
 
     @Nullable
