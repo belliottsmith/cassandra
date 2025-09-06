@@ -590,7 +590,7 @@ public class TxnUpdate extends AccordUpdate
     TxnUpdate getTxnUpdate(Function<Keys, Keys> fn)
     {
         Keys newKeys = fn.apply(keys);
-        List<Block> blocks = new ArrayList<>();
+        List<Block> blocks = new ArrayList<>(this.blocks.size());
         for (Block block : this.blocks)
             blocks.add(block.select(newKeys));
         return new TxnUpdate(tables, newKeys, blocks, cassandraCommitCL, preserveTimestamps);
