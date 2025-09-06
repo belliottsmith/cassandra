@@ -507,12 +507,12 @@ public class TxnUpdate extends AccordUpdate
      *     END IF
      *     mutation2
      * </code>
-     *
+     * <p>
      * Each {@link Block} represents a single <code>IF / END IF</code> block.
      * Each {@link ConditionalBlock} represents a single condition with its mutations
-     *
+     * <p>
      * Given the flat structure, you must rewrite the <code>IF / END IF</code> into this structure, so for cases like nested IF they should uplift the conditions as so
-     *
+     * <p>
      * Before
      * <code>
      *     IF cond1 THEN
@@ -524,7 +524,7 @@ public class TxnUpdate extends AccordUpdate
      *       END IF
      *     END IF
      * </code>
-     *
+     * <p>
      * After
      * <code>
      *     IF cond1 AND cond2 THEN
