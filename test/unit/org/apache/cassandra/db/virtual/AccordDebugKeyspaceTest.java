@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.db.virtual;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -33,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.ProtocolModifiers;
+import accord.api.RoutingKey;
 import accord.local.PreLoadContext;
 import accord.messages.TxnRequest;
 import accord.primitives.Ranges;
@@ -46,6 +49,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OptionaldPositiveInt;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
@@ -54,11 +58,15 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.transport.Dispatcher;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.concurrent.Condition;
 import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
@@ -80,6 +88,12 @@ public class AccordDebugKeyspaceTest extends CQLTester
 
     private static final String QUERY_TXN =
         String.format("SELECT txn_id, save_status FROM %s.%s WHERE txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN);
+
+    private static final String QUERY_TXNS =
+        String.format("SELECT save_status FROM %s.%s WHERE command_store_id = ? LIMIT 5", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN);
+
+    private static final String QUERY_TXNS_SEARCH =
+        String.format("SELECT save_status FROM %s.%s WHERE command_store_id = ? AND txn_id > ? LIMIT 5", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN);
 
     private static final String QUERY_JOURNAL =
         String.format("SELECT txn_id, save_status FROM %s.%s WHERE txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.JOURNAL);
@@ -225,6 +239,36 @@ public class AccordDebugKeyspaceTest extends CQLTester
         assertRows(execute(QUERY_TXN, id.toString()), row(id.toString(), "Applied"));
         assertRows(execute(QUERY_JOURNAL, id.toString()), row(id.toString(), "PreAccepted"), row(id.toString(), "Applying"), row(id.toString(), "Applied"), row(id.toString(), null));
         assertRows(execute(QUERY_COMMANDS_FOR_KEY, keyStr), row(id.toString(), "APPLIED_DURABLE"));
+    }
+
+    @Test
+    public void manyTxns() throws ExecutionException, InterruptedException
+    {
+        String tableName = createTable("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY (k, c)) WITH transactional_mode = 'full'");
+        AccordService accord = accord();
+        List<IAccordService.IAccordResult> await = new ArrayList<>();
+        Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 0, 0, 0);
+        for (int i = 0 ; i < 100; ++i)
+            await.add(accord.coordinateAsync(0, 0, txn, ConsistencyLevel.QUORUM, new Dispatcher.RequestTime(Clock.Global.nanoTime())));
+
+        AccordCommandStore commandStore = (AccordCommandStore) accord.node().commandStores().unsafeForKey((RoutingKey) txn.keys().get(0).toUnseekable());
+        await.forEach(IAccordService.IAccordResult::awaitAndGet);
+
+        assertRows(execute(QUERY_TXNS, commandStore.id()),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied")
+        );
+
+        assertRows(execute(QUERY_TXNS_SEARCH, commandStore.id(), TxnId.NONE.toString()),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied"),
+                   row("Applied")
+        );
     }
 
     @Test
@@ -452,4 +496,6 @@ public class AccordDebugKeyspaceTest extends CQLTester
             }
         }
     }
+
+
 }
