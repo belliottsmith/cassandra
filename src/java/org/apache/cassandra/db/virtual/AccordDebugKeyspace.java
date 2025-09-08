@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
@@ -50,9 +51,12 @@ import accord.coordinate.tracking.AbstractTracker;
 import accord.utils.SortedListMap;
 import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.EmptyIterators;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
+import org.apache.cassandra.db.filter.DataLimits;
 import org.apache.cassandra.db.filter.RowFilter;
+import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.partitions.SingletonUnfilteredPartitionIterator;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
@@ -127,6 +131,8 @@ import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTracing;
 import org.apache.cassandra.service.accord.CommandStoreTxnBlockedGraph;
+import org.apache.cassandra.service.accord.IAccordService;
+import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.api.AccordAgent;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.consensus.migration.ConsensusMigrationState;
@@ -203,7 +209,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     }
 
     // TODO (desired): human readable packed key tracker (but requires loading Txn, so might be preferable to only do conditionally)
-    public static final class ExecutorsTable extends AbstractVirtualTable
+    public static final class ExecutorsTable extends AbstractLazyVirtualTable
     {
         private ExecutorsTable()
         {
@@ -222,43 +228,43 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  keys_loading text,\n" +
                         "  keys_loading_for text,\n" +
                         "  PRIMARY KEY (executor_id, status, position, unique_position)" +
-                        ')', UTF8Type.instance));
+                        ')', Int32Type.instance), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             AccordCommandStores commandStores = (AccordCommandStores) AccordService.instance().node().commandStores();
-            SimpleDataSet ds = new SimpleDataSet(metadata());
-
+            // TODO (desired): we can easily also support sorted collection for DESC queries
             for (AccordExecutor executor : commandStores.executors())
             {
                 int uniquePos = 0;
                 int executorId = executor.executorId();
                 AccordExecutor.TaskInfo prev = null;
+                PartitionCollector partition = collector.partition(executorId);
                 for (AccordExecutor.TaskInfo info : executor.taskSnapshot())
                 {
                     if (prev != null && info.status() == prev.status() && info.position() == prev.position()) ++uniquePos;
                     else uniquePos = 0;
                     prev = info;
                     PreLoadContext preLoadContext = info.preLoadContext();
-                    ds.row(executorId, Objects.toString(info.status()), info.position(), uniquePos)
-                      .column("description", info.describe())
-                      .column("command_store_id", info.commandStoreId())
-                      .column("txn_id", preLoadContext == null ? null : toStringOrNull(preLoadContext.primaryTxnId()))
-                      .column("txn_id_additional", preLoadContext == null ? null : toStringOrNull(preLoadContext.additionalTxnId()))
-                      .column("keys", preLoadContext == null ? null : toStringOrNull(preLoadContext.keys()))
-                      .column("keys_loading", preLoadContext == null ? null : toStringOrNull(preLoadContext.loadKeys()))
-                      .column("keys_loading_for", preLoadContext == null ? null : toStringOrNull(preLoadContext.loadKeysFor()))
-                    ;
+                    partition.row(info.status().name(), info.position(), uniquePos)
+                             .lazyAdd(columns -> {
+                                 columns.add("description", info.describe())
+                                        .add("command_store_id", info.commandStoreId())
+                                        .add("txn_id", preLoadContext == null ? null : toStringOrNull(preLoadContext.primaryTxnId()))
+                                        .add("txn_id_additional", preLoadContext == null ? null : toStringOrNull(preLoadContext.additionalTxnId()))
+                                        .add("keys", preLoadContext == null ? null : toStringOrNull(preLoadContext.keys()))
+                                        .add("keys_loading", preLoadContext == null ? null : toStringOrNull(preLoadContext.loadKeys()))
+                                        .add("keys_loading_for", preLoadContext == null ? null : toStringOrNull(preLoadContext.loadKeysFor()));
+                    });
                 }
             }
-            return ds;
         }
     }
 
     // TODO (desired): human readable packed key tracker (but requires loading Txn, so might be preferable to only do conditionally)
-    public static final class CoordinationsTable extends AbstractVirtualTable
+    public static final class CoordinationsTable extends AbstractLazyVirtualTable
     {
         private CoordinationsTable()
         {
@@ -276,26 +282,26 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  replies text,\n" +
                         "  tracker text,\n" +
                         "  PRIMARY KEY (txn_id, kind, coordination_id)" +
-                        ')', UTF8Type.instance));
+                        ')', UTF8Type.instance), Sorted.UNSORTED);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             Coordinations coordinations = AccordService.instance().node().coordinations();
-            SimpleDataSet ds = new SimpleDataSet(metadata());
             for (Coordination c : coordinations)
             {
-                ds.row(toStringOrNull(c.txnId()), c.kind().toString(), c.coordinationId())
-                  .column("nodes", toStringOrNull(c.nodes()))
-                  .column("nodes_inflight", toStringOrNull(c.inflight()))
-                  .column("nodes_contacted", toStringOrNull(c.contacted()))
-                  .column("description", c.describe())
-                  .column("participants", toStringOrNull(c.scope()))
-                  .column("replies", summarise(c.replies()))
-                  .column("tracker", summarise(c.tracker()));
+                collector.row(toStringOrNull(c.txnId()), c.kind().toString(), c.coordinationId())
+                .lazyAdd(columns -> {
+                    columns.add("nodes", toStringOrNull(c.nodes()))
+                           .add("nodes_inflight", toStringOrNull(c.inflight()))
+                           .add("nodes_contacted", toStringOrNull(c.contacted()))
+                           .add("description", c.describe())
+                           .add("participants", toStringOrNull(c.scope()))
+                           .add("replies", summarise(c.replies()))
+                           .add("tracker", summarise(c.tracker()));
+                });
             }
-            return ds;
         }
 
         private static String summarise(@Nullable SortedListMap<Node.Id, ?> replies)
@@ -314,8 +320,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     }
 
 
-    // TODO (desired): don't report null as "null"
-    public static final class CommandsForKeyTable extends AbstractVirtualTable implements AbstractVirtualTable.DataSet
+    public static final class CommandsForKeyTable extends AbstractLazyVirtualTable
     {
         static class Entry
         {
@@ -344,24 +349,16 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  status text,\n" +
                         "  status_overrides text,\n" +
                         "  PRIMARY KEY (key, command_store_id, txn_id)" +
-                        ')', UTF8Type.instance));
+                        ')', UTF8Type.instance), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
-            return this;
-        }
+            DecoratedKey partitionKey = collector.singleKey();
+            if (partitionKey == null)
+                throw new InvalidRequestException("This table currently only supports querying single partitions");
 
-        @Override
-        public boolean isEmpty()
-        {
-            return false;
-        }
-
-        @Override
-        public Partition getPartition(DecoratedKey partitionKey)
-        {
             String keyStr = UTF8Type.instance.compose(partitionKey.getKey());
             TokenKey key = TokenKey.parse(keyStr, DatabaseDescriptor.getPartitioner());
 
@@ -378,33 +375,27 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             }).beginAsResult());
 
             if (cfks.isEmpty())
-                return null;
+                return;
 
-            SimpleDataSet ds = new SimpleDataSet(metadata);
             for (Entry e : cfks)
             {
                 CommandsForKey cfk = e.cfk;
+                PartitionCollector partition = collector.partition(keyStr);
                 for (int i = 0 ; i < cfk.size() ; ++i)
                 {
                     CommandsForKey.TxnInfo txn = cfk.get(i);
-                    ds.row(keyStr, e.commandStoreId, toStringOrNull(txn.plainTxnId()))
-                      .column("ballot", toStringOrNull(txn.ballot()))
-                      .column("deps_known_before", toStringOrNull(txn.depsKnownUntilExecuteAt()))
-                      .column("flags", flags(txn))
-                      .column("execute_at", toStringOrNull(txn.plainExecuteAt()))
-                      .column("missing", Arrays.toString(txn.missing()))
-                      .column("status", toStringOrNull(txn.status()))
-                      .column("status_overrides", txn.statusOverrides() == 0 ? null : ("0x" + Integer.toHexString(txn.statusOverrides())));
+                    partition.row(e.commandStoreId, txn.plainTxnId().toString())
+                    .lazyAdd(columns -> {
+                        columns.add("ballot", toStringOrNull(txn.ballot()))
+                               .add("deps_known_before", toStringOrNull(txn.depsKnownUntilExecuteAt()))
+                               .add("flags", flags(txn))
+                               .add("execute_at", toStringOrNull(txn.plainExecuteAt()))
+                               .add("missing", Arrays.toString(txn.missing()))
+                               .add("status", toStringOrNull(txn.status()))
+                               .add("status_overrides", txn.statusOverrides() == 0 ? null : ("0x" + Integer.toHexString(txn.statusOverrides())));
+                    });
                 }
             }
-
-            return ds.getPartition(partitionKey);
-        }
-
-        @Override
-        public Iterator<Partition> getPartitions(DataRange range)
-        {
-            throw new UnsupportedOperationException();
         }
 
         private static String flags(CommandsForKey.TxnInfo txn)
@@ -428,8 +419,6 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
     }
 
-
-    // TODO (expected): test this table
     public static final class CommandsForKeyUnmanagedTable extends AbstractVirtualTable implements AbstractVirtualTable.DataSet
     {
         static class Entry
@@ -513,16 +502,14 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
     }
 
-
-    public static final class DurabilityServiceTable extends AbstractVirtualTable
+    public static final class DurabilityServiceTable extends AbstractLazyVirtualTable
     {
         private DurabilityServiceTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, DURABILITY_SERVICE,
                         "Accord per-Range Durability Service State",
                         "CREATE TABLE %s (\n" +
-                        "  keyspace_name text,\n" +
-                        "  table_name text,\n" +
+                        "  table_id text,\n" +
                         "  token_start 'TokenUtf8Type',\n" +
                         "  token_end 'TokenUtf8Type',\n" +
                         "  last_started_at bigint,\n" +
@@ -541,78 +528,73 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  current_splits int,\n" +
                         "  stopping boolean,\n" +
                         "  stopped boolean,\n" +
-                        "  PRIMARY KEY (keyspace_name, table_name, token_start)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY (table_id, token_start)" +
+                        ')', UTF8Type.instance), Sorted.UNSORTED);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             ShardDurability.ImmutableView view = ((AccordService) AccordService.instance()).shardDurability();
 
-            SimpleDataSet ds = new SimpleDataSet(metadata());
             while (view.advance())
             {
                 TableId tableId = (TableId) view.shard().range.start().prefix();
-                TableMetadata tableMetadata = tableMetadata(tableId);
-                ds.row(keyspace(tableMetadata), table(tableId, tableMetadata), printToken(view.shard().range.start()))
-                  .column("token_end", printToken(view.shard().range.end()))
-                  .column("last_started_at", approxTime.translate().toMillisSinceEpoch(view.lastStartedAtMicros() * 1000))
-                  .column("cycle_started_at", approxTime.translate().toMillisSinceEpoch(view.cycleStartedAtMicros() * 1000))
-                  .column("retries", view.retries())
-                  .column("min", Objects.toString(view.min()))
-                  .column("requested_by", Objects.toString(view.requestedBy()))
-                  .column("active", Objects.toString(view.active()))
-                  .column("waiting", Objects.toString(view.waiting()))
-                  .column("node_offset", view.nodeOffset())
-                  .column("cycle_offset", view.cycleOffset())
-                  .column("active_index", view.activeIndex())
-                  .column("next_index", view.nextIndex())
-                  .column("next_to_index", view.toIndex())
-                  .column("end_index", view.cycleLength())
-                  .column("current_splits", view.currentSplits())
-                  .column("stopping", view.stopping())
-                  .column("stopped", view.stopped())
-                ;
+                collector.row(tableId.toString(), printToken(view.shard().range.start()))
+                         .eagerAdd(columns -> {
+                              columns.add("token_end", printToken(view.shard().range.end()))
+                                     .add("last_started_at", approxTime.translate().toMillisSinceEpoch(view.lastStartedAtMicros() * 1000))
+                                     .add("cycle_started_at", approxTime.translate().toMillisSinceEpoch(view.cycleStartedAtMicros() * 1000))
+                                     .add("retries", view.retries())
+                                     .add("min", Objects.toString(view.min()))
+                                     .add("requested_by", Objects.toString(view.requestedBy()))
+                                     .add("active", Objects.toString(view.active()))
+                                     .add("waiting", Objects.toString(view.waiting()))
+                                     .add("node_offset", view.nodeOffset())
+                                     .add("cycle_offset", view.cycleOffset())
+                                     .add("active_index", view.activeIndex())
+                                     .add("next_index", view.nextIndex())
+                                     .add("next_to_index", view.toIndex())
+                                     .add("end_index", view.cycleLength())
+                                     .add("current_splits", view.currentSplits())
+                                     .add("stopping", view.stopping())
+                                     .add("stopped", view.stopped());
+                         });
             }
-            return ds;
         }
     }
 
-    public static final class DurableBeforeTable extends AbstractVirtualTable
+    public static final class DurableBeforeTable extends AbstractLazyVirtualTable
     {
         private DurableBeforeTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, DURABLE_BEFORE,
                         "Accord Node's DurableBefore State",
                         "CREATE TABLE %s (\n" +
-                        "  keyspace_name text,\n" +
-                        "  table_name text,\n" +
+                        "  table_id text,\n" +
                         "  token_start 'TokenUtf8Type',\n" +
                         "  token_end 'TokenUtf8Type',\n" +
                         "  quorum 'TxnIdUtf8Type',\n" +
                         "  universal 'TxnIdUtf8Type',\n" +
-                        "  PRIMARY KEY (keyspace_name, table_name, token_start)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY (table_id, token_start)" +
+                        ')', UTF8Type.instance), Sorted.UNSORTED);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             DurableBefore durableBefore = AccordService.instance().node().durableBefore();
-            return durableBefore.foldlWithBounds(
-                (entry, ds, start, end) -> {
+            durableBefore.foldlWithBounds(
+                (entry, ignore, start, end) -> {
                     TableId tableId = (TableId) start.prefix();
-                    TableMetadata tableMetadata = tableMetadata(tableId);
-                    ds.row(keyspace(tableMetadata), table(tableId, tableMetadata), printToken(start))
-                      .column("token_end", printToken(end))
-                      .column("quorum", entry.quorumBefore.toString())
-                      .column("universal", entry.universalBefore.toString());
-                    return ds;
-                },
-                new SimpleDataSet(metadata()),
-                ignore -> false
-            );
+                    collector.row(tableId.toString(), printToken(start))
+                             .lazyAdd(columns -> {
+                                  columns.add("token_end", printToken(end))
+                                         .add("quorum", entry.quorumBefore.toString())
+                                         .add("universal", entry.universalBefore.toString());
+                             });
+                    return null;
+                }, null, ignore -> false);
         }
     }
 
@@ -658,48 +640,47 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     }
 
 
-    public static final class MaxConflictsTable extends AbstractVirtualTable
+    public static final class MaxConflictsTable extends AbstractLazyVirtualTable
     {
         private MaxConflictsTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, MAX_CONFLICTS,
                         "Accord per-CommandStore MaxConflicts State",
                         "CREATE TABLE %s (\n" +
-                        "  keyspace_name text,\n" +
-                        "  table_name text,\n" +
                         "  command_store_id bigint,\n" +
                         "  token_start 'TokenUtf8Type',\n" +
+                        "  table_id text,\n" +
                         "  token_end 'TokenUtf8Type',\n" +
                         "  timestamp text,\n" +
-                        "  PRIMARY KEY (keyspace_name, table_name, command_store_id, token_start)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY (command_store_id, token_start)" +
+                        ')', Int32Type.instance), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             CommandStores commandStores = AccordService.instance().node().commandStores();
 
-            SimpleDataSet dataSet = new SimpleDataSet(metadata());
             for (CommandStore commandStore : commandStores.all())
             {
                 int commandStoreId = commandStore.id();
                 MaxConflicts maxConflicts = commandStore.unsafeGetMaxConflicts();
                 TableId tableId = ((AccordCommandStore) commandStore).tableId();
-                TableMetadata tableMetadata = tableMetadata(tableId);
+                String tableIdStr = tableId.toString();
 
+                PartitionCollector partition = collector.partition(commandStoreId);
                 maxConflicts.foldlWithBounds(
-                    (timestamp, ds, start, end) -> {
-                        return ds.row(keyspace(tableMetadata), table(tableId, tableMetadata), commandStoreId, printToken(start))
-                                 .column("token_end", printToken(end))
-                                 .column("timestamp", timestamp.toString())
-                        ;
-                    },
-                    dataSet,
-                    ignore -> false
+                    (timestamp, p, start, end) -> {
+                        p.row(printToken(start))
+                         .lazyAdd(columns -> {
+                             columns.add("token_end", printToken(end))
+                                    .add("table_id", tableIdStr)
+                                    .add("timestamp", timestamp.toString());
+                         });
+                         return p;
+                    }, partition, ignore -> false
                 );
             }
-            return dataSet;
         }
     }
 
@@ -792,18 +773,16 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     }
 
     // TODO (desired): human readable packed key tracker (but requires loading Txn, so might be preferable to only do conditionally)
-    public static final class ProgressLogTable extends AbstractVirtualTable
+    public static final class ProgressLogTable extends AbstractLazyVirtualTable
     {
         private ProgressLogTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, PROGRESS_LOG,
                         "Accord per-CommandStore ProgressLog State",
                         "CREATE TABLE %s (\n" +
-                        "  keyspace_name text,\n" +
-                        "  table_name text,\n" +
-                        "  table_id text,\n" +
                         "  command_store_id int,\n" +
                         "  txn_id 'TxnIdUtf8Type',\n" +
+                        "  table_id text,\n" +
                         // Timer + BaseTxnState
                         "  contact_everyone boolean,\n" +
                         // WaitingState
@@ -819,43 +798,44 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  home_progress text,\n" +
                         "  home_retry_counter int,\n" +
                         "  home_scheduled_at timestamp,\n" +
-                        "  PRIMARY KEY (keyspace_name, table_name, table_id, command_store_id, txn_id)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY (command_store_id, txn_id)" +
+                        ')', Int32Type.instance), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             CommandStores commandStores = AccordService.instance().node().commandStores();
-            SimpleDataSet ds = new SimpleDataSet(metadata());
             for (CommandStore commandStore : commandStores.all())
             {
                 DefaultProgressLog.ImmutableView view = ((DefaultProgressLog) commandStore.unsafeProgressLog()).immutableView();
                 TableId tableId = ((AccordCommandStore)commandStore).tableId();
                 String tableIdStr = tableId.toString();
-                TableMetadata tableMetadata = tableMetadata(tableId);
+                PartitionCollector partition = collector.partition(commandStore.id());
                 while (view.advance())
                 {
-                    ds.row(keyspace(tableMetadata), table(tableId, tableMetadata), tableIdStr, view.commandStoreId(), view.txnId().toString())
-                      .column("contact_everyone", view.contactEveryone())
-                      .column("waiting_is_uninitialised", view.isWaitingUninitialised())
-                      .column("waiting_blocked_until", view.waitingIsBlockedUntil().name())
-                      .column("waiting_home_satisfies", view.waitingHomeSatisfies().name())
-                      .column("waiting_progress", view.waitingProgress().name())
-                      .column("waiting_retry_counter", view.waitingRetryCounter())
-                      .column("waiting_packed_key_tracker_bits", Long.toBinaryString(view.waitingPackedKeyTrackerBits()))
-                      .column("waiting_scheduled_at", toTimestamp(view.timerScheduledAt(TxnStateKind.Waiting)))
-                      .column("home_phase", view.homePhase().name())
-                      .column("home_progress", view.homeProgress().name())
-                      .column("home_retry_counter", view.homeRetryCounter())
-                      .column("home_scheduled_at", toTimestamp(view.timerScheduledAt(TxnStateKind.Home)))
-                    ;
+                    // TODO (required): view should return an immutable per-row view so that we can call lazyAdd
+                    partition.row(view.txnId().toString())
+                    .eagerAdd(columns -> { 
+                        columns.add("table_id", tableIdStr)
+                               .add("contact_everyone", view.contactEveryone())
+                               .add("waiting_is_uninitialised", view.isWaitingUninitialised())
+                               .add("waiting_blocked_until", view.waitingIsBlockedUntil().name())
+                               .add("waiting_home_satisfies", view.waitingHomeSatisfies().name())
+                               .add("waiting_progress", view.waitingProgress().name())
+                               .add("waiting_retry_counter", view.waitingRetryCounter())
+                               .add("waiting_packed_key_tracker_bits", Long.toBinaryString(view.waitingPackedKeyTrackerBits()))
+                               .add("waiting_scheduled_at", view.timerScheduledAt(TxnStateKind.Waiting), ProgressLogTable::toTimestamp)
+                               .add("home_phase", view.homePhase().name())
+                               .add("home_progress", view.homeProgress().name())
+                               .add("home_retry_counter", view.homeRetryCounter())
+                               .add("home_scheduled_at", view.timerScheduledAt(TxnStateKind.Home), ProgressLogTable::toTimestamp);
+                    });
                 }
             }
-            return ds;
         }
 
-        private Date toTimestamp(Long deadline)
+        private static Date toTimestamp(Long deadline)
         {
             if (deadline == null)
                 return null;
@@ -865,19 +845,17 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
     }
 
-    public static final class RedundantBeforeTable extends AbstractVirtualTable
+    public static final class RedundantBeforeTable extends AbstractLazyVirtualTable
     {
         private RedundantBeforeTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, REDUNDANT_BEFORE,
                         "Accord per-CommandStore RedundantBefore State",
                         "CREATE TABLE %s (\n" +
-                        "  keyspace_name text,\n" +
-                        "  table_name text,\n" +
-                        "  table_id text,\n" +
-                        "  token_start 'TokenUtf8Type',\n" +
-                        "  token_end 'TokenUtf8Type',\n" +
                         "  command_store_id int,\n" +
+                        "  token_start 'TokenUtf8Type',\n" +
+                        "  table_id text,\n" +
+                        "  token_end 'TokenUtf8Type',\n" +
                         "  start_epoch bigint,\n" +
                         "  end_epoch bigint,\n" +
                         "  gc_before 'TxnIdUtf8Type',\n" +
@@ -891,48 +869,44 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  locally_witnessed 'TxnIdUtf8Type',\n" +
                         "  pre_bootstrap 'TxnIdUtf8Type',\n" +
                         "  stale_until_at_least 'TxnIdUtf8Type',\n" +
-                        "  PRIMARY KEY (keyspace_name, table_name, table_id, command_store_id, token_start)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY (command_store_id, token_start)" +
+                        ')', Int32Type.instance), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
+        public void collect(PartitionsCollector collector)
         {
             CommandStores commandStores = AccordService.instance().node().commandStores();
 
-            SimpleDataSet dataSet = new SimpleDataSet(metadata());
             for (CommandStore commandStore : commandStores.all())
             {
                 int commandStoreId = commandStore.id();
+                PartitionCollector partition = collector.partition(commandStoreId);
                 TableId tableId = ((AccordCommandStore)commandStore).tableId();
                 String tableIdStr = tableId.toString();
-                TableMetadata tableMetadata = tableMetadata(tableId);
-                String keyspace = keyspace(tableMetadata);
-                String table = table(tableId, tableMetadata);
                 commandStore.unsafeGetRedundantBefore().foldl(
-                    (entry, ds) -> {
-                        ds.row(keyspace, table, tableIdStr, commandStoreId, printToken(entry.range.start()))
-                          .column("token_end", printToken(entry.range.end()))
-                          .column("start_epoch", entry.startEpoch)
-                          .column("end_epoch", entry.endEpoch)
-                          .column("gc_before", entry.maxBound(GC_BEFORE).toString())
-                          .column("shard_applied", entry.maxBound(SHARD_APPLIED).toString())
-                          .column("quorum_applied", entry.maxBound(QUORUM_APPLIED).toString())
-                          .column("locally_applied", entry.maxBound(LOCALLY_APPLIED).toString())
-                          .column("locally_durable_to_command_store", entry.maxBound(LOCALLY_DURABLE_TO_COMMAND_STORE).toString())
-                          .column("locally_durable_to_data_store", entry.maxBound(LOCALLY_DURABLE_TO_DATA_STORE).toString())
-                          .column("locally_redundant", entry.maxBound(LOCALLY_REDUNDANT).toString())
-                          .column("locally_synced", entry.maxBound(LOCALLY_SYNCED).toString())
-                          .column("locally_witnessed", entry.maxBound(LOCALLY_WITNESSED).toString())
-                          .column("pre_bootstrap", entry.maxBound(PRE_BOOTSTRAP).toString())
-                          .column("stale_until_at_least", entry.staleUntilAtLeast != null ? entry.staleUntilAtLeast.toString() : null);
-                        return ds;
-                    },
-                    dataSet,
-                    ignore -> false
+                    (entry, p) -> {
+                        p.row(printToken(entry.range.start())).lazyAdd(columns -> {
+                            columns.add("table_id", tableIdStr)
+                                   .add("token_end", printToken(entry.range.end()))
+                                   .add("start_epoch", entry.startEpoch)
+                                   .add("end_epoch", entry.endEpoch)
+                                   .add("gc_before", entry.maxBound(GC_BEFORE).toString())
+                                   .add("shard_applied", entry.maxBound(SHARD_APPLIED).toString())
+                                   .add("quorum_applied", entry.maxBound(QUORUM_APPLIED).toString())
+                                   .add("locally_applied", entry.maxBound(LOCALLY_APPLIED).toString())
+                                   .add("locally_durable_to_command_store", entry.maxBound(LOCALLY_DURABLE_TO_COMMAND_STORE).toString())
+                                   .add("locally_durable_to_data_store", entry.maxBound(LOCALLY_DURABLE_TO_DATA_STORE).toString())
+                                   .add("locally_redundant", entry.maxBound(LOCALLY_REDUNDANT).toString())
+                                   .add("locally_synced", entry.maxBound(LOCALLY_SYNCED).toString())
+                                   .add("locally_witnessed", entry.maxBound(LOCALLY_WITNESSED).toString())
+                                   .add("pre_bootstrap", entry.maxBound(PRE_BOOTSTRAP).toString())
+                                   .add("stale_until_at_least", entry.staleUntilAtLeast != null ? entry.staleUntilAtLeast.toString() : null);
+                        });
+                        return p;
+                    }, partition, ignore -> false
                 );
             }
-            return dataSet;
         }
     }
 
@@ -1119,11 +1093,20 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             SimpleDataSet dataSet = new SimpleDataSet(metadata());
             tracing().forEach(id -> true, (txnId, eventType, permits, events) -> {
                 events.forEach(e -> {
-                    e.messages().forEach(m -> {
-                        dataSet.row(txnId.toString(), eventType.name(), e.idMicros, NANOSECONDS.toMicros(m.atNanos - e.atNanos))
-                               .column("command_store_id", m.commandStoreId)
-                               .column("message", m.message);
-                    });
+                    if (e.messages().isEmpty())
+                    {
+                        dataSet.row(txnId.toString(), eventType.name(), e.idMicros, 0L)
+                               .column("message", "<Initialised but no events (yet) recorded>");
+
+                    }
+                    else
+                    {
+                        e.messages().forEach(m -> {
+                            dataSet.row(txnId.toString(), eventType.name(), e.idMicros, NANOSECONDS.toMicros(m.atNanos - e.atNanos))
+                                   .column("command_store_id", m.commandStoreId)
+                                   .column("message", m.message);
+                        });
+                    }
                 });
             });
             return dataSet;
@@ -1131,19 +1114,10 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     }
 
     // TODO (desired): don't report null as "null"
-    public static final class TxnTable extends AbstractVirtualTable implements AbstractVirtualTable.DataSet
+    public static final class TxnTable extends AbstractLazyVirtualTable
     {
-        static class Entry
-        {
-            final int commandStoreId;
-            final Command command;
+        private static final CompositeType PK = CompositeType.getInstance(Int32Type.instance, UTF8Type.instance);
 
-            Entry(int commandStoreId, Command command)
-            {
-                this.commandStoreId = commandStoreId;
-                this.command = command;
-            }
-        }
         private TxnTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, TXN,
@@ -1166,67 +1140,116 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "  participants_has_touched text,\n" +
                         "  participants_executes text,\n" +
                         "  participants_waits_on text,\n" +
-                        "  PRIMARY KEY (txn_id, command_store_id)" +
-                        ')', UTF8Type.instance));
+                        "  PRIMARY KEY ((command_store_id, txn_id))" +
+                        ')', PK), Sorted.ASC);
         }
 
         @Override
-        public DataSet data()
-        {
-            return this;
-        }
-
-        @Override
-        public boolean isEmpty()
+        public boolean allowFilteringImplicitly()
         {
             return false;
         }
 
         @Override
-        public Partition getPartition(DecoratedKey partitionKey)
+        public boolean allowFilteringPrimaryKeysImplicitly()
         {
-            String txnIdStr = UTF8Type.instance.compose(partitionKey.getKey());
-            TxnId txnId = TxnId.parse(txnIdStr);
-
-            List<Entry> commands = new CopyOnWriteArrayList<>();
-            AccordService.instance().node().commandStores().forEachCommandStore(store -> {
-                Command command = ((AccordCommandStore)store).loadCommand(txnId);
-                if (command != null)
-                    commands.add(new Entry(store.id(), command));
-            });
-
-            if (commands.isEmpty())
-                return null;
-
-            SimpleDataSet ds = new SimpleDataSet(metadata);
-            for (Entry e : commands)
-            {
-                Command command = e.command;
-                ds.row(txnIdStr, e.commandStoreId)
-                  .column("save_status", toStringOrNull(command.saveStatus()))
-                  .column("route", toStringOrNull(command.route()))
-                  .column("participants_owns", toStr(command, StoreParticipants::owns, StoreParticipants::stillOwns))
-                  .column("participants_touches", toStr(command, StoreParticipants::touches, StoreParticipants::stillTouches))
-                  .column("participants_has_touched", toStringOrNull(command.participants().hasTouched()))
-                  .column("participants_executes", toStr(command, StoreParticipants::executes, StoreParticipants::stillExecutes))
-                  .column("participants_waits_on", toStr(command, StoreParticipants::waitsOn, StoreParticipants::stillWaitsOn))
-                  .column("durability", toStringOrNull(command.durability()))
-                  .column("execute_at", toStringOrNull(command.executeAt()))
-                  .column("executes_at_least", toStringOrNull(command.executesAtLeast()))
-                  .column("txn", toStringOrNull(command.partialTxn()))
-                  .column("deps", toStringOrNull(command.partialDeps()))
-                  .column("waiting_on", toStringOrNull(command.waitingOn()))
-                  .column("writes", toStringOrNull(command.writes()))
-                  .column("result", toStringOrNull(command.result()));
-            }
-
-            return ds.getPartition(partitionKey);
+            return true;
         }
 
         @Override
-        public Iterator<Partition> getPartitions(DataRange range)
+        public void collect(PartitionsCollector collector)
         {
-            throw new UnsupportedOperationException();
+            AccordService accord;
+            {
+                IAccordService iaccord = AccordService.instance();
+                if (!iaccord.isEnabled())
+                    return;
+
+                accord = (AccordService) iaccord;
+            }
+
+            DataRange dataRange = collector.dataRange();
+            JournalKey min = toJournalKey(dataRange.startKey()),
+            max = toJournalKey(dataRange.stopKey());
+
+            if (min == null && max == null)
+            {
+                FilterRange<TxnId> filterTxnId = collector.filters("txn_id", TxnId::parse, UnaryOperator.identity(), UnaryOperator.identity());
+                FilterRange<Integer> filterCommandStoreId = collector.filters("command_store_id", UnaryOperator.identity(), i -> i + 1, i -> i - 1);
+
+                int minCommandStoreId = filterCommandStoreId.min == null ? 0 : filterCommandStoreId.min;
+                int maxCommandStoreId = filterCommandStoreId.max == null ? Integer.MAX_VALUE : filterCommandStoreId.max;
+
+                if (filterTxnId.min != null && filterTxnId.max != null && filterTxnId.min.equals(filterTxnId.max))
+                {
+                    TxnId txnId = filterTxnId.min;
+                    accord.node().commandStores().forEachCommandStore(commandStore -> {
+                        if (commandStore.id() < minCommandStoreId || commandStore.id() > maxCommandStoreId)
+                            return;
+
+                        Command command = ((AccordCommandStore)commandStore).loadCommand(txnId);
+                        if (command == null)
+                            return;
+
+                        collector.row(commandStore.id(), txnId.toString())
+                                 .lazyAdd(columns -> addColumns(command, columns));
+                    });
+
+                    return;
+                }
+
+                if (filterTxnId.min != null || minCommandStoreId > 0)
+                    min = new JournalKey(filterTxnId.min == null ? TxnId.NONE : filterTxnId.min, JournalKey.Type.COMMAND_DIFF, minCommandStoreId);
+                if (filterTxnId.max != null || maxCommandStoreId < Integer.MAX_VALUE)
+                    max = new JournalKey(filterTxnId.max == null ? TxnId.MAX.withoutNonIdentityFlags() : filterTxnId.max, JournalKey.Type.COMMAND_DIFF, maxCommandStoreId);
+            }
+
+            accord.journal().forEach(key -> {
+                if (key.type != JournalKey.Type.COMMAND_DIFF)
+                    return;
+
+                AccordCommandStore commandStore = (AccordCommandStore) accord.node().commandStores().forId(key.commandStoreId);
+                if (commandStore == null)
+                    return;
+
+                Command command = commandStore.loadCommand(key.id);
+                if (command == null)
+                    return;
+
+                collector.row(key.commandStoreId, key.id.toString())
+                         .lazyAdd(columns -> addColumns(command, columns));
+            }, min, max, true);
+        }
+
+        private static void addColumns(Command command, ColumnsCollector columns)
+        {
+            columns.add("save_status", toStringOrNull(command.saveStatus()))
+                   .add("route", toStringOrNull(command.route()))
+                   .add("participants_owns", toStr(command, StoreParticipants::owns, StoreParticipants::stillOwns))
+                   .add("participants_touches", toStr(command, StoreParticipants::touches, StoreParticipants::stillTouches))
+                   .add("participants_has_touched", toStringOrNull(command.participants().hasTouched()))
+                   .add("participants_executes", toStr(command, StoreParticipants::executes, StoreParticipants::stillExecutes))
+                   .add("participants_waits_on", toStr(command, StoreParticipants::waitsOn, StoreParticipants::stillWaitsOn))
+                   .add("durability", toStringOrNull(command.durability()))
+                   .add("execute_at", toStringOrNull(command.executeAt()))
+                   .add("executes_at_least", toStringOrNull(command.executesAtLeast()))
+                   .add("txn", toStringOrNull(command.partialTxn()))
+                   .add("deps", toStringOrNull(command.partialDeps()))
+                   .add("waiting_on", toStringOrNull(command.waitingOn()))
+                   .add("writes", toStringOrNull(command.writes()))
+                   .add("result", toStringOrNull(command.result()));
+        }
+
+        private static JournalKey toJournalKey(PartitionPosition position)
+        {
+            if (position.isMinimum())
+                return null;
+
+            if (!(position instanceof DecoratedKey))
+                throw new InvalidRequestException("Cannot filter this table by partial partition key");
+
+            ByteBuffer[] keys = PK.split(((DecoratedKey) position).getKey());
+            return new JournalKey(TxnId.parse(UTF8Type.instance.compose(keys[1])), JournalKey.Type.COMMAND_DIFF, Int32Type.instance.compose(keys[0]));
         }
     }
 
@@ -1548,7 +1571,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
 
         @Override
-        public UnfilteredPartitionIterator select(DecoratedKey partitionKey, ClusteringIndexFilter clusteringIndexFilter, ColumnFilter columnFilter, RowFilter rowFilter)
+        public UnfilteredPartitionIterator select(DecoratedKey partitionKey, ClusteringIndexFilter clusteringIndexFilter, ColumnFilter columnFilter, RowFilter rowFilter, DataLimits limits)
         {
             Partition partition = data(partitionKey, rowFilter).getPartition(partitionKey);
 
@@ -1713,6 +1736,14 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     {
         if (o == null)
             return null;
-        return Objects.toString(o);
+
+        try
+        {
+            return Objects.toString(o);
+        }
+        catch (Throwable t)
+        {
+            return "<error: " + t.getLocalizedMessage() + '>';
+        }
     }
 }
