@@ -71,7 +71,7 @@ public class SerializePackedTest
             var list = SimpleListSerializer.instance.serialize(array);
             var packed = PackedSortedSerializer.instance.serialize(array);
 
-            Assertions.assertThat(packed.remaining()).isLessThan(list.remaining());
+            Assertions.assertThat(packed.remaining()).isLessThanOrEqualTo(list.remaining());
         });
     }
 
@@ -113,7 +113,7 @@ public class SerializePackedTest
         @Override
         public long serializedSize(int[] t)
         {
-            return SerializePacked.serializedSizeOfPackedSortedInts(t);
+            return SerializePacked.serializedSizeOfPackedSortedIntsAndLength(t);
         }
     }
 

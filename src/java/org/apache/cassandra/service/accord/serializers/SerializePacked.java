@@ -38,7 +38,7 @@ public class SerializePacked
     public static void serializePackedSortedIntsAndLength(int[] vs, DataOutputPlus out) throws IOException
     {
         out.writeUnsignedVInt32(vs.length);
-        serializePackedSortedInts(vs, out);;
+        serializePackedSortedInts(vs, out);
     }
 
     public static void serializePackedSortedInts(int[] vs, DataOutputPlus out) throws IOException
@@ -48,7 +48,7 @@ public class SerializePacked
 
         int last = vs[vs.length - 1];
         out.writeUnsignedVInt32(last);
-        serializePackedInts(vs, 0, vs.length - 1, last - 1, out);
+        serializePackedInts(vs, 0, vs.length - 1, last, out);
     }
 
     public static int[] deserializePackedSortedIntsAndLength(DataInputPlus in) throws IOException
@@ -63,7 +63,7 @@ public class SerializePacked
 
         int last = in.readUnsignedVInt32();
         int[] vs = new int[length];
-        deserializePackedInts(vs, 0, length - 1, last - 1, in);
+        deserializePackedInts(vs, 0, length - 1, last, in);
         vs[length - 1] = last;
         return vs;
     }
@@ -78,7 +78,7 @@ public class SerializePacked
         if (length > 0)
         {
             int last = in.readUnsignedVInt32();
-            skipPackedInts(0, length - 1, last - 1, in);
+            skipPackedInts(0, length - 1, last, in);
         }
     }
 
@@ -92,7 +92,7 @@ public class SerializePacked
         if (vs.length == 0)
             return 0;
         int last = vs[vs.length - 1];
-        return TypeSizes.sizeofUnsignedVInt(last) + serializedPackedSize(vs.length - 1, last - 1);
+        return TypeSizes.sizeofUnsignedVInt(last) + serializedPackedSize(vs.length - 1, last);
     }
 
     public static void serializePackedInts(int[] vs, int from, int to, long max, DataOutputPlus out) throws IOException
