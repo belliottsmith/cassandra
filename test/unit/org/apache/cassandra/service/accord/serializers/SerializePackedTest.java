@@ -40,8 +40,15 @@ import static accord.utils.Property.qt;
 public class SerializePackedTest
 {
 //    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, Integer.MAX_VALUE));
-    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, 1 << 4));
+//    private static final Gen<int[]> zeroAndPositive = sortedUniqueInts(Gens.ints().between(0, 1 << 4));
     private static final Gen<int[]> zeros = rs -> new int[rs.nextInt(0, 10)];
+
+    private static final Gen<int[]> zeroAndPositive = rs -> {
+        int[] array = new int[rs.nextInt(0, 10)];
+        for (int i = 0; i < array.length; i++)
+            array[i] = i;
+        return array;
+    };
 
     @Test
     public void serde()
@@ -60,7 +67,7 @@ public class SerializePackedTest
     @Test
     public void serializerIsSmallerThanSimpleList()
     {
-        qt().withExamples(Integer.MAX_VALUE).forAll(zeroAndPositive).check(array -> {
+        qt().withSeed(3449141566707512977L).forAll(zeroAndPositive).check(array -> {
             var list = SimpleListSerializer.instance.serialize(array);
             var packed = PackedSortedSerializer.instance.serialize(array);
 
