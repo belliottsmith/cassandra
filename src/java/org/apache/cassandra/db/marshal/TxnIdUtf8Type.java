@@ -49,6 +49,12 @@ public class TxnIdUtf8Type extends PseudoUtf8Type
     String describe() { return "TxnId"; }
 
     @Override
+    public boolean isEmptyValueMeaningless()
+    {
+        return true;
+    }
+
+    @Override
     public TypeSerializer<String> getSerializer()
     {
         return txnIdSerializer;

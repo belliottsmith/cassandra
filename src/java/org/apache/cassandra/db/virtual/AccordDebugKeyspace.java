@@ -22,23 +22,20 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
-
-import com.google.common.collect.Sets;
 
 import accord.coordinate.AbstractCoordination;
 import accord.coordinate.Coordination;
@@ -86,10 +83,8 @@ import accord.primitives.Participants;
 import accord.primitives.ProgressToken;
 import accord.primitives.Route;
 import accord.primitives.SaveStatus;
-import accord.primitives.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
-import accord.utils.Invariants;
 import accord.utils.UnhandledEnum;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
@@ -120,7 +115,7 @@ import org.apache.cassandra.service.accord.AccordJournal;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTracing;
-import org.apache.cassandra.service.accord.CommandStoreTxnBlockedGraph;
+import org.apache.cassandra.service.accord.DebugBlockedTxns;
 import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.api.AccordAgent;
@@ -1452,23 +1447,23 @@ public class AccordDebugKeyspace extends VirtualKeyspace
 
     public static class TxnBlockedByTable extends AbstractLazyVirtualTable
     {
-        enum Reason { Self, Txn, Key }
+        enum Reason
+        {Self, Txn, Key}
 
         protected TxnBlockedByTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, TXN_BLOCKED_BY,
-                        "Accord Transactions Blocked By Table" ,
+                        "Accord Transactions Blocked By Table",
                         "CREATE TABLE %s (\n" +
                         "  txn_id 'TxnIdUtf8Type',\n" +
                         "  command_store_id int,\n" +
                         "  depth int,\n" +
-                        "  blocked_by 'TxnIdUtf8Type',\n" +
-                        "  reason text,\n" +
+                        "  blocked_by_key text,\n" +
+                        "  blocked_by_txn_id 'TxnIdUtf8Type',\n" +
                         "  save_status text,\n" +
                         "  execute_at text,\n" +
-                        "  key text,\n" +
-                        "  PRIMARY KEY (txn_id, command_store_id, depth, blocked_by, reason)" +
-                        ')', TxnIdUtf8Type.instance), BEST_EFFORT, UNSORTED);
+                        "  PRIMARY KEY (txn_id, command_store_id, depth, blocked_by_key, blocked_by_txn_id)" +
+                        ')', TxnIdUtf8Type.instance), BEST_EFFORT, ASC);
         }
 
         @Override
@@ -1478,66 +1473,29 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             if (pks == null)
                 throw new InvalidRequestException(metadata + " only supports single partition key queries");
 
-            int maxDepth = Integer.MAX_VALUE;
             FilterRange<Integer> depthRange = collector.filters("depth", Function.identity(), i -> i + 1, i -> i - 1);
-            if (depthRange != null && depthRange.max != null)
-                maxDepth = depthRange.max;
+            int maxDepth = depthRange.max == null ? Integer.MAX_VALUE : depthRange.max;
 
-            TxnId id = TxnId.parse((String)pks[0]);
-            List<CommandStoreTxnBlockedGraph> shards = AccordService.instance().debugTxnBlockedGraph(id);
-
-            CommandStores commandStores = AccordService.instance().node().commandStores();
-            for (CommandStoreTxnBlockedGraph shard : shards)
-            {
-                Set<TxnId> processed = new HashSet<>();
-                process(collector, commandStores, shard, processed, id, 0, maxDepth, id, Reason.Self, null);
-                // everything was processed right?
-                if (!shard.txns.isEmpty() && !shard.txns.keySet().containsAll(processed))
-                    Invariants.expect(false, "Skipped txns: " + Sets.difference(shard.txns.keySet(), processed));
-            }
-        }
-
-        private void process(PartitionsCollector collector, CommandStores commandStores, CommandStoreTxnBlockedGraph shard, Set<TxnId> processed, TxnId userTxn, int depth, int maxDepth, TxnId txnId, Reason reason, @Nullable RoutingKey key)
-        {
-            if (!processed.add(txnId))
-                throw new IllegalStateException("Double processed " + txnId);
-
-            CommandStoreTxnBlockedGraph.TxnState txn = shard.txns.get(txnId);
-            if (txn == null)
-            {
-                Invariants.require(reason == Reason.Self, "Txn %s unknown for reason %s", txnId, reason);
-                return;
-            }
-            // was it applied?  If so ignore it
-            if (reason != Reason.Self && txn.saveStatus.hasBeen(Status.Applied))
-                return;
-            TableId tableId = tableId(shard.commandStoreId, commandStores);
-            TableMetadata tableMetadata = tableMetadata(tableId);
-            collector.row(userTxn.toString(), shard.commandStoreId, depth, reason == Reason.Self ? "" : txn.txnId.toString(), reason.name())
-                     .eagerCollect(columns -> {
-                         columns.add("save_status", txn.saveStatus.name());
-                         if (txn.executeAt != null)
-                             columns.add("execute_at", txn.executeAt.toString());
-                        if (key != null)
-                            columns.add("key", printToken(key));
-                     });
-
-
-            if (txn.isBlocked())
-            {
-                for (TxnId blockedBy : txn.blockedBy)
+            TxnId txnId = TxnId.parse((String) pks[0]);
+            PartitionCollector partition = collector.partition(pks[0]);
+            partition.collect(rows -> {
+                try
                 {
-                    if (!processed.contains(blockedBy) && depth < maxDepth)
-                        process(collector, commandStores, shard, processed, userTxn, depth + 1, maxDepth, blockedBy, Reason.Txn, null);
+                    DebugBlockedTxns.visit(AccordService.instance(), txnId, maxDepth, collector.deadlineNanos(), txn -> {
+                        String keyStr = txn.blockedViaKey == null ? "" : txn.blockedViaKey.toString();
+                        String txnIdStr = txn.txnId == null || txn.txnId.equals(txnId) ? "" : txn.txnId.toString();
+                        rows.add(txn.commandStoreId, txn.depth, keyStr, txnIdStr)
+                            .eagerCollect(columns -> {
+                                columns.add("save_status", txn.saveStatus, TO_STRING)
+                                       .add("execute_at", txn.executeAt, TO_STRING);
+                            });
+                    });
                 }
-
-                for (TokenKey blockedBy : txn.blockedByKey)
+                catch (TimeoutException e)
                 {
-                    TxnId blocking = shard.keys.get(blockedBy);
-                    if (!processed.contains(blocking) && depth < maxDepth)
-                        process(collector, commandStores, shard, processed, userTxn, depth + 1, maxDepth, blocking, Reason.Key, blockedBy);
+                    throw new InternalTimeoutException();
                 }
-            }
+            });
         }
     }
 
@@ -1556,16 +1514,6 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         return Schema.instance.getTableMetadata(tableId);
     }
 
-    private static String keyspace(TableMetadata metadata)
-    {
-        return metadata == null ? "Unknown" : metadata.keyspace;
-    }
-
-    private static String table(TableId tableId, TableMetadata metadata)
-    {
-        return metadata == null ? tableId.toString() : metadata.name;
-    }
-
     private static String printToken(RoutingKey routingKey)
     {
         TokenKey key = (TokenKey) routingKey;
@@ -1579,11 +1527,6 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                                    .kind(TableMetadata.Kind.VIRTUAL)
                                    .partitioner(new LocalPartitioner(partitionKeyType))
                                    .build();
-    }
-
-    private static String toStr(Command command, Function<StoreParticipants, Participants<?>> a, Function<StoreParticipants, Participants<?>> b)
-    {
-        return toStr(command.participants(), a, b);
     }
 
     private static String toStr(StoreParticipants participants, Function<StoreParticipants, Participants<?>> a, Function<StoreParticipants, Participants<?>> b)

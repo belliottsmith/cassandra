@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -175,8 +176,6 @@ public interface IAccordService
     Agent agent();
 
     Id nodeId();
-
-    List<CommandStoreTxnBlockedGraph> debugTxnBlockedGraph(TxnId txnId);
 
     long minEpoch();
 
@@ -337,12 +336,6 @@ public interface IAccordService
         public Id nodeId()
         {
             throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public List<CommandStoreTxnBlockedGraph> debugTxnBlockedGraph(TxnId txnId)
-        {
-            return Collections.emptyList();
         }
 
         @Override
@@ -547,12 +540,6 @@ public interface IAccordService
         public Id nodeId()
         {
             return delegate.nodeId();
-        }
-
-        @Override
-        public List<CommandStoreTxnBlockedGraph> debugTxnBlockedGraph(TxnId txnId)
-        {
-            return delegate.debugTxnBlockedGraph(txnId);
         }
 
         @Override
