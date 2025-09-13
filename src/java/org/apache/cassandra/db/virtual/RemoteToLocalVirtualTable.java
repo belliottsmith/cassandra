@@ -23,6 +23,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.function.Function;
@@ -32,15 +33,19 @@ import org.apache.cassandra.cql3.Operator;
 import org.apache.cassandra.db.BufferClusteringBound;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.ClusteringBound;
+import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.PartitionRangeReadCommand;
+import org.apache.cassandra.db.RangeTombstone;
 import org.apache.cassandra.db.ReadCommand;
 import org.apache.cassandra.db.ReadResponse;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.Slice;
 import org.apache.cassandra.db.Slices;
+import org.apache.cassandra.db.TruncateRequest;
 import org.apache.cassandra.db.filter.ClusteringIndexFilter;
 import org.apache.cassandra.db.filter.ClusteringIndexSliceFilter;
 import org.apache.cassandra.db.filter.ColumnFilter;
@@ -50,8 +55,11 @@ import org.apache.cassandra.db.filter.RowFilter;
 import org.apache.cassandra.db.marshal.ByteBufferAccessor;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.Int32Type;
+import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.partitions.UnfilteredPartitionIterator;
+import org.apache.cassandra.db.rows.BTreeRow;
 import org.apache.cassandra.db.rows.Cell;
+import org.apache.cassandra.db.rows.ColumnData;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.Unfiltered;
 import org.apache.cassandra.db.rows.UnfilteredRowIterator;
@@ -68,6 +76,9 @@ import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.membership.NodeId;
+import org.apache.cassandra.utils.btree.BTree;
+import org.apache.cassandra.utils.concurrent.AsyncPromise;
+import org.apache.cassandra.utils.concurrent.Promise;
 import org.apache.cassandra.utils.concurrent.SyncPromise;
 
 import static org.apache.cassandra.db.ClusteringBound.BOTTOM;
@@ -228,16 +239,32 @@ public class RemoteToLocalVirtualTable extends AbstractLazyVirtualTable
 
     private void send(RequestAndResponse rr, InetAddressAndPort endpoint)
     {
-        MessagingService.instance().sendWithCallback(Message.out(Verb.READ_REQ, rr.readCommand), endpoint, new RequestCallback<ReadResponse>()
+        send(Verb.READ_REQ, rr.readCommand, rr, endpoint);
+    }
+
+    private <Reply> Promise<Reply> send(Verb verb, Object payload, InetAddressAndPort endpoint)
+    {
+        Promise<Reply> promise = new AsyncPromise<>();
+        send(verb, payload, promise, endpoint);
+        return promise;
+    }
+
+    private <Reply> void send(Verb verb, Object payload, Promise<Reply> promise, InetAddressAndPort endpoint)
+    {
+        // we have to send inline some of the MessagingService logic to circumvent the requirement to use AbstractWriteResponseHandler
+        Message<?> message = Message.out(verb, payload);
+        RequestCallback<?> callback = new RequestCallback<Reply>()
         {
-            @Override public void onResponse(Message<ReadResponse> msg) { rr.trySuccess(msg.payload); }
+            @Override public void onResponse(Message<Reply> msg) { promise.trySuccess(msg.payload); }
             @Override public boolean invokeOnFailure() { return true; }
             @Override public void onFailure(InetAddressAndPort from, RequestFailure failure)
             {
-                if (failure.failure == null) rr.tryFailure(new RuntimeException(failure.reason.toString()));
-                else rr.tryFailure(failure.failure);
+                if (failure.failure == null) promise.tryFailure(new RuntimeException(failure.reason.toString()));
+                else promise.tryFailure(failure.failure);
             }
-        });
+        };
+
+        MessagingService.instance().sendWithCallback(message, endpoint, callback);
     }
 
     private void collect(PartitionsCollector collector, RequestAndResponse rr, Function<DecoratedKey, ByteBuffer[]> pksToCks)
@@ -280,7 +307,6 @@ public class RemoteToLocalVirtualTable extends AbstractLazyVirtualTable
                 }
             }
         }
-
     }
 
     private static boolean selectsOneRow(TableMetadata metadata, DataRange dataRange, DecoratedKey key)
@@ -299,9 +325,9 @@ public class RemoteToLocalVirtualTable extends AbstractLazyVirtualTable
         return slice.start().equals(slice.end());
     }
 
-    private static Function<DecoratedKey, ByteBuffer[]> partitionKeyToClusterings(TableMetadata metadata, TableMetadata local)
+    private static Function<DecoratedKey, ByteBuffer[]> partitionKeyToClusterings(TableMetadata distributed, TableMetadata local)
     {
-        ByteBuffer[] cks = new ByteBuffer[metadata.clusteringColumns().size()];
+        ByteBuffer[] cks = new ByteBuffer[distributed.clusteringColumns().size()];
         if (local.partitionKeyColumns().size() == 1)
         {
             return pk -> {
@@ -447,5 +473,137 @@ public class RemoteToLocalVirtualTable extends AbstractLazyVirtualTable
     private static ClusteringIndexSliceFilter filter(TableMetadata metadata, ClusteringBound<?> start, ClusteringBound<?> end, boolean reversed)
     {
         return new ClusteringIndexSliceFilter(Slices.with(metadata.comparator, Slice.make(start, end)), reversed);
+    }
+
+    @Override
+    public void apply(PartitionUpdate update)
+    {
+        int nodeId = Int32Type.instance.compose(update.partitionKey().getKey());
+        InetAddressAndPort endpoint = ClusterMetadata.current().directory.endpoint(new NodeId(nodeId));
+        if (endpoint == null)
+            throw new InvalidRequestException("Unknown node " + nodeId);
+
+        DeletionInfo deletionInfo = update.deletionInfo();
+        if (!deletionInfo.getPartitionDeletion().isLive())
+        {
+            truncate(endpoint).syncThrowUncheckedOnInterrupt();
+            return;
+        }
+
+        int pkCount = local.partitionKeyColumns().size();
+        ByteBuffer[] pkBuffer, ckBuffer;
+        {
+            int ckCount = local.clusteringColumns().size();
+            pkBuffer = pkCount == 1 ? null : new ByteBuffer[pkCount];
+            ckBuffer = new ByteBuffer[ckCount];
+        }
+
+        PartitionUpdate.Builder builder = null;
+        ArrayDeque<Promise<Void>> results = new ArrayDeque<>();
+
+        if (deletionInfo.hasRanges())
+        {
+            Iterator<RangeTombstone> iterator = deletionInfo.rangeIterator(false);
+            while (iterator.hasNext())
+            {
+                RangeTombstone rt = iterator.next();
+                ClusteringBound start = rt.deletedSlice().start();
+                ClusteringBound end = rt.deletedSlice().end();
+                if (start.size() < pkCount || end.size() < pkCount)
+                    throw new InvalidRequestException("Range deletions must specify a complete partition key in the underlying table " + metadata);
+
+                for (int i = 0 ; i < pkCount ; ++i)
+                {
+                    if (0 != start.accessor().compare(start.get(i), end.get(i), end.accessor()))
+                        throw new InvalidRequestException("Range deletions must specify a single partition key in the underlying table " + metadata);
+                }
+
+                DecoratedKey key = remoteClusteringToLocalPartitionKey(local, start, pkCount, pkBuffer);
+                builder = maybeRolloverAndWait(key, builder, results, endpoint);
+                if (start.size() == pkCount && end.size() == pkCount)
+                {
+                    builder.addPartitionDeletion(rt.deletionTime());
+                }
+                else
+                {
+                    start = ClusteringBound.create(start.kind(), Clustering.make(remoteClusteringToLocalClustering(start.clustering(), pkCount, ckBuffer)));
+                    end = ClusteringBound.create(end.kind(), Clustering.make(remoteClusteringToLocalClustering(end.clustering(), pkCount, ckBuffer)));
+                    builder.add(new RangeTombstone(Slice.make(start, end), rt.deletionTime()));
+                }
+            }
+        }
+
+        if (!update.staticRow().isEmpty())
+            throw new InvalidRequestException("Static rows are not supported for remote table " + metadata);
+
+        try (BTree.FastBuilder<ColumnData> columns = BTree.fastBuilder())
+        {
+            for (Row row : update)
+            {
+                Clustering<?> clustering = row.clustering();
+                DecoratedKey key = remoteClusteringToLocalPartitionKey(local, clustering, pkCount, pkBuffer);
+                builder = maybeRolloverAndWait(key, builder, results, endpoint);
+                Clustering newClustering = Clustering.make(remoteClusteringToLocalClustering(clustering, pkCount, ckBuffer));
+                columns.reset();
+                for (ColumnData cd : row)
+                    columns.add(rebind(local, cd));
+                builder.add(BTreeRow.create(newClustering, row.primaryKeyLivenessInfo(), row.deletion(), columns.build()));
+            }
+        }
+
+        if (builder != null)
+            results.add(send(Verb.VIRTUAL_MUTATION_REQ, new VirtualMutation(builder.build()), endpoint));
+
+        while (!results.isEmpty())
+            results.pollFirst().syncThrowUncheckedOnInterrupt();
+    }
+
+    private PartitionUpdate.Builder maybeRolloverAndWait(DecoratedKey key, PartitionUpdate.Builder builder, ArrayDeque<Promise<Void>> waiting, InetAddressAndPort endpoint)
+    {
+        if (builder == null || !builder.partitionKey().equals(key))
+        {
+            if (builder != null)
+                waiting.add(send(Verb.VIRTUAL_MUTATION_REQ, new VirtualMutation(builder.build()), endpoint));
+            builder = new PartitionUpdate.Builder(local, key, local.regularAndStaticColumns(), 8);
+            while (waiting.size() >= MAX_CONCURRENCY)
+                waiting.pollFirst().syncThrowUncheckedOnInterrupt();
+        }
+        return builder;
+    }
+
+    private Promise<Void> truncate(InetAddressAndPort endpoint)
+    {
+        return send(Verb.TRUNCATE_REQ, new TruncateRequest(local.keyspace, local.name), endpoint);
+    }
+
+    private static ColumnData rebind(TableMetadata local, ColumnData cd)
+    {
+        ColumnMetadata column = local.getColumn(cd.column().name);
+
+        Invariants.require(column != null, cd.column() + " not found in " + local);
+        Invariants.require(!column.isComplex(), "Complex column " + column + " not supported; should have been removed from metadata");
+
+        return ((Cell<?>) cd).withUpdatedColumn(column);
+    }
+
+    private static DecoratedKey remoteClusteringToLocalPartitionKey(TableMetadata local, ClusteringPrefix clustering, int pkCount, ByteBuffer[] pkBuffer)
+    {
+        ByteBuffer bytes;
+        if (pkCount == 1) bytes = clustering.bufferAt(0);
+        else
+        {
+            for (int i = 0 ; i < pkBuffer.length ; ++i)
+                pkBuffer[i] = clustering.bufferAt(i);
+            bytes = CompositeType.build(ByteBufferAccessor.instance, pkBuffer);
+        }
+        return local.partitioner.decorateKey(bytes);
+    }
+
+    private static ByteBuffer[] remoteClusteringToLocalClustering(ClusteringPrefix clustering, int pkCount, ByteBuffer[] ckBuffer)
+    {
+        for (int i = pkCount ; i < clustering.size(); ++i)
+            ckBuffer[i - pkCount] = clustering.bufferAt(i);
+
+        return Arrays.copyOf(ckBuffer, clustering.size() - pkCount);
     }
 }

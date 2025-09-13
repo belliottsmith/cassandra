@@ -24,8 +24,11 @@ import javax.annotation.Nullable;
 import com.google.common.collect.Iterables;
 
 import org.apache.cassandra.schema.KeyspaceMetadata;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
+import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.ClusterMetadataService;
 
 public final class VirtualKeyspaceRegistry
 {

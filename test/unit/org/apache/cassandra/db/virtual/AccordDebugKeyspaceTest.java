@@ -19,6 +19,7 @@
 package org.apache.cassandra.db.virtual;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,12 +46,16 @@ import accord.primitives.Status.Durability.HasOutcome;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.async.AsyncChains;
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OptionaldPositiveInt;
+import org.apache.cassandra.config.YamlConfigurationLoader;
 import org.apache.cassandra.cql3.CQLTester;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
+import org.apache.cassandra.exceptions.ExceptionSerializer;
+import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
@@ -58,6 +63,7 @@ import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.CassandraDaemon;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.IAccordService;
@@ -113,11 +119,17 @@ public class AccordDebugKeyspaceTest extends CQLTester
     private static final String QUERY_JOURNAL =
         String.format("SELECT txn_id, save_status FROM %s.%s WHERE txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.JOURNAL);
 
+    private static final String ERASE_JOURNAL_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND command_store_id = ? AND txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.JOURNAL);
+
     private static final String QUERY_JOURNAL_REMOTE =
         String.format("SELECT txn_id, save_status FROM %s.%s WHERE node_id = ? AND txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.JOURNAL);
 
     private static final String SET_TRACE =
         String.format("UPDATE %s.%s SET permits = ? WHERE txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACE);
+
+    private static final String SET_TRACE_REMOTE =
+        String.format("UPDATE %s.%s SET permits = ? WHERE node_id = ? AND txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACE);
 
     private static final String QUERY_TRACE =
         String.format("SELECT * FROM %s.%s WHERE txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACE);
@@ -128,8 +140,14 @@ public class AccordDebugKeyspaceTest extends CQLTester
     private static final String UNSET_TRACE1 =
         String.format("DELETE FROM %s.%s WHERE txn_id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACE);
 
+    private static final String UNSET_TRACE1_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND txn_id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACE);
+
     private static final String UNSET_TRACE2 =
         String.format("DELETE FROM %s.%s WHERE txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACE);
+
+    private static final String UNSET_TRACE2_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACE);
 
     private static final String QUERY_TRACES =
         String.format("SELECT * FROM %s.%s WHERE txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACES);
@@ -140,11 +158,20 @@ public class AccordDebugKeyspaceTest extends CQLTester
     private static final String ERASE_TRACES1 =
         String.format("DELETE FROM %s.%s WHERE txn_id = ? AND event_type = ? AND id_micros < ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACES);
 
+    private static final String ERASE_TRACES1_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND txn_id = ? AND event_type = ? AND id_micros < ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACES);
+
     private static final String ERASE_TRACES2 =
         String.format("DELETE FROM %s.%s WHERE txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACES);
 
+    private static final String ERASE_TRACES2_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND txn_id = ? AND event_type = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACES);
+
     private static final String ERASE_TRACES3 =
         String.format("DELETE FROM %s.%s WHERE txn_id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_TRACES);
+
+    private static final String ERASE_TRACES3_REMOTE =
+        String.format("DELETE FROM %s.%s WHERE node_id = ? AND txn_id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_TRACES);
 
     private static final String QUERY_REDUNDANT_BEFORE =
         String.format("SELECT * FROM %s.%s", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.REDUNDANT_BEFORE);
@@ -167,16 +194,20 @@ public class AccordDebugKeyspaceTest extends CQLTester
     @BeforeClass
     public static void setUpClass()
     {
+        Config.setOverrideLoadConfig(() -> {
+            Config config = new YamlConfigurationLoader().loadConfig();
+            config.accord.queue_shard_count = new OptionaldPositiveInt(1);
+            config.accord.command_store_shard_count = new OptionaldPositiveInt(1);
+            config.accord.enable_virtual_debug_only_keyspace = true;
+            return config;
+        });
         daemonInitialization();
-        DatabaseDescriptor.getAccord().queue_shard_count = new OptionaldPositiveInt(1);
-        DatabaseDescriptor.getAccord().command_store_shard_count = new OptionaldPositiveInt(1);
         ProtocolModifiers.Toggles.setSendStableMessages(TO_ALL);
 
         CQLTester.setUpClass();
+        CassandraDaemon.getInstanceForTesting().setupVirtualKeyspaces();
 
         AccordService.startup(ClusterMetadata.current().myNodeId());
-        VirtualKeyspaceRegistry.instance.register(AccordDebugKeyspace.instance);
-        VirtualKeyspaceRegistry.instance.register(AccordDebugRemoteKeyspace.instance);
         requireNetwork();
     }
 
@@ -193,16 +224,18 @@ public class AccordDebugKeyspaceTest extends CQLTester
     public void tracing()
     {
         // simple test to confirm basic tracing functionality works, doesn't validate specific behaviours only requesting/querying/erasing
+        String tableName = createTable("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY (k, c)) WITH transactional_mode = 'full'");
+        AccordService accord = accord();
+        DatabaseDescriptor.getAccord().fetch_txn = "1s";
+        int nodeId = accord.nodeId().id;
+
         AccordMsgFilter filter = new AccordMsgFilter();
         MessagingService.instance().outboundSink.add(filter);
         try
         {
-            String tableName = createTable("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY (k, c)) WITH transactional_mode = 'full'");
-            AccordService accord = accord();
-            DatabaseDescriptor.getAccord().fetch_txn = "1s";
-            int nodeId = accord.nodeId().id;
             TxnId id = accord.node().nextTxnIdWithDefaultFlags(Txn.Kind.Write, Routable.Domain.Key);
             Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 0, 0, 0);
+            filter.appliesTo(id);
 
             execute(SET_TRACE, 1, id.toString(), "WAIT_PROGRESS");
             assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
@@ -238,6 +271,55 @@ public class AccordDebugKeyspaceTest extends CQLTester
             // just check other variants don't fail
             execute(ERASE_TRACES2, id.toString(), "WAIT_PROGRESS");
             execute(ERASE_TRACES3, id.toString());
+
+        }
+        finally
+        {
+            MessagingService.instance().outboundSink.remove(filter);
+        }
+
+        filter = new AccordMsgFilter();
+        MessagingService.instance().outboundSink.add(filter);
+        try
+        {
+            TxnId id = accord.node().nextTxnIdWithDefaultFlags(Txn.Kind.Write, Routable.Domain.Key);
+            Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 1, 1, 1);
+            filter.appliesTo(id);
+
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            execute(SET_TRACE_REMOTE, 0, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            execute(UNSET_TRACE1_REMOTE, nodeId, id.toString());
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            execute(UNSET_TRACE2_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            accord.node().coordinate(id, txn);
+            filter.preAccept.awaitThrowUncheckedOnInterrupt();
+            filter.apply.awaitThrowUncheckedOnInterrupt();
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
+            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "FETCH", Long.MAX_VALUE);
+            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "FETCH");
+            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS", Long.MAX_VALUE);
+            Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
+            Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
+            // just check other variants don't fail
+            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS");
+            execute(ERASE_TRACES3_REMOTE, nodeId, id.toString());
         }
         finally
         {
@@ -271,6 +353,22 @@ public class AccordDebugKeyspaceTest extends CQLTester
         Assertions.assertThat(execute(QUERY_REDUNDANT_BEFORE_FILTER_QUORUM_APPLIED_GEQ_REMOTE, nodeId, syncId2.toString()).size()).isEqualTo(1);
         Assertions.assertThat(execute(QUERY_REDUNDANT_BEFORE_FILTER_SHARD_APPLIED_GEQ_REMOTE, nodeId, syncId1.toString()).size()).isEqualTo(1);
         Assertions.assertThat(execute(QUERY_REDUNDANT_BEFORE_FILTER_SHARD_APPLIED_GEQ_REMOTE, nodeId, syncId2.toString()).size()).isEqualTo(0);
+    }
+
+    @Test
+    public void reportInvalidRequestForUnsupportedRemoteToLocal()
+    {
+        AccordService accord = accord();
+        int nodeId = accord.nodeId().id;
+        TxnId id = accord.node().nextTxnIdWithDefaultFlags(Txn.Kind.Write, Routable.Domain.Key);
+        try
+        {
+            execute(ERASE_JOURNAL_REMOTE, nodeId, 1, id.toString());
+        }
+        catch (ExceptionSerializer.RemoteException t)
+        {
+            Assertions.assertThat(t.originalClass).isEqualTo(InvalidRequestException.class.getName());
+        }
     }
 
     @Test
@@ -531,6 +629,14 @@ public class AccordDebugKeyspaceTest extends CQLTester
         }
 
         ConcurrentMap<TxnId, ConcurrentSkipListSet<Verb>> txnToVerbs = new ConcurrentHashMap<>();
+        Set<TxnId> applyTo;
+
+        void appliesTo(TxnId txnId)
+        {
+            if (applyTo == null)
+                applyTo = Collections.newSetFromMap(new ConcurrentHashMap<>());
+            applyTo.add(txnId);
+        }
 
         @Override
         public boolean test(Message<?> msg, InetAddressAndPort to)
@@ -541,6 +647,8 @@ public class AccordDebugKeyspaceTest extends CQLTester
             if (msg.payload instanceof TxnRequest)
             {
                 txnId = ((TxnRequest<?>) msg.payload).txnId;
+                if (applyTo != null && !applyTo.contains(txnId))
+                    return true;
             }
             Set<Verb> seen;
             if (txnId != null)
@@ -572,6 +680,10 @@ public class AccordDebugKeyspaceTest extends CQLTester
                 case ACCORD_AWAIT_REQ:
                 case ACCORD_AWAIT_RSP:
                 case ACCORD_AWAIT_ASYNC_RSP_REQ:
+                case ACCORD_INFORM_DURABLE_REQ:
+                case ACCORD_SIMPLE_RSP:
+                case ACCORD_BEGIN_RECOVER_RSP:
+                case ACCORD_APPLY_RSP:
                     return true;
                 default:
                     // many code paths don't log the error...
