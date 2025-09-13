@@ -32,6 +32,8 @@ import org.apache.cassandra.schema.TableMetadata;
  */
 public interface VirtualTable
 {
+    enum Sorted { UNSORTED, ASC, DESC, SORTED }
+
     /**
      * Returns the view name.
      *
@@ -62,7 +64,7 @@ public interface VirtualTable
      * @param clusteringIndexFilter the clustering columns to selected
      * @param columnFilter          the selected columns
      * @param rowFilter             filter on which rows a given query should include or exclude
-     * @param limits
+     * @param limits                result limits to apply
      * @return the rows corresponding to the requested data.
      */
     UnfilteredPartitionIterator select(DecoratedKey partitionKey, ClusteringIndexFilter clusteringIndexFilter, ColumnFilter columnFilter, RowFilter rowFilter, DataLimits limits);
