@@ -59,6 +59,7 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.SystemKeyspaceMigrator41;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.virtual.AccordDebugKeyspace;
+import org.apache.cassandra.db.virtual.AccordDebugRemoteKeyspace;
 import org.apache.cassandra.db.virtual.LogMessagesTable;
 import org.apache.cassandra.db.virtual.SlowQueriesTable;
 import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
@@ -556,7 +557,10 @@ public class CassandraDaemon
         VirtualKeyspaceRegistry.instance.register(new VirtualKeyspace(VIRTUAL_METRICS, createMetricsKeyspaceTables()));
 
         if (DatabaseDescriptor.getAccord().enable_virtual_debug_only_keyspace)
+        {
             VirtualKeyspaceRegistry.instance.register(AccordDebugKeyspace.instance);
+            VirtualKeyspaceRegistry.instance.register(AccordDebugRemoteKeyspace.instance);
+        }
 
         // Flush log messages to system_views.system_logs virtual table as there were messages already logged
         // before that virtual table was instantiated.
