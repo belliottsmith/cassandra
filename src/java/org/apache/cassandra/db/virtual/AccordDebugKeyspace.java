@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.virtual;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
@@ -27,22 +28,32 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import javax.annotation.Nullable;
 
+import com.google.common.collect.ImmutableSet;
+
 import accord.coordinate.AbstractCoordination;
 import accord.coordinate.Coordination;
+import accord.coordinate.Coordination.CoordinationKind;
 import accord.coordinate.Coordinations;
 import accord.coordinate.PrepareRecovery;
 import accord.coordinate.tracking.AbstractTracker;
 import accord.local.cfk.CommandsForKey.TxnInfo;
+import accord.primitives.Ranges;
+import accord.primitives.Routable;
+import accord.primitives.RoutingKeys;
+import accord.primitives.Txn;
 import accord.utils.SortedListMap;
+import accord.utils.TinyEnumSet;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.db.marshal.TxnIdUtf8Type;
@@ -50,7 +61,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.RoutingKey;
-import accord.api.TraceEventType;
 import accord.coordinate.FetchData;
 import accord.coordinate.FetchRoute;
 import accord.coordinate.MaybeRecover;
@@ -114,9 +124,14 @@ import org.apache.cassandra.service.accord.AccordJournal;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTracing;
+import org.apache.cassandra.service.accord.AccordTracing.BucketMode;
+import org.apache.cassandra.service.accord.AccordTracing.CoordinationKinds;
+import org.apache.cassandra.service.accord.AccordTracing.TracePattern;
+import org.apache.cassandra.service.accord.AccordTracing.TxnKindsAndDomains;
 import org.apache.cassandra.service.accord.DebugBlockedTxns;
 import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.JournalKey;
+import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.AccordAgent;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.consensus.migration.ConsensusMigrationState;
@@ -124,7 +139,6 @@ import org.apache.cassandra.service.consensus.migration.TableMigrationState;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.LocalizeString;
 
-import static accord.api.TraceEventType.RECOVER;
 import static accord.coordinate.Infer.InvalidIf.NotKnownToBeInvalid;
 import static accord.local.RedundantStatus.Property.GC_BEFORE;
 import static accord.local.RedundantStatus.Property.LOCALLY_APPLIED;
@@ -151,13 +165,14 @@ import static org.apache.cassandra.utils.MonotonicClock.Global.approxTime;
 
 public class AccordDebugKeyspace extends VirtualKeyspace
 {
-    public static final String COORDINATIONS      = "coordinations";
-    public static final String EXECUTORS          = "executors";
     public static final String COMMANDS_FOR_KEY   = "commands_for_key";
     public static final String COMMANDS_FOR_KEY_UNMANAGED = "commands_for_key_unmanaged";
+    public static final String CONSTANTS          = "constants";
+    public static final String COORDINATIONS      = "coordinations";
     public static final String DURABILITY_SERVICE = "durability_service";
     public static final String DURABLE_BEFORE     = "durable_before";
     public static final String EXECUTOR_CACHE     = "executor_cache";
+    public static final String EXECUTORS          = "executors";
     public static final String JOURNAL            = "journal";
     public static final String MAX_CONFLICTS      = "max_conflicts";
     public static final String MIGRATION_STATE    = "migration_state";
@@ -166,6 +181,8 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     public static final String REJECT_BEFORE      = "reject_before";
     public static final String TXN                = "txn";
     public static final String TXN_BLOCKED_BY     = "txn_blocked_by";
+    public static final String TXN_PATTERN_TRACE  = "txn_pattern_trace";
+    public static final String TXN_PATTERN_TRACES = "txn_pattern_traces";
     public static final String TXN_TRACE          = "txn_trace";
     public static final String TXN_TRACES         = "txn_traces";
     public static final String TXN_OPS            = "txn_ops";
@@ -194,11 +211,42 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             new TxnTable(),
             new TxnTraceTable(),
             new TxnTracesTable(),
-            new TxnOpsTable()
+            new TxnPatternTraceTable(),
+            new TxnPatternTracesTable(),
+            new TxnOpsTable(),
+            new ConstantsTable()
         ));
     }
 
-    // TODO (desired): human readable packed key tracker (but requires loading Txn, so might be preferable to only do conditionally)
+    public static final class ConstantsTable extends AbstractVirtualTable
+    {
+        private final SimpleDataSet dataSet;
+        private ConstantsTable()
+        {
+            super(parse(VIRTUAL_ACCORD_DEBUG, CONSTANTS,
+                        "Accord Debug Keyspace Constants",
+                        "CREATE TABLE %s (\n" +
+                        "  kind text,\n" +
+                        "  name text,\n" +
+                        "  description text,\n" +
+                        "  PRIMARY KEY (kind, name)" +
+                        ')', UTF8Type.instance));
+            dataSet = new SimpleDataSet(metadata());
+
+            for (CoordinationKind coordinationKind : CoordinationKind.values())
+                dataSet.row("CoordinationKind", coordinationKind.name());
+
+            for (TxnOpsTable.Op op : TxnOpsTable.Op.values())
+                dataSet.row("Op", op.name()).column("description", op.description);
+        }
+
+        @Override
+        public DataSet data()
+        {
+            return dataSet;
+        }
+    }
+
     public static final class ExecutorsTable extends AbstractLazyVirtualTable
     {
         private ExecutorsTable()
@@ -921,7 +969,9 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "CREATE TABLE %s (\n" +
                         "  txn_id 'TxnIdUtf8Type',\n" +
                         "  event_type text,\n" +
+                        "  chance float,\n" +
                         "  bucket_mode text,\n" +
+                        "  managed_by_pattern boolean,\n" +
                         "  permits int,\n" +
                         "  saved int,\n" +
                         "  total int,\n" +
@@ -933,21 +983,18 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         protected void collect(PartitionsCollector collector)
         {
             AccordTracing tracing = tracing();
-            tracing.forEach(id -> true, (txnId, eventType, mode, permits, total, events) -> {
+            tracing.forEach(id -> true, (txnId, eventType, events) -> {
                 collector.row(txnId.toString(), eventType.toString())
                          .eagerCollect(columns -> {
-                             columns.add("bucket_mode", mode.name())
-                                    .add("permits", permits)
+                             columns.add("bucket_mode", events.mode().name())
+                                    .add("chance", events.chance())
+                                    .add("managed_by_pattern", events.hasOwner())
+                                    .add("permits", events.permits())
                                     .add("saved", events.size())
-                                    .add("total", total);
+                                    .add("total", events.total())
+                             ;
                 });
             });
-
-        }
-
-        private AccordTracing tracing()
-        {
-            return ((AccordAgent)AccordService.instance().agent()).tracing();
         }
 
         @Override
@@ -968,59 +1015,55 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         protected void applyRowUpdate(Object[] partitionKeys, @Nullable Object[] clusteringKeys, ColumnMetadata[] columns, Object[] values)
         {
             TxnId txnId = TxnId.parse((String)partitionKeys[0]);
-            TraceEventType eventType = parseEventType((String)clusteringKeys[0]);
-            AccordTracing.BucketMode newMode = null;
+            CoordinationKind eventType = parseEventType((String)clusteringKeys[0]);
+            BucketMode newMode = null;
+            boolean unsetManagedByOwner = false;
             int newPermits = -1;
             int newTotal = -1;
+            float newChance = Float.NaN;
             for (int i = 0 ; i < columns.length ; ++i)
             {
                 String name = columns[i].name.toString();
                 switch (name)
                 {
-                    default: throw new InvalidRequestException("Cannot update '" + name + "'");
+                    default: throw new InvalidRequestException("Cannot update '" + name + '\'');
+                    case "bucket_mode":
+                        newMode = checkBucketMode(values[i]);
+                        break;
+                    case "chance":
+                        newChance = checkChance(values[i], name);
+                        break;
+                    case "managed_by_pattern":
+                        if (values[i] != null && (Boolean)values[i])
+                            throw new InvalidRequestException("Can only unset '" + name + '\'');
+                        unsetManagedByOwner = true;
+                        break;
                     case "permits":
-                        newPermits = checkNonNegative(values[i], "permits", 0);
+                        newPermits = checkNonNegative(values[i], name, 0);
                         break;
                     case "total":
-                        newTotal = checkNonNegative(values[i], "total", 0);
+                        newTotal = checkNonNegative(values[i], name, 0);
                         break;
-                    case "bucket_mode":
-                        try { newMode = AccordTracing.BucketMode.valueOf(((String)values[i]).toLowerCase()); }
-                        catch (IllegalArgumentException | NullPointerException e)
-                        {
-                            throw new InvalidRequestException("Unknown bucket_mode '" + values[i] + "'");
-                        }
                 }
             }
 
             if (newPermits == 0)
             {
-                if (newMode != null || newTotal > 0)
-                    throw new InvalidRequestException("If clearing permits, cannot set 'bucket_mode' or 'total'.");
+                if (newMode != null || newTotal > 0 || !Float.isNaN(newChance))
+                    throw new InvalidRequestException("If clearing permits, cannot set other fields.");
                 tracing().erasePermits(txnId, eventType);
             }
             else
             {
-                if (!tracing().set(txnId, eventType, newMode, newPermits, newTotal))
-                    throw new InvalidRequestException("No permits found; cannot set 'bucket_mode' or 'total'.");
+                if (!tracing().set(txnId, eventType, newMode, newPermits, newTotal, newChance, unsetManagedByOwner))
+                    throw new InvalidRequestException("No permits found; cannot set other fields.");
             }
-        }
-
-        private static int checkNonNegative(Object value, String field, int ifNull)
-        {
-            if (value == null)
-                return ifNull;
-
-            int v = (Integer)value;
-            if (v < 0)
-                throw new InvalidRequestException("Cannot set '" + field + "' to negative value");
-            return v;
         }
 
         @Override
         public void truncate()
         {
-            tracing().eraseAllEvents();
+            tracing().eraseAllPermits();
         }
     }
 
@@ -1041,11 +1084,6 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         ')', TxnIdUtf8Type.instance), FAIL, UNSORTED, UNSORTED);
         }
 
-        private AccordTracing tracing()
-        {
-            return ((AccordAgent)AccordService.instance().agent()).tracing();
-        }
-
         @Override
         protected void applyPartitionDeletion(Object[] partitionKeys)
         {
@@ -1062,7 +1100,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             if (ends.length == 0 || (ends.length == 1 && !endInclusive)) throw invalidRequest("Range deletion must specify one event_type");
             if (!ends[0].equals(starts[0])) throw invalidRequest("May restrict deletion by at most one event_type");
             if (ends.length > 2) throw invalidRequest("Deletion restricted by upper bound on at_micros is unsupported");
-            TraceEventType eventType = parseEventType((String) starts[0]);
+            CoordinationKind eventType = parseEventType((String) starts[0]);
             if (ends.length == 1)
             {
                 tracing().eraseEvents(txnId, eventType);
@@ -1083,7 +1121,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         @Override
         public void collect(PartitionsCollector collector)
         {
-            tracing().forEach(id -> true, (txnId, eventType, mode, permits, total, events) -> {
+            tracing().forEach(id -> true, (txnId, eventType, events) -> {
                 events.forEach(e -> {
                     if (e.messages().isEmpty())
                     {
@@ -1103,6 +1141,243 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         });
                     }
                 });
+            });
+        }
+    }
+
+    /**
+     * Usage:
+     * collect N events (may be more than N messages)
+     * UPDATE system_accord_debug.txn_trace SET permits = N WHERE txn_id = ? AND event_type = ?
+     * SELECT * FROM system_accord_debug.txn_traces WHERE txn_id = ? AND event_type = ?
+     */
+    public static final class TxnPatternTraceTable extends AbstractMutableLazyVirtualTable
+    {
+        private TxnPatternTraceTable()
+        {
+            super(parse(VIRTUAL_ACCORD_DEBUG, TXN_PATTERN_TRACE,
+                        "Accord Transaction Pattern Trace Configuration",
+                        "CREATE TABLE %s (\n" +
+                        "  id int,\n" +
+                        "  bucket_mode text,\n" +
+                        "  chance float,\n" +
+                        "  child_bucket_mode text,\n" +
+                        "  child_type_permits int,\n" +
+                        "  child_types text,\n" +
+                        "  kinds text,\n" +
+                        "  intersects text,\n" +
+                        "  is_creator boolean,\n" +
+                        "  permits int,\n" +
+                        "  saved int,\n" +
+                        "  total int,\n" +
+                        "  trace_failure text,\n" +
+                        "  trace_new text,\n" +
+                        "  PRIMARY KEY (id)" +
+                        ')', Int32Type.instance), FAIL, SORTED);
+        }
+
+        @Override
+        protected void collect(PartitionsCollector collector)
+        {
+            AccordTracing tracing = tracing();
+            tracing.forEachPattern((state) -> {
+                collector.row(state.id())
+                         .eagerCollect(columns -> {
+                             columns.add("bucket_mode", state.mode().name())
+                                    .add("chance", state.pattern().chance)
+                                    .add("child_bucket_mode", state.childMode().name())
+                                    .add("child_type_permits", state.childTypePermits())
+                                    .add("child_types", state.childTypes(), TO_STRING)
+                                    .add("intersects", state.pattern().intersects, TxnPatternTraceTable::toString)
+                                    .add("is_creator", state.pattern().isCreator)
+                                    .add("kinds", state.pattern().kinds, TO_STRING)
+                                    .add("permits", state.permits())
+                                    .add("saved", state.size())
+                                    .add("total", state.total())
+                                    .add("trace_failure", state.pattern().traceFailures, TO_STRING)
+                                    .add("trace_new", state.pattern().traceNew, TO_STRING)
+                             ;
+                });
+            });
+        }
+
+        @Override
+        protected void applyPartitionDeletion(Object[] partitionKeys)
+        {
+            int id = (Integer) partitionKeys[0];
+            tracing().erasePattern(id);
+        }
+
+        @Override
+        protected void applyRowUpdate(Object[] partitionKeys, @Nullable Object[] clusteringKeys, ColumnMetadata[] columns, Object[] values)
+        {
+            int id = (Integer)partitionKeys[0];
+            Function<TracePattern, TracePattern> pattern = Function.identity();
+            CoordinationKinds newChildTypes = null;
+            BucketMode newMode = null, newChildMode = null;
+            int newPermits = -1, newChildTypePermits = -1;
+            int newTotal = -1;
+            for (int i = 0 ; i < columns.length ; ++i)
+            {
+                String name = columns[i].name.toString();
+                switch (name)
+                {
+                    default: throw new InvalidRequestException("Cannot update '" + name + '\'');
+                    case "bucket_mode":
+                        newMode = checkBucketMode(values[i]);
+                        break;
+                    case "chance":
+                        float newChance = checkChance(values[i], name);
+                        pattern = pattern.andThen(p -> p.withChance(newChance));
+                        break;
+                    case "child_bucket_mode":
+                        newChildMode = checkBucketMode(values[i]);
+                        break;
+                    case "child_types":
+                        newChildTypes = tryParseCoordinationKinds(values[i]);
+                        break;
+                    case "child_type_permits":
+                        newChildTypePermits = checkNonNegative(values[i], name, 0);
+                        break;
+                    case "intersects":
+                        Participants<?> intersects = parseParticipants(values[i]);
+                        pattern = pattern.andThen(p -> p.withIntersects(intersects));
+                        break;
+                    case "is_creator":
+                        Boolean isCreator = (Boolean) values[i];
+                        pattern = pattern.andThen(p -> p.withIsCreator(isCreator));
+                        break;
+                    case "kinds":
+                        TxnKindsAndDomains kinds = tryParseTxnKinds(values[i]);
+                        pattern = pattern.andThen(p -> p.withKinds(kinds));
+                        break;
+                    case "permits":
+                        newPermits = checkNonNegative(values[i], name, 0);
+                        break;
+                    case "total":
+                        newTotal = checkNonNegative(values[i], name, 0);
+                        break;
+                    case "trace_failure":
+                        CoordinationKinds traceFailures = tryParseCoordinationKinds(values[i]);
+                        pattern = pattern.andThen(p -> p.withTraceFailures(traceFailures));
+                        break;
+                    case "trace_new":
+                        CoordinationKinds traceNew = tryParseCoordinationKinds(values[i]);
+                        pattern = pattern.andThen(p -> p.withTraceNew(traceNew));
+                        break;
+                }
+            }
+
+            tracing().setPattern(id, pattern, newMode, newChildMode, newChildTypes, newChildTypePermits, newPermits, newTotal);
+        }
+
+        private static String toString(Participants<?> participants)
+        {
+            StringBuilder out = new StringBuilder();
+            for (Routable r : participants)
+            {
+                if (out.length() != 0)
+                    out.append('|');
+                out.append(r);
+            }
+            return out.toString();
+        }
+
+        private static Participants<?> parseParticipants(Object input)
+        {
+            if (input == null)
+                return null;
+
+            String[] vs = ((String)input).split("\\|");
+            if (vs.length == 0)
+                return RoutingKeys.EMPTY;
+
+            if (!vs[0].endsWith("]"))
+            {
+                RoutingKey[] keys = new RoutingKey[vs.length];
+                for (int i = 0 ; i < keys.length ; ++i)
+                {
+                    try { keys[i] = TokenKey.parse(vs[i], DatabaseDescriptor.getPartitioner()); }
+                    catch (Throwable t) { throw new InvalidRequestException("Could not parse TokenKey " + vs[0]); }
+                }
+                return RoutingKeys.of(keys);
+            }
+            else
+            {
+                TokenRange[] ranges = new TokenRange[vs.length];
+                for (int i = 0 ; i < ranges.length ; ++i)
+                {
+                    try { ranges[i] = TokenRange.parse(vs[0], DatabaseDescriptor.getPartitioner()); }
+                    catch (Throwable t) { throw new InvalidRequestException("Could not parse TokenKey " + vs[0]); }
+                }
+                return Ranges.of(ranges);
+            }
+        }
+
+        private static CoordinationKinds tryParseCoordinationKinds(Object input)
+        {
+            if (input == null)
+                return null;
+
+            return CoordinationKinds.parse((String) input);
+        }
+
+        private static TxnKindsAndDomains tryParseTxnKinds(Object input)
+        {
+            if (input == null)
+                return null;
+
+            return TxnKindsAndDomains.parse((String) input);
+        }
+
+        @Override
+        public void truncate()
+        {
+            tracing().eraseAllPatterns();
+        }
+    }
+
+    public static final class TxnPatternTracesTable extends AbstractMutableLazyVirtualTable
+    {
+        private TxnPatternTracesTable()
+        {
+            super(parse(VIRTUAL_ACCORD_DEBUG, TXN_PATTERN_TRACES,
+                        "Accord Transaction Pattern Traces",
+                        "CREATE TABLE %s (\n" +
+                        "  id int,\n" +
+                        "  txn_id 'TxnIdUtf8Type',\n" +
+                        "  PRIMARY KEY (id, txn_id)" +
+                        ')', Int32Type.instance), FAIL, SORTED, SORTED);
+        }
+
+        @Override
+        protected void applyPartitionDeletion(Object[] partitionKeys)
+        {
+            int id = (Integer) partitionKeys[0];
+            tracing().erasePatternTraces(id);
+        }
+
+        @Override
+        public void truncate()
+        {
+            tracing().eraseAllPatternTraces();
+        }
+
+        @Override
+        public void collect(PartitionsCollector collector)
+        {
+            tracing().forEachPattern(state -> {
+                if (state.size() == 0)
+                {
+                    collector.row(state.id(), "")
+                             .eagerCollect(column -> {});
+                }
+                else
+                {
+                    for (int i = 0, size = state.size(); i < size ;++i)
+                        collector.row(state.id(), state.get(i).toString())
+                                 .eagerCollect(columns -> {});
+                }
             });
         }
     }
@@ -1334,7 +1609,24 @@ public class AccordDebugKeyspace extends VirtualKeyspace
     public static final class TxnOpsTable extends AbstractMutableLazyVirtualTable
     {
         // TODO (expected): test each of these operations
-        enum Op { ERASE_VESTIGIAL, INVALIDATE, TRY_EXECUTE, FORCE_APPLY, FORCE_UPDATE, RECOVER, FETCH, RESET_PROGRESS_LOG }
+        enum Op
+        {
+            LOCALLY_ERASE_VESTIGIAL("USE WITH CAUTION: Move the command to the vestigial status, erasing its contents. This has distributed state machine implications."),
+            LOCALLY_INVALIDATE("USE WITH CAUTION: Move the command to the invalidated status, erasing its contents. This has distributed state machine implications."),
+            TRY_EXECUTE("Try to execute a stuck transaction. This is safe, and will no-op if not able to."),
+            FORCE_APPLY("USE WITH CAUTION: Apply the command if we have the relevant information locally."),
+            FORCE_UPDATE("Try to reset in-memory book-keeping related to a command."),
+            RECOVER("Initiate recovery for a command."),
+            FETCH("Initiate a fetch request for a command."),
+            REQUEUE_PROGRESS_LOG("Ask the progress log to queue both home and waiting states.");
+
+            final String description;
+
+            Op(String description)
+            {
+                this.description = description;
+            }
+        }
         private TxnOpsTable()
         {
             super(parse(VIRTUAL_ACCORD_DEBUG, TXN_OPS,
@@ -1359,23 +1651,15 @@ public class AccordDebugKeyspace extends VirtualKeyspace
             TxnId txnId = TxnId.parse((String) partitionKeys[0]);
             int commandStoreId = (Integer) clusteringKeys[0];
 
-            Op op;
-            try
-            {
-                op = Op.valueOf(((String)values[0]).toLowerCase());
-            }
-            catch (IllegalArgumentException | NullPointerException e)
-            {
-                throw new InvalidRequestException("Unknown op '" + values[0] + '\'');
-            }
+            Op op = tryParse(values[0], true, Op.class, Op::valueOf);
 
             switch (op)
             {
                 default: throw new UnhandledEnum(op);
-                case ERASE_VESTIGIAL:
+                case LOCALLY_ERASE_VESTIGIAL:
                     cleanup(txnId, commandStoreId, Cleanup.VESTIGIAL);
                     break;
-                case INVALIDATE:
+                case LOCALLY_INVALIDATE:
                     cleanup(txnId, commandStoreId, Cleanup.INVALIDATE);
                     break;
                 case TRY_EXECUTE:
@@ -1413,7 +1697,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         recover(txnId, route, result);
                     });
                     break;
-                case RESET_PROGRESS_LOG:
+                case REQUEUE_PROGRESS_LOG:
                     run(txnId, commandStoreId, safeStore -> {
                         ((DefaultProgressLog)safeStore.progressLog()).requeue(safeStore, TxnStateKind.Waiting, txnId);
                         ((DefaultProgressLog)safeStore.progressLog()).requeue(safeStore, TxnStateKind.Home, txnId);
@@ -1434,7 +1718,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 BiConsumer<Route<?>, AsyncResult.Settable<Void>> consumer = apply.apply(command);
                 if (command.route() == null)
                 {
-                    FetchRoute.fetchRoute(node, txnId, command.maxContactable(), LatentStoreSelector.standard(), (success, fail) -> {
+                    FetchRoute.fetchRoute(node, txnId, command.maxParticipants(), LatentStoreSelector.standard(), (success, fail) -> {
                         if (fail != null) result.setFailure(fail);
                         else consumer.accept(success, result);
                     });
@@ -1464,7 +1748,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 PrepareRecovery.recover(node, node.someSequentialExecutor(), txnId, NotKnownToBeInvalid, (FullRoute<?>) route, null, LatentStoreSelector.standard(), (success, fail) -> {
                     if (fail != null) result.setFailure(fail);
                     else result.setSuccess(null);
-                }, node.agent().trace(txnId, RECOVER));
+                }, null);
             }
             else
             {
@@ -1552,21 +1836,6 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
     }
 
-    private static TableId tableId(int commandStoreId, CommandStores commandStores)
-    {
-        AccordCommandStore commandStore = (AccordCommandStore) commandStores.forId(commandStoreId);
-        if (commandStore == null)
-            return null;
-        return commandStore.tableId();
-    }
-
-    private static TableMetadata tableMetadata(TableId tableId)
-    {
-        if (tableId == null)
-            return null;
-        return Schema.instance.getTableMetadata(tableId);
-    }
-
     private static String printToken(RoutingKey routingKey)
     {
         TokenKey key = (TokenKey) routingKey;
@@ -1594,10 +1863,9 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         return av + " (" + bv + ')';
     }
 
-    private static TraceEventType parseEventType(String input)
+    private static CoordinationKind parseEventType(String input)
     {
-        try { return TraceEventType.valueOf(LocalizeString.toUpperCaseLocalized(input, Locale.ENGLISH)); }
-        catch (Throwable t) { throw invalidRequest("event_type must be one of %s; received %s", TraceEventType.values(), input); }
+        return tryParse(input, false, CoordinationKind.class, CoordinationKind::valueOf);
     }
 
     private static String toStringOrNull(Object o)
@@ -1612,6 +1880,66 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         catch (Throwable t)
         {
             return "<error: " + t.getLocalizedMessage() + '>';
+        }
+    }
+
+    private static BucketMode checkBucketMode(Object value)
+    {
+        try { return AccordTracing.BucketMode.valueOf(LocalizeString.toUpperCaseLocalized((String)value, Locale.ENGLISH)); }
+        catch (IllegalArgumentException | NullPointerException e)
+        {
+            throw new InvalidRequestException("Unknown bucket_mode '" + value + '\'');
+        }
+
+    }
+
+    private static int checkNonNegative(Object value, String field, int ifNull)
+    {
+        if (value == null)
+            return ifNull;
+
+        int v = (Integer)value;
+        if (v < 0)
+            throw new InvalidRequestException("Cannot set '" + field + "' to negative value");
+        return v;
+    }
+
+    private static float checkChance(Object value, String field)
+    {
+        if (value == null)
+            return 1.0f;
+
+        float v = (Float)value;
+        if (v <= 0 || v > 1.0f)
+            throw new InvalidRequestException("Cannot set '" + field + "' to value outside the range (0..1]");
+        return v;
+    }
+
+    private static <T extends Enum<T>> Set<String> toStrings(TinyEnumSet<T> set, IntFunction<T> lookup)
+    {
+        ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+        for (T t : set.iterable(lookup))
+            builder.add(t.name());
+        return builder.build();
+    }
+
+    private static AccordTracing tracing()
+    {
+        return ((AccordAgent)AccordService.instance().agent()).tracing();
+    }
+
+    private static <E extends Enum<E>> E tryParse(Object input, boolean toUpperCase, Class<E> clazz, Function<String, E> valueOf)
+    {
+        try
+        {
+            String str = (String) input;
+            if (toUpperCase)
+                str = LocalizeString.toUpperCaseLocalized(str, Locale.ENGLISH);
+            return valueOf.apply(str);
+        }
+        catch (IllegalArgumentException | NullPointerException e)
+        {
+            throw new InvalidRequestException("Unknown " + clazz.getName() + ": '" + input + '\'');
         }
     }
 }

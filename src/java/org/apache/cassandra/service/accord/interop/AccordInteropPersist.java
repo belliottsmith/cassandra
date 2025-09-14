@@ -20,7 +20,10 @@ package org.apache.cassandra.service.accord.interop;
 
 import java.util.function.BiConsumer;
 
+import javax.annotation.Nullable;
+
 import accord.api.Result;
+import accord.api.Tracing;
 import accord.coordinate.ExecuteFlag;
 import accord.coordinate.Persist;
 import accord.coordinate.tracking.AllTracker;
@@ -112,9 +115,9 @@ public class AccordInteropPersist extends Persist
     private final ConsistencyLevel consistencyLevel;
     private CallbackHolder callback;
 
-    public AccordInteropPersist(Node node, SequentialAsyncExecutor executor, Topologies topologies, TxnId txnId, Route<?> sendTo, Ballot ballot, Txn txn, Timestamp executeAt, Deps deps, Writes writes, Result result, FullRoute<?> fullRoute, ConsistencyLevel consistencyLevel, ExecuteFlag.CoordinationFlags flags, boolean informDurableOnDone, Apply.Kind applyKind, BiConsumer<? super Result, Throwable> clientCallback)
+    public AccordInteropPersist(Node node, SequentialAsyncExecutor executor, Topologies topologies, TxnId txnId, Route<?> sendTo, Ballot ballot, Txn txn, Timestamp executeAt, Deps deps, Writes writes, Result result, FullRoute<?> fullRoute, ConsistencyLevel consistencyLevel, ExecuteFlag.CoordinationFlags flags, boolean informDurableOnDone, Apply.Kind applyKind, BiConsumer<? super Result, Throwable> clientCallback, @Nullable Tracing tracing)
     {
-        super(node, executor, topologies, txnId, ballot, sendTo, txn, executeAt, deps, writes, result, fullRoute, flags, informDurableOnDone, AccordInteropApply.FACTORY, applyKind);
+        super(node, executor, topologies, txnId, ballot, sendTo, txn, executeAt, deps, writes, result, fullRoute, flags, informDurableOnDone, AccordInteropApply.FACTORY, applyKind, tracing);
         Invariants.requireArgument(consistencyLevel == ConsistencyLevel.QUORUM || consistencyLevel == ConsistencyLevel.ALL || consistencyLevel == ConsistencyLevel.SERIAL || consistencyLevel == ConsistencyLevel.ONE);
         this.consistencyLevel = consistencyLevel;
         registerClientCallback(result, clientCallback);

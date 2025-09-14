@@ -190,6 +190,12 @@ public class AccordDebugKeyspaceTest extends CQLTester
     private static final String QUERY_REDUNDANT_BEFORE_FILTER_SHARD_APPLIED_GEQ_REMOTE =
         String.format("SELECT * FROM %s.%s WHERE node_id = ? AND shard_applied >= ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.REDUNDANT_BEFORE);
 
+    private static final String SET_PATTERN_TRACE =
+        String.format("UPDATE %s.%s SET bucket_mode = ?, chance = ?, child_bucket_mode = ?, child_type_permits = ?, child_types = ?, kinds = ?, intersects = ?, is_creator = ?, permits = ?, total = ?, trace_failure = ?, trace_new = ? WHERE id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_PATTERN_TRACE);
+
+    private static final String QUERY_PATTERN_TRACE =
+        String.format("SELECT * FROM %s.%s WHERE id = ?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_PATTERN_TRACE);
+
     @BeforeClass
     public static void setUpClass()
     {
@@ -236,39 +242,39 @@ public class AccordDebugKeyspaceTest extends CQLTester
             Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 0, 0, 0);
             filter.appliesTo(id);
 
-            execute(SET_TRACE, 1, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
-            execute(SET_TRACE, 0, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE, 1, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            execute(SET_TRACE, 1, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
+            execute(SET_TRACE, 0, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE, 1, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
             execute(UNSET_TRACE1, id.toString());
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE, 1, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
-            execute(UNSET_TRACE2, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE, 1, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE, 1, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
+            execute(UNSET_TRACE2, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE, 1, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
             accord.node().coordinate(id, txn);
             filter.preAccept.awaitThrowUncheckedOnInterrupt();
             filter.apply.awaitThrowUncheckedOnInterrupt();
-            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
-            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
-            execute(ERASE_TRACES1, id.toString(), "FETCH", Long.MAX_VALUE);
-            execute(ERASE_TRACES2, id.toString(), "FETCH");
-            execute(ERASE_TRACES1, id.toString(), "WAIT_PROGRESS", Long.MAX_VALUE);
-            Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
-            Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WaitProgress").size()).isGreaterThan(0));
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WaitProgress").size()).isGreaterThan(0));
+            execute(ERASE_TRACES1, id.toString(), "Fetch", Long.MAX_VALUE);
+            execute(ERASE_TRACES2, id.toString(), "Fetch");
+            execute(ERASE_TRACES1, id.toString(), "WaitProgress", Long.MAX_VALUE);
+            Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WaitProgress").size()).isEqualTo(0);
+            Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WaitProgress").size()).isEqualTo(0);
             // just check other variants don't fail
-            execute(ERASE_TRACES2, id.toString(), "WAIT_PROGRESS");
+            execute(ERASE_TRACES2, id.toString(), "WaitProgress");
             execute(ERASE_TRACES3, id.toString());
 
         }
@@ -285,40 +291,85 @@ public class AccordDebugKeyspaceTest extends CQLTester
             Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 1, 1, 1);
             filter.appliesTo(id);
 
-            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
-            execute(SET_TRACE_REMOTE, 0, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
+            execute(SET_TRACE_REMOTE, 0, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
             execute(UNSET_TRACE1_REMOTE, nodeId, id.toString());
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
-            execute(UNSET_TRACE2_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"));
-            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WAIT_PROGRESS");
-            assertRows(execute(QUERY_TRACE, id.toString(), "WAIT_PROGRESS"), row(id.toString(), "WAIT_PROGRESS", 1));
-            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS"), row(nodeId, id.toString(), "WAIT_PROGRESS", 1));
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
+            execute(UNSET_TRACE2_REMOTE, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"));
+            execute(SET_TRACE_REMOTE, 1, nodeId, id.toString(), "WaitProgress");
+            assertRows(execute(QUERY_TRACE, id.toString(), "WaitProgress"), row(id.toString(), "WaitProgress", 1));
+            assertRows(execute(QUERY_TRACE_REMOTE, nodeId, id.toString(), "WaitProgress"), row(nodeId, id.toString(), "WaitProgress", 1));
             accord.node().coordinate(id, txn);
             filter.preAccept.awaitThrowUncheckedOnInterrupt();
             filter.apply.awaitThrowUncheckedOnInterrupt();
-            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
-            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isGreaterThan(0));
-            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "FETCH", Long.MAX_VALUE);
-            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "FETCH");
-            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS", Long.MAX_VALUE);
-            Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
-            Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS").size()).isEqualTo(0);
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WaitProgress").size()).isGreaterThan(0));
+            spinUntilSuccess(() -> Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WaitProgress").size()).isGreaterThan(0));
+            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "Fetch", Long.MAX_VALUE);
+            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "Fetch");
+            execute(ERASE_TRACES1_REMOTE, nodeId, id.toString(), "WaitProgress", Long.MAX_VALUE);
+            Assertions.assertThat(execute(QUERY_TRACES, id.toString(), "WaitProgress").size()).isEqualTo(0);
+            Assertions.assertThat(execute(QUERY_TRACES_REMOTE, nodeId, id.toString(), "WaitProgress").size()).isEqualTo(0);
             // just check other variants don't fail
-            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "WAIT_PROGRESS");
+            execute(ERASE_TRACES2_REMOTE, nodeId, id.toString(), "WaitProgress");
             execute(ERASE_TRACES3_REMOTE, nodeId, id.toString());
+        }
+        finally
+        {
+            MessagingService.instance().outboundSink.remove(filter);
+        }
+    }
+
+    @Test
+    public void patternTracing()
+    {
+        // simple test to confirm basic tracing functionality works, doesn't validate specific behaviours only requesting/querying/erasing
+        String tableName = createTable("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY (k, c)) WITH transactional_mode = 'full'");
+        AccordService accord = accord();
+        DatabaseDescriptor.getAccord().fetch_txn = "1s";
+        int nodeId = accord.nodeId().id;
+
+        AccordMsgFilter filter = new AccordMsgFilter();
+        MessagingService.instance().outboundSink.add(filter);
+        try
+        {
+            TxnId id = accord.node().nextTxnIdWithDefaultFlags(Txn.Kind.Write, Routable.Domain.Key);
+            Txn txn = createTxn(wrapInTxn(String.format("INSERT INTO %s.%s(k, c, v) VALUES (?, ?, ?)", KEYSPACE, tableName)), 0, 0, 0);
+            filter.appliesTo(id);
+
+                /*
+                        "  bucket_mode text,\n" +
+                        "  chance float,\n" +
+                        "  child_bucket_mode text,\n" +
+                        "  child_type_permits int,\n" +
+                        "  child_types set<text>,\n" +
+                        "  domains set<text>,\n" +
+                        "  intersects text,\n" +
+                        "  is_creator boolean,\n" +
+                        "  kinds set<text>,\n" +
+                        "  permits int,\n" +
+                        "  saved int,\n" +
+                        "  total int,\n" +
+                        "  trace_failure_excl set<text>,\n" +
+                        "  trace_failure_incl set<text>,\n" +
+                        "  trace_new boolean,\n" +
+
+    * */
+
+            execute(SET_PATTERN_TRACE, "leaky", 1.0f, "ring", 5, "+{WaitProgress}", "-{*X}", "tid:1:1|tid:1:2", true, 10, 0, "-{WaitProgress}", null, 1);
+            assertRows(execute(QUERY_PATTERN_TRACE, 1), row(1, "LEAKY", 1.0f, "RING", 5, "+{WaitProgress}", "tid:1:1|tid:1:2", true, "-{KX,RX}", 10, 0, 0, "-{WaitProgress}", null));
         }
         finally
         {
@@ -546,13 +597,13 @@ public class AccordDebugKeyspaceTest extends CQLTester
     @Test
     public void patchJournalVestigialTest()
     {
-        testPatchJournal("ERASE_VESTIGIAL", "Vestigial");
+        testPatchJournal("LOCALLY_ERASE_VESTIGIAL", "Vestigial");
     }
 
     @Test
     public void patchJournalInvalidateTest()
     {
-        testPatchJournal("INVALIDATE", "Invalidated");
+        testPatchJournal("LOCALLY_INVALIDATE", "Invalidated");
     }
 
     @Test
@@ -563,9 +614,8 @@ public class AccordDebugKeyspaceTest extends CQLTester
             testPatchJournal("ERASE", "Erased");
             Assert.fail("Should have thrown");
         }
-        catch (Throwable t)
+        catch (InvalidRequestException t)
         {
-            Assert.assertTrue(t.getMessage().contains("No enum constant"));
         }
     }
 

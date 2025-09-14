@@ -21,6 +21,7 @@ import java.util.Iterator;
 
 import javax.annotation.Nullable;
 
+import accord.utils.Invariants;
 import org.apache.cassandra.db.ClusteringPrefix;
 import org.apache.cassandra.db.DeletionInfo;
 import org.apache.cassandra.db.RangeTombstone;
@@ -102,7 +103,9 @@ public abstract class AbstractMutableLazyVirtualTable extends AbstractLazyVirtua
                 columns[i] = cm;
                 if (!cell.isTombstone())
                     values[i] = cm.type.compose(cell.value(), cell.accessor());
+                ++i;
             }
+            Invariants.require(i == columns.length);
             applyRowUpdate(pks, cks, columns, values);
         }
     }
