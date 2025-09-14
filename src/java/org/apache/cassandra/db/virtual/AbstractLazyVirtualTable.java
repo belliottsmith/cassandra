@@ -564,6 +564,9 @@ public abstract class AbstractLazyVirtualTable implements VirtualTable
             public <V1, V2> ColumnsCollector add(String name, V1 v1, Function<? super V1, ? extends V2> f1, Function<? super V2, ?> f2)
             {
                 ColumnMetadata cm = columnLookup.get(name);
+                if (cm == null)
+                    throw new IllegalArgumentException("Unknown column name " + name);
+
                 if (!columnFilter.fetches(cm))
                     return this;
 

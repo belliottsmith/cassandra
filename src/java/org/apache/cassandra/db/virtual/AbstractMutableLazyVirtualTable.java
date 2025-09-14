@@ -68,7 +68,7 @@ public abstract class AbstractMutableLazyVirtualTable extends AbstractLazyVirtua
         throw invalidRequest("Row deletion is not supported by table %s", metadata());
     }
 
-    protected void applyRowUpdate(Object[] partitionKey, @Nullable Object[] clusteringColumns, ColumnMetadata[] columns, Object[] values)
+    protected void applyRowUpdate(Object[] partitionKeys, @Nullable Object[] clusteringKeys, ColumnMetadata[] columns, Object[] values)
     {
         throw invalidRequest("Column modification is not supported by table %s", metadata());
     }

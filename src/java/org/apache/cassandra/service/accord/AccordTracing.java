@@ -27,7 +27,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
@@ -40,8 +42,13 @@ import accord.api.Tracing;
 import accord.api.TraceEventType;
 import accord.local.CommandStore;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
+import accord.utils.UnhandledEnum;
+import org.apache.cassandra.service.ClientWarn;
 import org.apache.cassandra.utils.Clock;
 import org.apache.cassandra.utils.NoSpamLogger;
+
+import static org.apache.cassandra.service.accord.AccordTracing.BucketMode.LEAKY;
 
 public class AccordTracing
 {
@@ -49,9 +56,14 @@ public class AccordTracing
     private static final Logger logger = LoggerFactory.getLogger(AccordTracing.class);
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1L, TimeUnit.MINUTES);
 
+    public enum BucketMode
+    {
+        LEAKY, SAMPLE, RING
+    }
+
     public interface ConsumeState
     {
-        void accept(TxnId txnId, TraceEventType eventType, int permits, List<Event> events);
+        void accept(TxnId txnId, TraceEventType eventType, BucketMode mode, int permits, int total, List<Event> events);
     }
 
     public static class Message
@@ -104,8 +116,8 @@ public class AccordTracing
 
     static class TraceState extends AbstractList<Event>
     {
-        int permits;
-        int size;
+        public BucketMode mode = LEAKY;
+        int permits, size, total;
         Event[] events;
 
         void addInternal(Event event)
@@ -171,16 +183,37 @@ public class AccordTracing
                 if (curState == null || curState.permits == 0)
                     return cur;
 
-                if (count.incrementAndGet() >= MAX_EVENTS)
+                if (curState.permits > curState.size)
                 {
-                    count.decrementAndGet();
-                    noSpamLogger.warn("Too many Accord trace events stored already; delete some to continue tracing");
-                }
-                else
-                {
-                    curState.permits--;
+                    if (count.incrementAndGet() >= MAX_EVENTS)
+                    {
+                        count.decrementAndGet();
+                        ClientWarn.instance.warn("Too many Accord trace events stored already; delete some to continue tracing");
+                        noSpamLogger.warn("Too many Accord trace events stored already; delete some to continue tracing");
+                        return cur;
+                    }
                     curState.addInternal(event = new Event());
+                    return cur;
                 }
+
+                if (++curState.total < 0)
+                    curState.total = Integer.MAX_VALUE;
+                int position;
+                switch (curState.mode)
+                {
+                    default: throw UnhandledEnum.unknown(curState.mode);
+                    case LEAKY:
+                        position = Integer.MAX_VALUE;
+                        break;
+                    case RING:
+                        position = curState.total % curState.permits;
+                        break;
+                    case SAMPLE:
+                        position = ThreadLocalRandom.current().nextInt(curState.total);
+                }
+
+                if (position < curState.permits)
+                    curState.set(position, event = new Event());
                 return cur;
             }
         }
@@ -189,31 +222,38 @@ public class AccordTracing
         return register.event;
     }
 
-    public void setPermits(TxnId txnId, TraceEventType eventType, int newPermits)
+    // null values, or values < 0, are ignored
+    public boolean set(TxnId txnId, TraceEventType eventType, BucketMode newMode, int newPermits, int newTotal)
     {
+        AtomicBoolean failure = new AtomicBoolean();
+        Invariants.requireArgument(newPermits != 0);
         stateMap.compute(txnId, (id, cur) -> {
-            if (newPermits != 0)
+            TraceState state;
+            if (newPermits > 0)
             {
                 if (cur == null)
                     cur = new EnumMap<>(TraceEventType.class);
-                cur.computeIfAbsent(eventType, ignore -> new TraceState()).permits = newPermits;
+
+                state = cur.computeIfAbsent(eventType, ignore -> new TraceState());
+                state.permits = newPermits;
             }
-            else if (cur != null)
+            else
             {
-                TraceState curState = cur.get(eventType);
-                if (curState != null)
+                state = cur == null ? null : cur.get(eventType);
+                if (state == null || state.permits == 0)
                 {
-                    if (!curState.isEmpty()) curState.permits = 0;
-                    else
-                    {
-                        cur.remove(eventType);
-                        if (cur.isEmpty())
-                            return null;
-                    }
+                    failure.set(true);
+                    return cur;
                 }
             }
+
+            if (newMode != null)
+                state.mode = newMode;
+            if (newTotal >= 0)
+                state.total = newTotal;
             return cur;
         });
+        return !failure.get();
     }
 
     public void erasePermits(TxnId txnId)
@@ -235,7 +275,23 @@ public class AccordTracing
 
     public void erasePermits(TxnId txnId, TraceEventType eventType)
     {
-        setPermits(txnId, eventType, 0);
+        stateMap.compute(txnId, (id, cur) -> {
+            if (cur != null)
+            {
+                TraceState curState = cur.get(eventType);
+                if (curState != null)
+                {
+                    if (!curState.isEmpty()) curState.permits = 0;
+                    else
+                    {
+                        cur.remove(eventType);
+                        if (cur.isEmpty())
+                            return null;
+                    }
+                }
+            }
+            return cur;
+        });
     }
 
     public void eraseEvents(TxnId txnId)
@@ -250,6 +306,7 @@ public class AccordTracing
                 TraceState state = iter.next();
                 count.addAndGet(-state.size());
                 state.truncate(state.size());
+                state.total = 0;
                 if (state.permits == 0) iter.remove();
             }
             return cur.isEmpty() ? null : cur;
@@ -267,6 +324,7 @@ public class AccordTracing
 
                 count.addAndGet(-state.size());
                 state.truncate(state.size());
+                state.total = 0;
                 if (state.permits == 0)
                     cur.remove(eventType);
                 if (cur.isEmpty())
@@ -290,6 +348,12 @@ public class AccordTracing
                     ++i;
                 state.truncate(i);
                 count.addAndGet(-i);
+                if (state.isEmpty())
+                {
+                    state.total = 0;
+                    if (state.permits == 0)
+                        cur.remove(eventType);
+                }
                 if (cur.isEmpty())
                     return null;
             }
@@ -315,7 +379,7 @@ public class AccordTracing
                 // ensure lock is held for duration of callback
                 stateMap.compute(txnId, (id, cur) -> {
                     if (cur != null)
-                        cur.forEach((event, events) -> forEach.accept(txnId, event, events.permits, Collections.unmodifiableList(events)));
+                        cur.forEach((event, events) -> forEach.accept(txnId, event, events.mode, events.permits, events.total, Collections.unmodifiableList(events)));
                     return cur;
                 });
             }

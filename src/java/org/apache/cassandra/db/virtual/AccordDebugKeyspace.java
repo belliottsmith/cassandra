@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
@@ -913,7 +912,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
      * UPDATE system_accord_debug.txn_trace SET permits = N WHERE txn_id = ? AND event_type = ?
      * SELECT * FROM system_accord_debug.txn_traces WHERE txn_id = ? AND event_type = ?
      */
-    public static final class TxnTraceTable extends AbstractMutableVirtualTable
+    public static final class TxnTraceTable extends AbstractMutableLazyVirtualTable
     {
         private TxnTraceTable()
         {
@@ -922,20 +921,28 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                         "CREATE TABLE %s (\n" +
                         "  txn_id 'TxnIdUtf8Type',\n" +
                         "  event_type text,\n" +
+                        "  bucket_mode text,\n" +
                         "  permits int,\n" +
+                        "  saved int,\n" +
+                        "  total int,\n" +
                         "  PRIMARY KEY (txn_id, event_type)" +
-                        ')', TxnIdUtf8Type.instance));
+                        ')', TxnIdUtf8Type.instance), FAIL, UNSORTED);
         }
 
         @Override
-        public DataSet data()
+        protected void collect(PartitionsCollector collector)
         {
             AccordTracing tracing = tracing();
-            SimpleDataSet dataSet = new SimpleDataSet(metadata());
-            tracing.forEach(id -> true, (txnId, eventType, permits, events) -> {
-                dataSet.row(txnId.toString(), eventType.toString()).column("permits", permits);
+            tracing.forEach(id -> true, (txnId, eventType, mode, permits, total, events) -> {
+                collector.row(txnId.toString(), eventType.toString())
+                         .eagerCollect(columns -> {
+                             columns.add("bucket_mode", mode.name())
+                                    .add("permits", permits)
+                                    .add("saved", events.size())
+                                    .add("total", total);
+                });
             });
-            return dataSet;
+
         }
 
         private AccordTracing tracing()
@@ -944,34 +951,70 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         }
 
         @Override
-        protected void applyPartitionDeletion(ColumnValues partitionKey)
+        protected void applyPartitionDeletion(Object[] partitionKey)
         {
-            TxnId txnId = TxnId.parse(partitionKey.value(0));
+            TxnId txnId = TxnId.parse((String)partitionKey[0]);
             tracing().erasePermits(txnId);
         }
 
         @Override
-        protected void applyRowDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns)
+        protected void applyRowDeletion(Object[] partitionKeys, Object[] clusteringKeys)
         {
-            TxnId txnId = TxnId.parse(partitionKey.value(0));
-            tracing().erasePermits(txnId, parseEventType(clusteringColumns.value(0)));
+            TxnId txnId = TxnId.parse((String)partitionKeys[0]);
+            tracing().erasePermits(txnId, parseEventType((String)clusteringKeys[0]));
         }
 
         @Override
-        protected void applyColumnDeletion(ColumnValues partitionKey, ColumnValues clusteringColumns, String columnName)
+        protected void applyRowUpdate(Object[] partitionKeys, @Nullable Object[] clusteringKeys, ColumnMetadata[] columns, Object[] values)
         {
-            TxnId txnId = TxnId.parse(partitionKey.value(0));
-            TraceEventType eventType = parseEventType(clusteringColumns.value(0));
-            tracing().erasePermits(txnId, eventType);
+            TxnId txnId = TxnId.parse((String)partitionKeys[0]);
+            TraceEventType eventType = parseEventType((String)clusteringKeys[0]);
+            AccordTracing.BucketMode newMode = null;
+            int newPermits = -1;
+            int newTotal = -1;
+            for (int i = 0 ; i < columns.length ; ++i)
+            {
+                String name = columns[i].name.toString();
+                switch (name)
+                {
+                    default: throw new InvalidRequestException("Cannot update '" + name + "'");
+                    case "permits":
+                        newPermits = checkNonNegative(values[i], "permits", 0);
+                        break;
+                    case "total":
+                        newTotal = checkNonNegative(values[i], "total", 0);
+                        break;
+                    case "bucket_mode":
+                        try { newMode = AccordTracing.BucketMode.valueOf(((String)values[i]).toLowerCase()); }
+                        catch (IllegalArgumentException | NullPointerException e)
+                        {
+                            throw new InvalidRequestException("Unknown bucket_mode '" + values[i] + "'");
+                        }
+                }
+            }
+
+            if (newPermits == 0)
+            {
+                if (newMode != null || newTotal > 0)
+                    throw new InvalidRequestException("If clearing permits, cannot set 'bucket_mode' or 'total'.");
+                tracing().erasePermits(txnId, eventType);
+            }
+            else
+            {
+                if (!tracing().set(txnId, eventType, newMode, newPermits, newTotal))
+                    throw new InvalidRequestException("No permits found; cannot set 'bucket_mode' or 'total'.");
+            }
         }
 
-        @Override
-        protected void applyColumnUpdate(ColumnValues partitionKey, ColumnValues clusteringColumns, Optional<ColumnValue> columnValue)
+        private static int checkNonNegative(Object value, String field, int ifNull)
         {
-            TxnId txnId = TxnId.parse(partitionKey.value(0));
-            TraceEventType eventType = parseEventType(clusteringColumns.value(0));
-            if (columnValue.isEmpty()) tracing().erasePermits(txnId, eventType);
-            else tracing().setPermits(txnId, eventType, columnValue.get().value());
+            if (value == null)
+                return ifNull;
+
+            int v = (Integer)value;
+            if (v < 0)
+                throw new InvalidRequestException("Cannot set '" + field + "' to negative value");
+            return v;
         }
 
         @Override
@@ -1040,7 +1083,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         @Override
         public void collect(PartitionsCollector collector)
         {
-            tracing().forEach(id -> true, (txnId, eventType, permits, events) -> {
+            tracing().forEach(id -> true, (txnId, eventType, mode, permits, total, events) -> {
                 events.forEach(e -> {
                     if (e.messages().isEmpty())
                     {
@@ -1315,7 +1358,17 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         {
             TxnId txnId = TxnId.parse((String) partitionKeys[0]);
             int commandStoreId = (Integer) clusteringKeys[0];
-            Op op = Op.valueOf((String)values[0]);
+
+            Op op;
+            try
+            {
+                op = Op.valueOf(((String)values[0]).toLowerCase());
+            }
+            catch (IllegalArgumentException | NullPointerException e)
+            {
+                throw new InvalidRequestException("Unknown op '" + values[0] + '\'');
+            }
+
             switch (op)
             {
                 default: throw new UnhandledEnum(op);
