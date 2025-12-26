@@ -71,7 +71,7 @@ import org.apache.cassandra.metrics.AccordSystemMetrics;
 import org.apache.cassandra.net.ResponseContext;
 import org.apache.cassandra.service.RetryStrategy;
 import org.apache.cassandra.service.accord.AccordService;
-import org.apache.cassandra.service.accord.AccordTracing;
+import org.apache.cassandra.service.accord.debug.AccordTracing;
 import org.apache.cassandra.service.accord.serializers.TableMetadatasAndKeys;
 import org.apache.cassandra.service.accord.txn.TxnQuery;
 import org.apache.cassandra.service.accord.txn.TxnRead;
