@@ -18,10 +18,11 @@
 
 package org.apache.cassandra.db.virtual;
 
-import java.util.Collections;
 import java.util.ArrayList;
-import java.util.EnumSet;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -33,18 +34,34 @@ import java.util.function.BiPredicate;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
+import accord.api.Journal;
 import accord.api.ProtocolModifiers;
 import accord.messages.NoWaitRequest;
 import accord.api.RoutingKey;
+import accord.local.Command;
+import accord.local.CommandStore;
+import accord.local.Node;
+import accord.local.StoreParticipants;
+import accord.primitives.Ballot;
+import accord.primitives.FullRoute;
+import accord.primitives.KeyDeps;
 import accord.primitives.Keys;
+import accord.primitives.PartialDeps;
+import accord.primitives.Range;
+import accord.primitives.RangeDeps;
 import accord.primitives.Ranges;
 import accord.primitives.Routable;
+import accord.primitives.Routables;
 import accord.primitives.SaveStatus;
+import accord.primitives.Status;
 import accord.primitives.Status.Durability.HasOutcome;
+import accord.primitives.Timestamp;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
+import accord.topology.TopologyException;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OptionaldPositiveInt;
@@ -76,6 +93,8 @@ import org.assertj.core.api.Assertions;
 import org.awaitility.Awaitility;
 
 import static accord.api.ProtocolModifiers.Toggles.SendStableMessages.TO_ALL;
+import static accord.primitives.Routables.Slice.Minimal;
+import static accord.primitives.Status.Durability.NotDurable;
 import static accord.primitives.TxnId.FastPath.Unoptimised;
 import static org.apache.cassandra.Util.spinUntilSuccess;
 import static org.apache.cassandra.net.Verb.ACCORD_APPLY_AND_WAIT_REQ;
@@ -91,6 +110,21 @@ public class AccordDebugKeyspaceTest extends CQLTester
 
     private static final String QUERY_TXN_BLOCKED_BY_REMOTE =
         String.format("SELECT * FROM %s.%s WHERE node_id = ? AND txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_BLOCKED_BY);
+
+    private static final String QUERY_TXN_GRAPH =
+        String.format("SELECT * FROM %s.%s WHERE txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_GRAPH);
+
+    private static final String QUERY_TXN_GRAPH_INTERSECTS =
+        String.format("SELECT * FROM %s.%s WHERE txn_id=? AND expr(intersects, ?)", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_GRAPH);
+
+    private static final String QUERY_TXN_GRAPH_REMOTE =
+        String.format("SELECT * FROM %s.%s WHERE node_id = ? AND txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_GRAPH);
+
+    private static final String QUERY_TXN_GRAPH_ALL =
+        String.format("SELECT * FROM %s.%s WHERE txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.TXN_GRAPH_ALL);
+
+    private static final String QUERY_TXN_GRAPH_REMOTE_ALL =
+        String.format("SELECT * FROM %s.%s WHERE node_id = ? AND txn_id=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG_REMOTE, AccordDebugKeyspace.TXN_GRAPH_ALL);
 
     private static final String QUERY_COMMANDS_FOR_KEY =
         String.format("SELECT txn_id, status FROM %s.%s WHERE key=?", SchemaConstants.VIRTUAL_ACCORD_DEBUG, AccordDebugKeyspace.COMMANDS_FOR_KEY);
@@ -672,6 +706,251 @@ public class AccordDebugKeyspaceTest extends CQLTester
         }
     }
 
+    @Test
+    public void graph() throws TopologyException
+    {
+        AccordService accord = accord();
+        String tableName = createTable("CREATE TABLE %s (k int, c int, v int, PRIMARY KEY (k, c)) WITH transactional_mode = 'full'");
+        String insertTxn = String.format("BEGIN TRANSACTION\n" +
+                                         "    LET r = (SELECT * FROM %s.%s WHERE k = ? AND c = ?);\n" +
+                                         "    IF r IS NULL THEN\n " +
+                                         "        INSERT INTO %s.%s (k, c, v) VALUES (?, ?, ?);\n" +
+                                         "    END IF\n" +
+                                         "COMMIT TRANSACTION", KEYSPACE, tableName, KEYSPACE, tableName);
+        Txn txa = createTxn(insertTxn, 0, 0, 0, 0, 0);
+        AccordCommandStore commandStore = (AccordCommandStore) accord.node().commandStores().unsafeForKey((RoutingKey) txa.keys().get(0).toUnseekable());
+        Txn txb, txc;
+        {
+            int i = 0;
+            Txn tmp;
+            do { ++i; tmp = createTxn(insertTxn, i, 0, i, 0, 0); }
+            while (!commandStore.unsafeGetRangesForEpoch().all().contains(tmp.keys().get(0).asKey()));
+            txb = tmp;
+            txc = createTxn(insertTxn, i, 0, 0, 0, 0);
+        }
+
+        long epoch = accord.currentEpoch();
+
+        TxnId[] ida = ids(epoch, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(1), 1, 2, 3, 4, 6);
+        SaveStatus[] ssa = new SaveStatus[] { SaveStatus.PreAccepted, SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed };
+        Timestamp[] tsa = toTimestamps(ida);
+        tsa[2] = Timestamp.fromValues(epoch, 5, new Node.Id(1));
+        FullRoute<?> rta = accord.node().computeRoute(ida[0], txa.keys().toParticipants());
+
+        TxnId[] idb = ids(epoch, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(2), 1, 2, 3, 4, 6);
+        SaveStatus[] ssb = new SaveStatus[] { SaveStatus.PreAccepted, SaveStatus.PreAccepted, SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed };
+        Timestamp[] tsb = toTimestamps(idb);
+        tsb[2] = Timestamp.fromValues(epoch, 5, new Node.Id(2));
+        FullRoute<?> rtb = accord.node().computeRoute(idb[0], txb.keys().toParticipants());
+
+        TxnId[] ide = ids(epoch, Txn.Kind.ExclusiveSyncPoint, Routable.Domain.Range, new Node.Id(3), 1, 2, 3, 4, 6);
+        SaveStatus[] sse = new SaveStatus[] { SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed, SaveStatus.Committed };
+        Timestamp[] tse = toTimestamps(ide);
+        Txn txe = accord.node().agent().emptySystemTxn(Txn.Kind.ExclusiveSyncPoint, Routable.Domain.Range);
+        FullRoute<?> rte = accord.node().computeRoute(ide[0], txa.keys().toParticipants().toRanges().with(txb.keys().toParticipants().toRanges()));
+
+        write(commandStore, preaccepted(rta, ida[0], tsa[0], txa));
+        write(commandStore, committed(rta, ida[1], tsa[1], txa, ida, 0));
+        write(commandStore, committed(rta, ida[2], tsa[2], txa, ida, 0, 1, 3));
+        write(commandStore, committed(rta, ida[3], tsa[3], txa, ida, 0, 1, 2));
+        write(commandStore, committed(rta, ida[4], tsa[4], txa, ida, 0, 1, 2, 3));
+
+        write(commandStore, preaccepted(rtb, idb[0], tsb[0], txb));
+        write(commandStore, preaccepted(rtb, idb[1], tsb[1], txb));
+        write(commandStore, committed(rtb, idb[2], tsb[2], txb, idb, 0, 1, 3));
+        write(commandStore, committed(rtb, idb[3], tsb[3], txb, idb, 0, 1, 2));
+        write(commandStore, committed(rtb, idb[4], tsb[4], txb, idb, 0, 1, 2, 3));
+
+        write(commandStore, committed1(rte, ide[0], ide[0], txe, rta, ida, new int[] { 0 }, rtb, idb, new int[] { 0 }, rte, ide, new int[] { }));
+        write(commandStore, committed1(rte, ide[1], ide[1], txe, rta, ida, new int[] { 0, 1 }, rtb, idb, new int[] { 0, 1 }, rte, ide, new int[] { 0 }));
+        write(commandStore, committed1(rte, ide[2], ide[2], txe, rta, ida, new int[] { 0, 1, 2 }, rtb, idb, new int[] { 0, 1, 2 }, rte, ide, new int[] { 0, 1 }));
+
+        // txn_id, depth, command_store_id, parent_txn_id, execute_at, child_txn_id
+        assertRows(execute(QUERY_TXN_GRAPH, ida[0].toString()));
+        assertRows(execute(QUERY_TXN_GRAPH, ida[1].toString()), graphRows(commandStore, txa, ida, ssa, tsa, 1, 0));
+        assertRows(execute(QUERY_TXN_GRAPH, ida[2].toString()), graphRows(commandStore, txa, ida, ssa, tsa, 2, 3, 0, 1));
+        assertRows(execute(QUERY_TXN_GRAPH, ida[3].toString()), graphRows(commandStore, txa, ida, ssa, tsa, 3, 1, 0));
+        assertRows(execute(QUERY_TXN_GRAPH, ida[4].toString()), graphRows(commandStore, txa, ida, ssa, tsa, 4, 2, 0, 3, 1));
+        assertRows(execute(QUERY_TXN_GRAPH_INTERSECTS, ida[4].toString(), rta.homeKey().toString()), graphRows(commandStore, txa, ida, ssa, tsa, 4, 2, 0, 3, 1));
+        assertRows(execute(QUERY_TXN_GRAPH_INTERSECTS, ida[4].toString(), rtb.homeKey().toString()));
+
+        assertRows(execute(QUERY_TXN_GRAPH, idb[0].toString()));
+        assertRows(execute(QUERY_TXN_GRAPH, idb[1].toString()));
+        assertRows(execute(QUERY_TXN_GRAPH, idb[2].toString()), graphRows(commandStore, txb, idb, ssb, tsb, 2, 3, 1, 0));
+        assertRows(execute(QUERY_TXN_GRAPH, idb[3].toString()), graphRows(commandStore, txb, idb, ssb, tsb, 3, 1, 0));
+        assertRows(execute(QUERY_TXN_GRAPH, idb[4].toString()), graphRows(commandStore, txb, idb, ssb, tsb, 4, 2, 1, 0, 3));
+
+        FullRoute[] rts = new FullRoute[] { rta, rtb, rte };
+        TxnId[][] ids = new TxnId[][] { ida, idb, ide };
+        Timestamp[][] tss = new Timestamp[][] { tsa, tsb, tse };
+        SaveStatus[][] sss = new SaveStatus[][] { ssa, ssb, sse };
+
+        int[] ide0_rows = new int[]
+                          {
+                          0, 2, 0, 1, 0,
+                          0, 2, 0, 0, 0
+                          };
+
+
+        assertRows(execute(QUERY_TXN_GRAPH, ide[0].toString()), graphRows(commandStore, rts, ids, sss, tss, ide[0], ide0_rows));
+        assertRows(execute(QUERY_TXN_GRAPH_REMOTE, 1, ide[0].toString()), prepend(new Object[] { 1 }, graphRows(commandStore, rts, ids, sss, tss, ide[0], ide0_rows)));
+
+        int[] ide1_rows = new int[]
+                          {
+                          0, 2, 1, 0, 1,
+                          0, 2, 1, 2, 0,
+                          0, 2, 1, 1, 1,
+                          0, 2, 1, 1, 0,
+                          0, 2, 1, 0, 0
+                          };
+
+        assertRows(execute(QUERY_TXN_GRAPH, ide[1].toString()), graphRows(commandStore, rts, ids, sss, tss, ide[1], ide1_rows));
+        assertRows(execute(QUERY_TXN_GRAPH_REMOTE, 1, ide[1].toString()), prepend(new Object[] { 1 }, graphRows(commandStore, rts, ids, sss, tss, ide[1], ide1_rows)));
+
+        int[] ide2_rows = new int[]
+        {
+            0, 2, 2, 1, 2,
+            0, 2, 2, 0, 2,
+            0, 2, 2, 2, 1,
+            0, 2, 2, 1, 1,
+            0, 2, 2, 1, 0,
+            0, 2, 2, 0, 0,
+            1, 1, 2, 1, 3,
+            1, 0, 2, 0, 3,
+            1, 2, 1, 0, 1,
+            1, 2, 1, 2, 0,
+            2, 0, 3, 0, 1
+        };
+
+        assertRows(execute(QUERY_TXN_GRAPH, ide[2].toString()), graphRows(commandStore, rts, ids, sss, tss, ide[2], ide2_rows));
+        assertRows(execute(QUERY_TXN_GRAPH_REMOTE, 1, ide[2].toString()), prepend(new Object[] { 1 }, graphRows(commandStore, rts, ids, sss, tss, ide[2], ide2_rows)));
+    }
+
+    private static Object[][] graphRows(CommandStore commandStore, Txn txn, TxnId[] ids, SaveStatus[] saveStatuses, Timestamp[] timestamps, int pk, int ... children)
+    {
+        int depth = 0;
+        Object[][] result = new Object[children.length][];
+        int nextParent = Integer.MAX_VALUE;
+        int parent = pk;
+        for (int i = 0 ; i < children.length ; i++)
+        {
+            int child = children[i];
+            if (saveStatuses[child].hasBeen(Status.Committed))
+            {
+                if (i > 0)
+                {
+                    ++depth;
+                    parent = nextParent;
+                }
+                nextParent = child;
+            }
+
+            result[i] = row(ids[pk].toString(), depth, commandStore.id(), ids[parent].toString(),
+                            saveStatuses[child].hasBeen(Status.Committed) ? timestamps[child].toString() : "",
+                            ids[child].toString(), saveStatuses[child].toString(), txn.keys().toParticipants().toString());
+        }
+        return result;
+    }
+
+    private static Object[][] prepend(Object[] prefix, Object[][] rows)
+    {
+        Object[][] result = new Object[rows.length][];
+        for (int i = 0 ; i < result.length ; ++i)
+        {
+            result[i] = new Object[rows[i].length + prefix.length];
+            System.arraycopy(prefix, 0, result[i], 0, prefix.length);
+            System.arraycopy(rows[i], 0, result[i], prefix.length, rows[i].length);
+        }
+        return result;
+    }
+
+    private static Object[][] graphRows(CommandStore commandStore, FullRoute[] rts,
+                                        TxnId[][] ids, SaveStatus[][] saveStatuses, Timestamp[][] timestamps,
+                                        TxnId pk, int ... children)
+    {
+        Object[][] result = new Object[children.length/5][];
+        for (int i = 0 ; i < children.length ; i+=5)
+        {
+            int depth = children[i];
+            int parentGroup = children[i + 1];
+            int parent = children[i + 2];
+            int childGroup = children[i + 3];
+            int child = children[i + 4];
+
+            result[i/5] = row(pk.toString(), depth, commandStore.id(), ids[parentGroup][parent].toString(),
+                            saveStatuses[childGroup][child].hasBeen(Status.Committed) ? timestamps[childGroup][child].toString() : "",
+                            ids[childGroup][child].toString(), saveStatuses[childGroup][child].toString(), rts[childGroup].participantsOnly().intersecting(rts[parentGroup], Minimal).toString());
+        }
+        return result;
+    }
+
+    private static Timestamp[] toTimestamps(TxnId[] ids)
+    {
+        Timestamp[] ts = new Timestamp[ids.length];
+        System.arraycopy(ids, 0, ts, 0, ids.length);
+        return ts;
+    }
+
+    private static TxnId[] ids(long epoch, Txn.Kind kind, Routable.Domain domain, Node.Id id, long ... hlcs)
+    {
+        TxnId[] ids = new TxnId[hlcs.length];
+        for (int i = 0 ; i < hlcs.length ; ++i)
+            ids[i] = new TxnId(epoch, hlcs[i], kind, domain, id);
+        return ids;
+    }
+
+    private static void write(AccordCommandStore commandStore, Command command)
+    {
+        commandStore.journal.saveCommand(commandStore.id(), new Journal.CommandUpdate(null, command), ()->{});
+    }
+
+    private static Command committed(FullRoute<?> route, TxnId txnId, Timestamp executeAt, Txn txn, TxnId[] ids, int ... deps)
+    {
+        Arrays.sort(deps);
+        try (KeyDeps.Builder keys = KeyDeps.builder(); RangeDeps.BuilderByTxnId ranges = RangeDeps.byTxnIdBuilder())
+        {
+            for (int depIndex : deps)
+            {
+                TxnId dep = ids[depIndex];
+                if (dep.is(Routable.Domain.Key)) keys.add(route.homeKey(), dep);
+                else ranges.add(route.homeKey().asRange(), dep);
+            }
+            PartialDeps partialDeps = new PartialDeps(route, keys.build(), ranges.build());
+            return Command.Committed.committed(txnId, SaveStatus.Committed, NotDurable, StoreParticipants.all(route), Ballot.ZERO, executeAt, txn.intersecting(route, true), partialDeps, Ballot.ZERO, null);
+        }
+    }
+
+    private static Command committed1(FullRoute<?> route, TxnId txnId, Timestamp executeAt, Txn txn, Object ... triples)
+    {
+        try (KeyDeps.Builder keys = KeyDeps.builder(); RangeDeps.BuilderByTxnId ranges = RangeDeps.byTxnIdBuilder())
+        {
+            for (int i = 0 ; i < triples.length ; i+= 3)
+            {
+                FullRoute<?> rt = (FullRoute<?>) triples[i];
+                TxnId[] ids = (TxnId[]) triples[i + 1];
+                int[] deps = (int[]) triples[i + 2];
+                for (int depIndex : deps)
+                {
+                    TxnId dep = ids[depIndex];
+                    if (dep.is(Routable.Domain.Key)) keys.add(rt.homeKey(), dep);
+                    else
+                    {
+                        for (Range range : rt.toRanges())
+                            ranges.add(range, dep);
+                    }
+                }
+            }
+            PartialDeps partialDeps = new PartialDeps(route, keys.build(), ranges.build());
+            return Command.Committed.committed(txnId, SaveStatus.Committed, NotDurable, StoreParticipants.all(route), Ballot.ZERO, executeAt, txn.intersecting(route, true), partialDeps, Ballot.ZERO, null);
+        }
+    }
+
+    private static Command preaccepted(FullRoute<?> route, TxnId txnId, Timestamp executeAt, Txn txn) throws TopologyException
+    {
+        return Command.PreAccepted.preaccepted(txnId, SaveStatus.PreAccepted, NotDurable, StoreParticipants.all(route), Ballot.ZERO, executeAt, txn.intersecting(route, true), null);
+    }
+
+    @Ignore
     @Test
     public void patchJournalVestigialTest()
     {

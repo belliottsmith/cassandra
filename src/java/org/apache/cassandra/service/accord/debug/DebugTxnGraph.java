@@ -45,6 +45,7 @@ import accord.primitives.Routable.Domain;
 import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.Timestamp;
+import accord.primitives.Txn;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.LargeBitSet;
@@ -78,8 +79,9 @@ public abstract class DebugTxnGraph<T, P>
         @Override
         public int compareTo(TxnInfos that)
         {
-            int c = Integer.compare(this.commandStoreId, that.commandStoreId);
-            if (c == 0) c = Integer.compare(this.depth, that.depth);
+            int c = Integer.compare(this.depth, that.depth);
+            if (c == 0) c = Integer.compare(this.commandStoreId, that.commandStoreId);
+            if (c == 0) c = -this.parent.compareTo(that.parent);
             return c;
         }
     }
@@ -142,7 +144,7 @@ public abstract class DebugTxnGraph<T, P>
 
     protected AsyncChain<TxnInfos<T>> visitRoot(SafeCommandStore safeStore, Command command, P param)
     {
-        return visitParent(safeStore, command, param, intersecting, new HashMap<>(), 0);
+        return visitParent(safeStore, command, param, new HashMap<>(), 0);
     }
 
     void visit(long deadlineNanos) throws TimeoutException
@@ -198,17 +200,17 @@ public abstract class DebugTxnGraph<T, P>
         }).flatMap(i -> i);
     }
 
-    private AsyncChain<TxnInfos<T>> submitParent(CommandStore commandStore, TxnId txnId, P param, @Nullable Participants<?> via, Map<TxnId, SaveInfo> infos, int depth)
+    private AsyncChain<TxnInfos<T>> submitParent(CommandStore commandStore, TxnId txnId, P param, Map<TxnId, SaveInfo> infos, int depth)
     {
         return commandStore.chain(PreLoadContext.contextFor(txnId, "Populate txn_graph"), safeStore -> {
             Command command = safeStore.unsafeGetNoCleanup(txnId).current();
             if (command == null || command.saveStatus() == SaveStatus.Uninitialised)
                 return null;
-            return visitParent(safeStore, command, param, via, infos, depth);
+            return visitParent(safeStore, command, param, infos, depth);
         }).flatMap(i -> i);
     }
 
-    private AsyncChain<TxnInfos<T>> visitParent(SafeCommandStore safeStore, Command command, P param, @Nullable Participants<?> via, Map<TxnId, SaveInfo> infos, int depth)
+    private AsyncChain<TxnInfos<T>> visitParent(SafeCommandStore safeStore, Command command, P param, Map<TxnId, SaveInfo> infos, int depth)
     {
         CommandStore commandStore = safeStore.commandStore();
         if (depth < maxDepth)
@@ -217,12 +219,12 @@ public abstract class DebugTxnGraph<T, P>
             if (deps != null)
             {
                 LargeBitSet recurse = new LargeBitSet(deps.txnIdCount());
-                if (via != null)
+                if (intersecting != null)
                 {
                     if (kinds.matchesAny(Domain.Key))
-                        deps.keyDeps.forEach(via, recurse, null, (r, n, i) -> r.set(i));
+                        deps.keyDeps.forEach(intersecting, recurse, null, (r, n, i) -> r.set(i));
                     if (kinds.matchesAny(Domain.Range))
-                        deps.rangeDeps.forEach(via, recurse, deps.keyDeps, (r, d, i) -> r.set(d.txnIdCount() + i));
+                        deps.rangeDeps.forEach(intersecting, recurse, deps.keyDeps, (r, d, i) -> r.set(d.txnIdCount() + i));
                 }
                 else
                 {
@@ -260,24 +262,16 @@ public abstract class DebugTxnGraph<T, P>
                             }
 
                             list.sort(Comparator.reverseOrder());
+                            visitLatestCommitted(list, command, (next, p) -> {
+                                if (next.txnId.is(Txn.Kind.Read))
+                                    return;
+
+                                if (!next.saveStatus.hasBeen(Status.Committed) || next.saveStatus.hasBeen(Status.Truncated))
+                                    return;
+
+                                queued.add(submitParent(commandStore, next.txnId, param, infos, depth + 1));
+                            });
                             callback.accept(build(commandStore, depth, command, list, intersecting, param), null);
-                            Participants<?> submit = intersecting != null ? intersecting : command.participants().owns();
-                            for (int i = 0; i < list.size() && !submit.isEmpty() ; ++i)
-                            {
-                                SortInfo next = list.get(i);
-                                if (!next.saveStatus.hasBeen(Status.Committed) || next.saveStatus.hasBeen(Status.Invalidated))
-                                    continue;
-
-                                if (next.executeAt.compareTo(command.executeAt()) > 0)
-                                    continue;
-
-                                if (next.saveStatus.hasBeen(Status.Truncated))
-                                    break;
-
-                                Participants<?> via = command.partialDeps().participants(next.txnId).intersecting(submit, Minimal);
-                                queued.add(submitParent(commandStore, next.txnId, param, via, infos, depth + 1));
-                                submit = submit.without(via);
-                            }
                             return null;
                         }
                     });
@@ -288,6 +282,35 @@ public abstract class DebugTxnGraph<T, P>
         return AsyncChains.success(new TxnInfos<>(commandStore.id(), depth, command.txnId(), Collections.emptyList()));
     }
 
+    protected void visitLatestCommitted(List<SortInfo> sortedInfos, Command parent, BiConsumer<SortInfo, Participants<?>> forEach)
+    {
+        Participants<?> writes = parent.participants().owns();
+        if (intersecting != null) writes = writes.intersecting(intersecting, Minimal);
+        Participants<?> syncpoints = writes;
+        boolean awaitsOnlyDeps = parent.txnId().awaitsOnlyDeps();
+        for (int i = 0; i < sortedInfos.size() ; ++i)
+        {
+            SortInfo info = sortedInfos.get(i);
+            boolean isCommitted = info.saveStatus.hasBeen(Status.Committed) && !info.saveStatus.hasBeen(Status.Invalidated);
+            if (!isCommitted) continue;
+            Participants<?> visit = info.txnId.isSyncPoint() ? syncpoints : writes;
+            if (visit.isEmpty() || (!awaitsOnlyDeps && info.executeAt.compareTo(parent.executeAt()) > 0))
+                continue;
+
+            Participants<?> p = parent.partialDeps().participants(info.txnId);
+            if (intersecting != null) p = p.intersecting(intersecting, Minimal);
+
+            if (!p.intersects(visit))
+                continue;
+
+            forEach.accept(info, p);
+            if (info.txnId.isSyncPoint()) syncpoints = syncpoints.without(p);
+            if (info.txnId.isSyncPoint() || info.txnId.isWrite()) writes = writes.without(p);
+            if ((parent.txnId().isSyncPoint() ? syncpoints : writes).isEmpty())
+                break;
+        }
+    }
+
     private AsyncChain<Void> populateTxnAsync(CommandStore commandStore, TxnId txnId, Map<TxnId, SaveInfo> visited)
     {
         return commandStore.chain(PreLoadContext.contextFor(txnId, "Populate txn_graph"), safeStore -> {
@@ -296,7 +319,7 @@ public abstract class DebugTxnGraph<T, P>
         });
     }
 
-    private static int compareExecuteAt(Timestamp a, Timestamp b)
+    static int compareExecuteAt(Timestamp a, Timestamp b)
     {
         if (a == null || b == null)
             return a == b ? 0 : a == null ? -1 : 1;

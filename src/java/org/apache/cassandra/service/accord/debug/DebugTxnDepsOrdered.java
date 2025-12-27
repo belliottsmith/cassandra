@@ -18,22 +18,19 @@
 
 package org.apache.cassandra.service.accord.debug;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
-import com.google.common.collect.ImmutableList;
 
 import accord.local.Command;
 import accord.local.CommandStore;
 import accord.local.SafeCommandStore;
 import accord.primitives.Participants;
-import accord.primitives.Routables;
-import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
@@ -42,16 +39,16 @@ import org.apache.cassandra.service.accord.IAccordService;
 
 import static accord.primitives.Routables.Slice.Minimal;
 
-public class DebugTxnDepsByExecuteAt extends DebugTxnDeps<DebugTxnDeps.TxnInfo, Set<TxnId>>
+public class DebugTxnDepsOrdered extends DebugTxnDeps<DebugTxnDeps.TxnInfo, Set<TxnId>>
 {
-    public DebugTxnDepsByExecuteAt(IAccordService service, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, Consumer<TxnInfos<TxnInfo>> visit)
+    public DebugTxnDepsOrdered(IAccordService service, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, Consumer<TxnInfos<TxnInfo>> visit)
     {
         super(service, root, intersecting, kinds, min, maxDepth, visit);
     }
 
-    public static void visit(IAccordService accord, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, Consumer<TxnInfos<TxnInfo>> visit, long deadlineNanos) throws TimeoutException
+    public static void visit(IAccordService accord, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, long deadlineNanos, Consumer<TxnInfos<TxnInfo>> visit) throws TimeoutException
     {
-        new DebugTxnDepsByExecuteAt(accord, root, intersecting, kinds, min, maxDepth, visit).visit(deadlineNanos);
+        new DebugTxnDepsOrdered(accord, root, intersecting, kinds, min, maxDepth, visit).visit(deadlineNanos);
     }
 
     @Override
@@ -62,20 +59,24 @@ public class DebugTxnDepsByExecuteAt extends DebugTxnDeps<DebugTxnDeps.TxnInfo, 
 
     protected TxnInfos<TxnInfo> build(CommandStore commandStore, int depth, Command parent, List<SortInfo> sortedInfos, @Nullable Participants<?> intersecting, Set<TxnId> visited)
     {
-        ImmutableList.Builder<TxnInfo> children = ImmutableList.builder();
+        ArrayList<TxnInfo> children = new ArrayList<>();
+        visitLatestCommitted(sortedInfos, parent, (next, via) -> {
+            children.add(new TxnInfo(next.txnId, next.saveStatus, next.executeAt, via));
+        });
         for (int i = 0; i < sortedInfos.size() ; ++i)
         {
-            SortInfo info = sortedInfos.get(i);
-            boolean isCommitted = info.saveStatus.hasBeen(Status.Committed) && !info.saveStatus.hasBeen(Status.Invalidated);
-            if (isCommitted ? info.executeAt.compareTo(parent.executeAt()) > 0 : !visited.add(info.txnId))
+            SortInfo next = sortedInfos.get(i);
+            if (next.saveStatus.hasBeen(Status.Committed) || !visited.add(next.txnId))
                 continue;
 
-            Participants<?> p = parent.partialDeps().participants(info.txnId);
-            if (intersecting != null) p = p.intersecting(intersecting, Minimal);
-            children.add(new TxnInfo(info.txnId, info.saveStatus, info.executeAt, p));
-            if (isCommitted)
-                break;
+            Participants<?> p = parent.partialDeps().participants(next.txnId);
+            if (intersecting != null)
+                p = p.intersecting(intersecting, Minimal);
+            if (p.isEmpty()) continue;
+            children.add(new TxnInfo(next.txnId, next.saveStatus, next.executeAt, p));
         }
-        return new TxnInfos<>(commandStore.id(), depth, parent.txnId(), children.build());
+        children.sort(Comparator.naturalOrder());
+        children.trimToSize();
+        return new TxnInfos<>(commandStore.id(), depth, parent.txnId(), children);
     }
 }

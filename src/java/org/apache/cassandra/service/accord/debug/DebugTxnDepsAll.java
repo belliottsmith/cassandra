@@ -62,7 +62,7 @@ public class DebugTxnDepsAll extends DebugTxnGraph<DebugTxnDepsAll.TxnInfo, Map<
         super(service, root, intersecting, kinds, min, maxDepth, visit);
     }
 
-    public static void visit(IAccordService accord, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, Consumer<TxnInfos<TxnInfo>> visit, long deadlineNanos) throws TimeoutException
+    public static void visit(IAccordService accord, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, long deadlineNanos, Consumer<TxnInfos<TxnInfo>> visit) throws TimeoutException
     {
         new DebugTxnDepsAll(accord, root, intersecting, kinds, min, maxDepth, visit).visit(deadlineNanos);
     }

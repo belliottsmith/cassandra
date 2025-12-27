@@ -62,8 +62,8 @@ public abstract class DebugTxnDeps<T extends DebugTxnDeps.TxnInfo, P> extends De
         @Override
         public int compareTo(@Nonnull TxnInfo that)
         {
-            int c = compareExecuteAt(this.executeAt, that.executeAt);
-            if (c == 0) c = this.txnId.compareTo(that.txnId);
+            int c = -compareExecuteAt(this.executeAt, that.executeAt);
+            if (c == 0) c = -this.txnId.compareTo(that.txnId);
             return c;
         }
     }
@@ -71,12 +71,5 @@ public abstract class DebugTxnDeps<T extends DebugTxnDeps.TxnInfo, P> extends De
     public DebugTxnDeps(IAccordService service, TxnId root, @Nullable Participants<?> intersecting, TxnKindsAndDomains kinds, Timestamp min, int maxDepth, Consumer<TxnInfos<T>> visit)
     {
         super(service, root, intersecting, kinds, min, maxDepth, visit);
-    }
-
-    static int compareExecuteAt(Timestamp a, Timestamp b)
-    {
-        if (a == null || b == null)
-            return a == b ? 0 : a == null ? -1 : 1;
-        return a.compareTo(b);
     }
 }

@@ -18,7 +18,6 @@
 
 package org.apache.cassandra.service.accord.debug;
 
-import accord.primitives.Routable;
 import accord.primitives.Routable.Domain;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -28,8 +27,8 @@ import accord.utils.UnhandledEnum;
 public class TxnKindsAndDomains
 {
     static final int ALL_KINDS = Txn.Kind.All.bitset();
-    static final TxnKindsAndDomains ALL = new TxnKindsAndDomains(false, ALL_KINDS, ALL_KINDS);
-    static final TxnKindsAndDomains NONE = new TxnKindsAndDomains(false, 0, 0);
+    public static final TxnKindsAndDomains ALL = new TxnKindsAndDomains(false, ALL_KINDS, ALL_KINDS);
+    public static final TxnKindsAndDomains NONE = new TxnKindsAndDomains(false, 0, 0);
 
     final boolean printAsSubtraction;
     final int keys, ranges;

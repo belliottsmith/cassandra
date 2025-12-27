@@ -20,9 +20,11 @@
  */
 package org.apache.cassandra.index;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -30,6 +32,8 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
+
+import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.Operator;
@@ -41,6 +45,8 @@ import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.memtable.Memtable;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
+import org.apache.cassandra.db.virtual.VirtualTable;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.index.transactions.IndexTransaction;
 import org.apache.cassandra.io.sstable.Component;
@@ -364,6 +370,13 @@ public interface IndexRegistry extends Iterable<Index>
         if (!DatabaseDescriptor.isDaemonInitialized())
             return NON_DAEMON;
 
-        return table.isVirtual() ? EMPTY : Keyspace.openAndGetStore(table).indexManager;
+        if (!table.isVirtual())
+            return Keyspace.openAndGetStore(table).indexManager;
+
+        VirtualTable vtable = VirtualKeyspaceRegistry.instance.getTableNullable(table.id);
+        if (vtable == null)
+            return EMPTY;
+
+        return vtable.indexes();
     }
 }
