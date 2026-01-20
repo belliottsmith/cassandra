@@ -44,6 +44,12 @@ public class TestParams implements Params
     }
 
     @Override
+    public RecoverableCrcFailurePolicy crcFailureOnRebuildPolicy()
+    {
+        return RecoverableCrcFailurePolicy.FAIL;
+    }
+
+    @Override
     public FlushMode flushMode()
     {
         return FlushMode.GROUP;

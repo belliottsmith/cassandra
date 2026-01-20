@@ -302,6 +302,7 @@ public class DatabaseDescriptorRefTest
     "org.apache.cassandra.io.util.SpinningDiskOptimizationStrategy",
     "org.apache.cassandra.journal.Params",
     "org.apache.cassandra.journal.Params$FailurePolicy",
+    "org.apache.cassandra.journal.Params$RecoverableCrcFailurePolicy",
     "org.apache.cassandra.journal.Params$FlushMode",
     "org.apache.cassandra.locator.Endpoint",
     "org.apache.cassandra.locator.IEndpointSnitch",

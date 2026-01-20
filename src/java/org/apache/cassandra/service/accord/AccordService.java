@@ -1153,7 +1153,7 @@ public class AccordService implements IAccordService, Shutdownable
         AccordCommandStores commandStores = (AccordCommandStores)node.commandStores();
         Set<TableId> tableIds = commandStores.shutdownStores();
         commandStores.waitForQuiescence();
-        journal.writeStopMarker();
+        journal.writeSafeStopMarker();
         scheduler.shutdownNow();
         toFuture(flushCaches()).map(ignore -> {
             return AccordColumnFamilyStores.commandsForKey.forceFlush(DRAIN);
@@ -1185,12 +1185,12 @@ public class AccordService implements IAccordService, Shutdownable
             AccordCommandStores commandStores = (AccordCommandStores)node.commandStores();
             boolean safeShutdown = commandStores.awaitStoreTermination(deadlineNanos);
             if (!safeShutdown)
-                logger.warn("Cannot write safe shutdown marker as not all command stores terminated promptly");
+                logger.warn("Cannot write safe replay marker as not all command stores terminated promptly");
 
             commandStores.waitForQuiescence();
             Descriptor lastSegment = journal.stop();
             if (lastSegment == null && safeShutdown)
-                logger.warn("Cannot write safe shutdown marker as no segment descriptor reported by journal");
+                logger.warn("Cannot write safe replay marker as no segment descriptor reported by journal");
 
             if (safeShutdown && lastSegment != null)
             {
@@ -1223,10 +1223,24 @@ public class AccordService implements IAccordService, Shutdownable
     public boolean awaitTermination(long timeout, TimeUnit units) throws InterruptedException
     {
         long deadlineNanos = nanoTime() + units.toNanos(timeout);
-        boolean success = isShutdown.awaitUntil(deadlineNanos);
+        boolean success = true;
+        if (!isShutdown.awaitUntil(deadlineNanos))
+        {
+            logger.error("Accord command stores did not terminate before timeout elapsed");
+            success = false;
+        }
         try { ExecutorUtils.awaitTerminationUntil(deadlineNanos, Arrays.asList(scheduler, node.commandStores())); }
-        catch (InterruptedException | TimeoutException e) { success = false; }
-        return success && journal.awaitTerminationUntil(deadlineNanos);
+        catch (InterruptedException | TimeoutException e)
+        {
+            logger.error("Accord executors did not terminate before timeout elapsed");
+            success = false;
+        }
+        if (!journal.awaitTerminationUntil(deadlineNanos))
+        {
+            logger.error("Accord journal did not terminate before timeout elapsed");
+            success = false;
+        }
+        return success;
     }
 
     @VisibleForTesting

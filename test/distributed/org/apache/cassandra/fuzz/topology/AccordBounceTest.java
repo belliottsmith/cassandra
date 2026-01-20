@@ -57,7 +57,7 @@ public class AccordBounceTest extends FuzzTestBase
     {
         try (Cluster cluster = init(builder().withNodes(1).start()))
         {
-            withRandom(33458889736874219L, rng -> {
+            withRandom(rng -> {
                 Generator<SchemaSpec> schemaGen = SchemaGenerators.trivialSchema(KEYSPACE, new Supplier<String>()
                                                                                  {
                                                                                      int i = 0;

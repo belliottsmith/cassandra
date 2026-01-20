@@ -35,21 +35,8 @@ import java.util.function.Predicate;
 
 import javax.annotation.Nullable;
 
-import accord.api.LocalListeners.TxnListener;
-import accord.impl.progresslog.TxnState;
-import accord.local.MaxConflicts;
-import accord.local.MaxDecidedRX;
-import accord.local.RejectBefore;
-import accord.local.*;
-import accord.local.RedundantBefore.Bounds;
-import accord.local.RedundantStatus.Property;
-import accord.local.RedundantStatus.SomeStatus;
-import accord.primitives.SaveStatus;
-import accord.primitives.Status;
-
 import com.google.common.annotations.VisibleForTesting;
 
-import org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +45,7 @@ import accord.api.AsyncExecutor;
 import accord.api.DataStore;
 import accord.api.Journal;
 import accord.api.LocalListeners;
+import accord.api.LocalListeners.TxnListener;
 import accord.api.ProgressLog;
 import accord.api.RoutingKey;
 import accord.impl.AbstractReplayer;
@@ -65,12 +53,30 @@ import accord.impl.AbstractReplayer.Mode;
 import accord.impl.AbstractSafeCommandStore.CommandStoreCaches;
 import accord.impl.DefaultLocalListeners;
 import accord.impl.progresslog.DefaultProgressLog;
+import accord.impl.progresslog.TxnState;
+import accord.local.Command;
+import accord.local.CommandStore;
+import accord.local.CommandStores;
+import accord.local.CommandSummaries;
+import accord.local.MaxConflicts;
+import accord.local.MaxDecidedRX;
+import accord.local.NodeCommandStoreService;
+import accord.local.PreLoadContext;
+import accord.local.PreLoadContext.Empty;
+import accord.local.RedundantBefore;
+import accord.local.RedundantBefore.Bounds;
+import accord.local.RedundantStatus.Property;
+import accord.local.RedundantStatus.SomeStatus;
+import accord.local.RejectBefore;
+import accord.local.SafeCommandStore;
 import accord.local.cfk.CommandsForKey;
 import accord.primitives.PartialTxn;
 import accord.primitives.Range;
 import accord.primitives.Ranges;
 import accord.primitives.RoutableKey;
 import accord.primitives.Route;
+import accord.primitives.SaveStatus;
+import accord.primitives.Status;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
@@ -82,6 +88,7 @@ import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults.CountingResult;
 
 import org.apache.cassandra.config.AccordSpec;
+import org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.util.File;
@@ -472,7 +479,7 @@ public class AccordCommandStore extends CommandStore
     {
         terminatedUpdater.compareAndSet(this, null, new Termination());
         progressLog.stop();
-        return execute((PreLoadContext.Empty)() -> "Shutdown", safeStore -> {
+        return execute((Empty)() -> "Shutdown", safeStore -> {
             exclusiveExecutor.stop();
             logger.info("{} stopping. Durably applied: {}, waiting: {}", this,
                         DurablyAppliedTo.summarise(safeStore.redundantBefore(), DurablyAppliedTo::isDone),
@@ -633,7 +640,7 @@ public class AccordCommandStore extends CommandStore
 
     protected void ensureDurable(@Nullable Ranges ranges, ReportDurable onCommandStoreDurable)
     {
-        if (node().isReplaying())
+        if (node().isReplaying() && onCommandStoreDurable.flags == 0 && unsafeGetRedundantBefore().isAtLeast(onCommandStoreDurable.redundantBefore))
             return;
 
         long reportId = nextDurabilityLoggingId.incrementAndGet();
@@ -854,7 +861,7 @@ public class AccordCommandStore extends CommandStore
 
     AsyncChain<Map.Entry<Integer, Long>> restoreState()
     {
-        return chain((AccordExecutor.Unstoppable)() -> "Restore State", safeStore -> {
+        return chain((Empty)() -> "Restore State", safeStore -> {
             File storeDir = storeSaveDir();
             File[] savePoints = listSortedSaveDirs(storeDir);
             if (savePoints == null)

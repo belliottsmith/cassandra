@@ -78,6 +78,7 @@ public class AccordLoadTest extends AccordTestBase
                                                                             .set("accord.shard_durability_target_splits", "8")
                                                                             .set("accord.shard_durability_max_splits", "16")
                                                                             .set("accord.shard_durability_cycle", "1m")
+                                                                            .set("accord.catchup_on_start_fail_latency", "2m")
 //                                                                            .set("accord.ephemeral_read_enabled", "true")
                                                                              ), 3);
     }
@@ -119,7 +120,7 @@ public class AccordLoadTest extends AccordTestBase
             final int concurrency = 100;
             final int ratePerSecond = 1000;
 //            final int keyCount = 10_000;
-            final int keyCount = 10;
+            final int keyCount = 10_000;
             final float readChance = 0.33f;
             long nextRepairAt = repairInterval;
             long nextCompactionAt = compactionInterval;
@@ -130,6 +131,7 @@ public class AccordLoadTest extends AccordTestBase
             final ExecutorService restartExecutor = Executors.newSingleThreadExecutor();
             final BitSet initialised = new BitSet();
 
+            java.util.concurrent.Future<?> restarting = null;
             cluster.get(1).nodetoolResult("cms", "reconfigure", "3").asserts().success();
             cluster.forEach(i -> i.runOnInstance(() -> {
                 if (compactionPeriodSeconds > 0)
@@ -223,10 +225,13 @@ public class AccordLoadTest extends AccordTestBase
                     cluster.forEach(i -> {
                         try
                         {
-                            i.runOnInstance(() -> {
-                                if (AccordService.started())
-                                    ((AccordService) AccordService.instance()).journal().closeCurrentSegmentForTestingIfNonEmpty();
-                            });
+                            if (!i.isShutdown())
+                            {
+                                i.runOnInstance(() -> {
+                                    if (AccordService.started())
+                                        ((AccordService) AccordService.instance()).journal().closeCurrentSegmentForTestingIfNonEmpty();
+                                });
+                            }
                         }
                         catch (Throwable t)
                         {
@@ -274,24 +279,29 @@ public class AccordLoadTest extends AccordTestBase
 
                 if ((nextRestartAt -= batchSize) <= 0)
                 {
-                    nextRestartAt += restartInterval;
-                    restartInterval = Math.max(restartInterval, restartInterval * restartDecay);
-                    int nodeIdx = 1 + random.nextInt(cluster.size());
-                    restartExecutor.submit(() -> {
-                        System.out.printf("restarting node %d...\n", nodeIdx);
-                        try
-                        {
-                            cluster.get(nodeIdx).shutdown().get();
-                            cluster.get(nodeIdx).startup();
-                            while (!cluster.get(nodeIdx).callOnInstance(() -> AccordService.started()))
-                                Thread.sleep(1000);
-                            return null;
-                        }
-                        catch (InterruptedException | ExecutionException e)
-                        {
-                            throw new RuntimeException(e);
-                        }
-                    });
+                    if (restarting == null || restarting.isDone())
+                    {
+                        if (restarting != null)
+                            restarting.get();
+
+                        nextRestartAt += restartInterval;
+                        int nodeIdx = 1 + random.nextInt(cluster.size());
+                        restarting = restartExecutor.submit(() -> {
+                            System.out.printf("restarting node %d...\n", nodeIdx);
+                            try
+                            {
+                                cluster.get(nodeIdx).shutdown().get();
+                                cluster.get(nodeIdx).startup();
+                                return null;
+                            }
+                            catch (InterruptedException | ExecutionException e)
+                            {
+                                throw new RuntimeException(e);
+                            }
+                        });
+                        if (nodeIdx == coordinator.instance().config().num())
+                            coordinator = cluster.coordinator((nodeIdx % cluster.size()) + 1);
+                    }
                 }
 
                 final Date date = new Date();

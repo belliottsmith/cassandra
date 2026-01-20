@@ -275,6 +275,7 @@ public class AccordSpec
         public ReplaySavePoint replaySavePoint = ReplaySavePoint.LATEST;
         public int retainSavePoints = 2;
         public StopMarkerFailurePolicy stopMarkerFailurePolicy = StopMarkerFailurePolicy.EXIT;
+        public RecoverableCrcFailurePolicy crcFailureOnRebuildPolicy = RecoverableCrcFailurePolicy.FAIL;
         public FlushMode flushMode = FlushMode.PERIODIC;
         public volatile DurationSpec flushPeriod; // pulls default from 'commitlog_sync_period'
         public DurationSpec periodicFlushLagBlock = new DurationSpec.IntMillisecondsBound("1500ms");
@@ -311,6 +312,12 @@ public class AccordSpec
         public FailurePolicy failurePolicy()
         {
             return failurePolicy;
+        }
+
+        @Override
+        public RecoverableCrcFailurePolicy crcFailureOnRebuildPolicy()
+        {
+            return crcFailureOnRebuildPolicy;
         }
 
         @Override

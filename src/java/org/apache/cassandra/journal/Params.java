@@ -25,6 +25,14 @@ public interface Params
 
     enum FailurePolicy { STOP, STOP_JOURNAL, IGNORE, ALLOW_UNSAFE_STARTUP, DIE }
 
+    enum RecoverableCrcFailurePolicy
+    {
+        FAIL,
+        IGNORE_ALL_ZERO_RECORDS,
+        IGNORE_CRC_ZERO_RECORDS,
+        IGNORE
+    }
+
     /**
      * @return maximum segment size
      */
@@ -39,6 +47,8 @@ public interface Params
      * @return this journal's {@link FailurePolicy}
      */
     FailurePolicy failurePolicy();
+
+    RecoverableCrcFailurePolicy crcFailureOnRebuildPolicy();
 
     /**
      * @return journal flush (sync) mode

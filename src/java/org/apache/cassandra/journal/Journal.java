@@ -72,6 +72,7 @@ import static org.apache.cassandra.concurrent.ExecutorFactory.SystemThreadTag.NO
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.Interrupts.SYNCHRONIZED;
 import static org.apache.cassandra.concurrent.InfiniteLoopExecutor.SimulatorSafe.SAFE;
 import static org.apache.cassandra.concurrent.Interruptible.State.NORMAL;
+import static org.apache.cassandra.journal.Params.RecoverableCrcFailurePolicy.FAIL;
 import static org.apache.cassandra.utils.Clock.Global.currentTimeMillis;
 import static org.apache.cassandra.utils.Simulate.With.MONITORS;
 import static org.apache.cassandra.utils.concurrent.WaitQueue.newWaitQueue;
@@ -215,7 +216,7 @@ public class Journal<K, V>
 
         deleteTmpFiles();
         List<Descriptor> descriptors = Descriptor.list(directory);
-        segments.set(Segments.of(StaticSegment.open(descriptors, keySupport)));
+        segments.set(Segments.of(StaticSegment.open(descriptors, keySupport, params.crcFailureOnRebuildPolicy())));
 
         Invariants.require(stateUpdater.compareAndSet(this, State.OPENING, State.OPEN_READABLE),
                            "Unexpected journal state once opened", state);
@@ -320,6 +321,14 @@ public class Journal<K, V>
         return state == State.STOPPED_READABLE;
     }
 
+    public void fsync()
+    {
+        ActiveSegment<K, V> active = currentSegment;
+        int position = active.writtenToAtLeast();
+        flusher.requestExtraFlush();
+        flusher.awaitFsync(active, position);
+    }
+
     // return the last segment that was written to
     public Descriptor stop()
     {
@@ -339,7 +348,7 @@ public class Journal<K, V>
         discardAvailableSegment();
         segmentPrepared.signalAll(); // Wake up all threads waiting on the new segment
 
-        compactor.shutdownNow();
+        compactor.shutdown();
 
         currentSegment.discardUnusedTail();
         flusher.requestExtraFlush();
@@ -895,7 +904,7 @@ public class Journal<K, V>
             activeSegment.updateWrittenTo();
             activeSegment.fsync();
             activeSegment.persistComponents();
-            replaceCompletedSegment(activeSegment, StaticSegment.open(activeSegment.descriptor, keySupport));
+            replaceCompletedSegment(activeSegment, StaticSegment.open(activeSegment.descriptor, keySupport, FAIL));
             activeSegment.release(Journal.this);
         }
     }
@@ -931,8 +940,8 @@ public class Journal<K, V>
 
     static void validateCRC(CRC32 crc, int readCRC) throws Crc.InvalidCrc
     {
-        if (readCRC != (int) crc.getValue())
-            throw new Crc.InvalidCrc(readCRC, (int) crc.getValue());
+        if (readCRC != (int)crc.getValue())
+            throw new Crc.InvalidCrc(readCRC, (int)crc.getValue());
     }
 
     /*

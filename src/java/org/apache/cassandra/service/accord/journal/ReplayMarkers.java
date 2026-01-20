@@ -35,7 +35,7 @@ public class ReplayMarkers
         return new File(getAccordJournalDirectory(), "started");
     }
 
-    public static File stopMarker()
+    public static File safeStopMarker()
     {
         return new File(getAccordJournalDirectory(), "stopped");
     }
@@ -60,7 +60,7 @@ public class ReplayMarkers
 
     public static long readStopMarker()
     {
-        return readMarker(stopMarker());
+        return readMarker(safeStopMarker());
     }
 
     public static long readMarker(File file)
