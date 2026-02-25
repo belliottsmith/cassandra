@@ -87,7 +87,6 @@ import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
-import org.apache.cassandra.service.accord.journal.AccordJournal;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.AccordTestUtils;
@@ -95,6 +94,7 @@ import org.apache.cassandra.service.accord.IAccordService;
 import org.apache.cassandra.service.accord.IAccordService.AccordCompactionInfo;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.service.accord.journal.AccordJournal;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.membership.NodeId;
@@ -134,7 +134,7 @@ public class RouteIndexTest extends CQLTester
         DatabaseDescriptor.daemonInitialization();
         DatabaseDescriptor.setAccordTransactionsEnabled(true);
         // disable journal compaction so the test can control when it happens
-        DatabaseDescriptor.getAccord().enable_journal_compaction = false;
+        DatabaseDescriptor.getAccord().journal.enable_compaction = false;
         DatabaseDescriptor.getAccord().journal.stopMarkerFailurePolicy = UNSAFE_STARTUP;
         DatabaseDescriptor.getAccord().range_index_mode = journal_sai;
         DatabaseDescriptor.setIncrementalBackupsEnabled(false);

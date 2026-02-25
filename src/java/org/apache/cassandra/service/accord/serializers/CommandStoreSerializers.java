@@ -41,18 +41,17 @@ import accord.primitives.Ranges;
 import accord.primitives.SaveStatus;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
-import accord.utils.BTreeReducingIntervalMap;
-import accord.utils.BTreeReducingIntervalMap.AbstractBoundariesBuilder;
 import accord.utils.BTreeReducingRangeMap;
 import accord.utils.Invariants;
 import accord.utils.ReducingRangeMap;
+import accord.utils.VIntCoding;
+import accord.utils.btree.ReducingBTree;
 
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.CollectionSerializers;
-import org.apache.cassandra.utils.NullableSerializer;
 
 import static org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer.deserializeNullable;
 import static org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer.serializeNullable;
@@ -60,8 +59,12 @@ import static org.apache.cassandra.service.accord.serializers.CommandSerializers
 
 public class CommandStoreSerializers
 {
-    public static final UnversionedSerializer<DurableBefore.Entry> durableBeforeEntry = new DurableBeforeEntrySerializer();
-    public static final UnversionedSerializer<DurableBefore> durableBefore = new ReducingRangeMapSerializer<>(NullableSerializer.wrap(durableBeforeEntry), DurableBefore.Entry[]::new, DurableBefore.SerializerSupport::create, DurableBefore.EMPTY);
+    private static final int REDUCING_BTREE_MODE = 0;
+    private static final int REDUCING_ARRAY_MODE = 1;
+    private static final int REDUCING_MODE_BIT = 1;
+    private static final int REDUCING_RESERVED_FLAG_BITS = 3;
+
+    public static final UnversionedSerializer<DurableBefore> durableBefore = new DurableBeforeSerializer();
     public static final UnversionedSerializer<MaxConflicts> maxConflicts = new MaxConflictsSerializer();
     public static final UnversionedSerializer<MaxDecidedRX> maxDecidedRX = new ReducingRangeMapSerializer<>(new DecidedRXSerializer(), MaxDecidedRX.DecidedRX[]::new, MaxDecidedRX.SerializerSupport::create, MaxDecidedRX.EMPTY);
     public static final UnversionedSerializer<RedundantBefore.Bounds> redundantBeforeShortBounds = new RedundantBeforeShortBoundsSerializer();
@@ -79,8 +82,6 @@ public class CommandStoreSerializers
     // TODO (expected): use flags to switch to bitset encoding for nulls
     private static abstract class AbstractReducingRangeMapSerializer<V, Map extends ReducingRangeMap<V>> implements UnversionedSerializer<Map>
     {
-        // note: originally we redundantly encoded a value of 1 because we were encoding inclusiveEnds as a boolean
-        private static final int RESERVED_FLAG_BITS = 3;
         final IntFunction<V[]> newValueArray;
         final BiFunction<RoutingKey[], V[], Map> constructor;
         final Map empty;
@@ -98,9 +99,8 @@ public class CommandStoreSerializers
         private int safeFlags(Map map)
         {
             int flags = flags(map);
-            Invariants.require((flags & ((1 << RESERVED_FLAG_BITS) - 1)) == 0);
-            // encoded flags supersede writeBoolean(true), so we default to setting the lowest bit, so we can interpret 0 as a flag bit
-            return flags | 1;
+            Invariants.require((flags & ((1 << REDUCING_RESERVED_FLAG_BITS) - 1)) == 0);
+            return flags | REDUCING_ARRAY_MODE;
         }
 
         @Override
@@ -170,7 +170,7 @@ public class CommandStoreSerializers
         }
     }
 
-    private static class ReducingRangeMapSerializer<T, Map extends ReducingRangeMap<T>> extends AbstractReducingRangeMapSerializer<T, Map> implements UnversionedSerializer<Map>
+    static class ReducingRangeMapSerializer<T, Map extends ReducingRangeMap<T>> extends AbstractReducingRangeMapSerializer<T, Map> implements UnversionedSerializer<Map>
     {
         final UnversionedSerializer<T> defaultValueSerializer;
 
@@ -190,33 +190,6 @@ public class CommandStoreSerializers
         protected UnversionedSerializer<T> valueSerializer(int flags)
         {
             return defaultValueSerializer;
-        }
-    }
-
-    private static final class DurableBeforeEntrySerializer implements UnversionedSerializer<DurableBefore.Entry>
-    {
-        private DurableBeforeEntrySerializer() {}
-
-        @Override
-        public void serialize(DurableBefore.Entry t, DataOutputPlus out) throws IOException
-        {
-            CommandSerializers.txnId.serialize(t.quorumBefore, out);
-            CommandSerializers.txnId.serialize(t.universalBefore, out);
-        }
-
-        @Override
-        public DurableBefore.Entry deserialize(DataInputPlus in) throws IOException
-        {
-            TxnId quorumBefore = CommandSerializers.txnId.deserialize(in);
-            TxnId universalBefore = CommandSerializers.txnId.deserialize(in);
-            return new DurableBefore.Entry(quorumBefore, universalBefore);
-        }
-
-        @Override
-        public long serializedSize(DurableBefore.Entry t)
-        {
-            return CommandSerializers.txnId.serializedSize(t.quorumBefore)
-                   + CommandSerializers.txnId.serializedSize(t.universalBefore);
         }
     }
 
@@ -372,96 +345,287 @@ public class CommandStoreSerializers
         }
     }
 
-    private static class BTreeReducingRangeMapSerializer<V, Map extends BTreeReducingRangeMap<V>> implements UnversionedSerializer<Map>
+    private static abstract class BTreeReducingRangeMapSerializer<E extends ReducingBTree.Entry<E>, Map extends BTreeReducingRangeMap<E>> implements UnversionedSerializer<Map>
     {
-        final UnversionedSerializer<V> valueSerializer;
-        final Map empty;
-        final IntFunction<AbstractBoundariesBuilder<RoutingKey, V, Map>> builderFactory;
+        private static final int DISCONTIGUOUS = 1;
+        private static final int NEW_PREFIX = 2;
 
-        public BTreeReducingRangeMapSerializer(UnversionedSerializer<V> valueSerializer,
-                                               Map empty,
-                                               IntFunction<AbstractBoundariesBuilder<RoutingKey, V, Map>> builderFactory)
+        public BTreeReducingRangeMapSerializer()
         {
-            this.valueSerializer = valueSerializer;
-            this.empty = empty;
-            this.builderFactory = builderFactory;
         }
+
+        abstract Map empty();
+        abstract BTreeReducingRangeMap.Builder<E, Map> builder();
+        abstract void serializeWithoutRange(E e, DataOutputPlus out) throws IOException;
+        abstract long serializedSizeWithoutRange(E e);
+        abstract E deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException;
+        abstract E deserializeArrayModeWithoutRange(DataInputPlus in) throws IOException;
 
         @Override
         public void serialize(Map map, DataOutputPlus out) throws IOException
         {
-            int flags = 0;
+            // for upgrading non-tree structures
+            // noinspection UnnecessaryLocalVariable
+            int mapFlags = REDUCING_BTREE_MODE;
             int mapSize = map.size();
-            out.writeUnsignedVInt32(flags);
+            out.writeUnsignedVInt32(mapFlags);
             out.writeUnsignedVInt32(mapSize);
 
             if (mapSize == 0)
                 return;
 
-            BTreeReducingIntervalMap.WithBoundsIterator<RoutingKey, V> iter = map.withBoundsIterator(false);
-            RoutingKey end = null;
-            while (iter.advance())
+            E prev = null;
+            int fixedLength = 0;
+            for (E e : map)
             {
-                KeySerializers.routingKey.serialize(iter.start(), out);
-                valueSerializer.serialize(iter.value(), out);
-                end = iter.end();
+                int flags = 0;
+                if (prev == null)
+                {
+                    flags = NEW_PREFIX | DISCONTIGUOUS;
+                }
+                else
+                {
+                    if (!prev.end().equals(e.start()))
+                    {
+                        flags = DISCONTIGUOUS;
+                        if (!prev.prefix().equals(e.prefix()))
+                            flags |= NEW_PREFIX;
+                    }
+                    out.writeByte(flags);
+                }
+
+                if ((flags & DISCONTIGUOUS) != 0)
+                {
+                    if ((flags & NEW_PREFIX) != 0)
+                    {
+                        KeySerializers.routingKey.serializePrefix(e.prefix(), out);
+                        fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(e.prefix());
+                    }
+                    if (fixedLength < 0)
+                        out.writeUnsignedVInt32(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start()));
+                    KeySerializers.routingKey.serializeWithoutPrefixOrLength(e.start(), out);
+                }
+                if (fixedLength < 0)
+                    out.writeUnsignedVInt32(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.end()));
+                KeySerializers.routingKey.serializeWithoutPrefixOrLength(e.end(), out);
+                serializeWithoutRange(e, out);
+                prev = e;
             }
-            KeySerializers.routingKey.serialize(end, out);
         }
 
         @Override
         public Map deserialize(DataInputPlus in) throws IOException
         {
-            int flags = in.readUnsignedVInt32();
-            Invariants.expect(flags == 0);
+            int mapFlags = in.readUnsignedVInt32();
             int mapSize = in.readUnsignedVInt32();
 
             if (mapSize == 0)
-                return empty;
+                return empty();
 
-            AbstractBoundariesBuilder<RoutingKey, V, Map> builder = builderFactory.apply(mapSize);
-            while (mapSize-- > 0)
+            try (BTreeReducingRangeMap.Builder<E, Map> builder = builder())
             {
-                RoutingKey key = KeySerializers.routingKey.deserialize(in);
-                V value = valueSerializer.deserialize(in);
-                builder.append(key, value, (a, b) -> { throw new IllegalStateException(); });
-            }
-            RoutingKey key = KeySerializers.routingKey.deserialize(in);
-            builder.append(key, null, (a, b) -> { throw new IllegalStateException(); });
+                if ((mapFlags & REDUCING_ARRAY_MODE) == REDUCING_BTREE_MODE)
+                {
+                    Object prefix = null;
+                    RoutingKey prevEnd = null;
+                    int fixedLength = 0;
+                    while (mapSize-- > 0)
+                    {
+                        int flags;
+                        if (prefix == null) flags = NEW_PREFIX | DISCONTIGUOUS;
+                        else flags = in.readByte();
 
-            return builder.build();
+                        RoutingKey start;
+                        if ((flags & DISCONTIGUOUS) == 0)
+                        {
+                            start = prevEnd;
+                        }
+                        else
+                        {
+                            if ((flags & NEW_PREFIX) != 0)
+                            {
+                                prefix = KeySerializers.routingKey.deserializePrefix(in);
+                                fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(in);
+                            }
+                            int length = fixedLength >= 0 ? fixedLength : in.readUnsignedVInt32();
+                            start = KeySerializers.routingKey.deserializeWithPrefix(prefix, length, in);
+                        }
+
+                        int length = fixedLength >= 0 ? fixedLength : in.readUnsignedVInt32();
+                        RoutingKey end = KeySerializers.routingKey.deserializeWithPrefix(prefix, length, in);
+                        builder.append(deserialize(start, end, in));
+                        prevEnd = end;
+                    }
+                }
+                else
+                {
+                    // read linear format for upgrading from non-tree versions of collections
+                    E prev = null;
+                    RoutingKey prevStart = null;
+                    while (mapSize-- > 0)
+                    {
+                        RoutingKey prevEnd = KeySerializers.routingKey.deserialize(in);
+                        if (prev != null)
+                            builder.append(prev.with(prevStart, prevEnd));
+                        prev = deserializeArrayModeWithoutRange(in);
+                        prevStart = prevEnd;
+                    }
+                    RoutingKey prevEnd = KeySerializers.routingKey.deserialize(in);
+                    if (prev != null)
+                        builder.append(prev.with(prevStart, prevEnd));
+
+                }
+                return builder.build();
+            }
+
         }
 
         @Override
         public long serializedSize(Map map)
         {
-            int flags = 0;
+            // for upgrading non-tree structures
+            // noinspection UnnecessaryLocalVariable
+            int mapFlags = REDUCING_BTREE_MODE;
             int mapSize = map.size();
-            long size = TypeSizes.sizeofUnsignedVInt(flags);
+
+            long size = TypeSizes.sizeofUnsignedVInt(mapFlags);
             size += TypeSizes.sizeofUnsignedVInt(mapSize);
 
             if (mapSize == 0)
                 return size;
 
-            BTreeReducingIntervalMap.WithBoundsIterator<RoutingKey, V> iter = map.withBoundsIterator(false);
-            RoutingKey end = null;
-            while (iter.advance())
+            E prev = null;
+            int fixedLength = 0;
+            for (E e : map)
             {
-                size += KeySerializers.routingKey.serializedSize(iter.start());
-                size += valueSerializer.serializedSize(iter.value());
-                end = iter.end();
+                int flags = 0;
+                if (prev == null)
+                {
+                    fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(e.prefix());
+                    flags = NEW_PREFIX | DISCONTIGUOUS;
+                }
+                else
+                {
+                    if (!prev.end().equals(e.start()))
+                    {
+                        flags = DISCONTIGUOUS;
+                        if (!prev.prefix().equals(e.prefix()))
+                            flags |= NEW_PREFIX;
+                    }
+                    size += 1;
+                }
+
+                if ((flags & DISCONTIGUOUS) != 0)
+                {
+                    if ((flags & NEW_PREFIX) != 0)
+                    {
+                        size += KeySerializers.routingKey.serializedSizeOfPrefix(e.prefix());
+                        fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(e.prefix());
+                    }
+                    if (fixedLength < 0)
+                        size += VIntCoding.sizeOfUnsignedVInt(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start()));
+                    size += KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start());
+                }
+                if (fixedLength < 0)
+                    size +=  VIntCoding.sizeOfUnsignedVInt(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start()));
+                size += KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.end());
+                size += serializedSizeWithoutRange(e);
+                prev = e;
             }
-            size += KeySerializers.routingKey.serializedSize(end);
 
             return size;
         }
     }
 
-    private static final class MaxConflictsSerializer extends BTreeReducingRangeMapSerializer<Timestamp, MaxConflicts>
+    private static final class MaxConflictsSerializer extends BTreeReducingRangeMapSerializer<MaxConflicts.Entry, MaxConflicts>
     {
-        private MaxConflictsSerializer()
+        private MaxConflictsSerializer() {}
+
+        @Override
+        MaxConflicts empty()
         {
-            super(CommandSerializers.timestamp, MaxConflicts.EMPTY, MaxConflicts.Builder::new);
+            return MaxConflicts.EMPTY;
+        }
+
+        @Override
+        BTreeReducingRangeMap.Builder<MaxConflicts.Entry, MaxConflicts> builder()
+        {
+            return new MaxConflicts.Builder();
+        }
+
+        @Override
+        void serializeWithoutRange(MaxConflicts.Entry entry, DataOutputPlus out) throws IOException
+        {
+            CommandSerializers.timestamp.serialize(entry.all, out);
+        }
+
+        @Override
+        long serializedSizeWithoutRange(MaxConflicts.Entry entry)
+        {
+            return CommandSerializers.timestamp.serializedSize(entry.all);
+        }
+
+        @Override
+        MaxConflicts.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException
+        {
+            Timestamp all = CommandSerializers.timestamp.deserialize(in);
+            return new MaxConflicts.Entry(start, end, all);
+        }
+
+        @Override
+        MaxConflicts.Entry deserializeArrayModeWithoutRange(DataInputPlus in) throws IOException
+        {
+            Timestamp all = CommandSerializers.timestamp.deserialize(in);
+            return new MaxConflicts.Entry(all);
+        }
+    }
+
+    private static final class DurableBeforeSerializer extends BTreeReducingRangeMapSerializer<DurableBefore.Entry, DurableBefore>
+    {
+        private DurableBeforeSerializer() {}
+
+        @Override
+        DurableBefore empty()
+        {
+            return DurableBefore.EMPTY;
+        }
+
+        @Override
+        DurableBefore.Builder builder()
+        {
+            return new DurableBefore.Builder();
+        }
+
+        @Override
+        void serializeWithoutRange(DurableBefore.Entry entry, DataOutputPlus out) throws IOException
+        {
+            CommandSerializers.txnId.serialize(entry.quorum, out);
+            CommandSerializers.txnId.serialize(entry.universal, out);
+        }
+
+        @Override
+        long serializedSizeWithoutRange(DurableBefore.Entry entry)
+        {
+            return CommandSerializers.txnId.serializedSize(entry.quorum)
+                 + CommandSerializers.txnId.serializedSize(entry.universal);
+        }
+
+        @Override
+        DurableBefore.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException
+        {
+            TxnId quorum = CommandSerializers.txnId.deserialize(in);
+            TxnId universal = CommandSerializers.txnId.deserialize(in);
+            return new DurableBefore.Entry(start, end, quorum, universal);
+        }
+
+        @Override
+        DurableBefore.Entry deserializeArrayModeWithoutRange(DataInputPlus in) throws IOException
+        {
+            if (!in.readBoolean())
+                return null;
+            TxnId quorum = CommandSerializers.txnId.deserialize(in);
+            TxnId universal = CommandSerializers.txnId.deserialize(in);
+            return DurableBefore.Entry.constructWithoutRange(quorum, universal);
         }
     }
 

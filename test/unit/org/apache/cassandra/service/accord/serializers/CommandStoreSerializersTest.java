@@ -18,20 +18,31 @@
 
 package org.apache.cassandra.service.accord.serializers;
 
+import java.io.IOException;
+
 import org.junit.Test;
 
+import accord.api.RoutingKey;
 import accord.local.CommandStores;
+import accord.local.DurableBefore;
 import accord.local.RedundantBefore;
 import accord.primitives.Ranges;
+import accord.primitives.TxnId;
 import accord.utils.AccordGens;
 import accord.utils.Gen;
 import accord.utils.Gens;
+import accord.utils.ReducingRangeMap;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.Serializers;
+import org.apache.cassandra.io.UnversionedSerializer;
+import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers.ReducingRangeMapSerializer;
 import org.apache.cassandra.utils.AccordGenerators;
+import org.apache.cassandra.utils.NullableSerializer;
 
 import static accord.utils.Property.qt;
 
@@ -66,6 +77,19 @@ public class CommandStoreSerializersTest
             // serializer doesn't support the empty set, so filter out
             RedundantBefore redundantBefore = AccordGenerators.redundantBefore(partitioner).filter(r -> r.size() != 0).next(rs);
             Serializers.testSerde(buffer, CommandStoreSerializers.redundantBefore, redundantBefore);
+        });
+    }
+
+    @Test
+    public void durableBefore()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(Gens.random(), AccordGenerators.partitioner()).check((rs, partitioner) -> {
+            DatabaseDescriptor.setPartitionerUnsafe(partitioner);
+            // serializer doesn't support the empty set, so filter out
+            DurableBefore durableBefore = AccordGenerators.durableBeforeGen(partitioner).next(rs);
+            Serializers.testSerde(buffer, CommandStoreSerializers.durableBefore, durableBefore);
+            Serializers.testSerde(buffer, nonTreeDurableBefore, NonTreeDurableBefore.from(durableBefore), CommandStoreSerializers.durableBefore, NonTreeDurableBefore::isEqualTo);
         });
     }
 
@@ -113,6 +137,99 @@ public class CommandStoreSerializersTest
                 Ranges ranges = expected.rangesAtIndex(i);
                 if (AccordGenerators.maybeUpdatePartitioner(ranges))
                     return;
+            }
+        }
+    }
+
+    static final UnversionedSerializer<DurableBefore.Entry> durableBeforeEntry = new NonTreeDurableBeforeEntrySerializer();
+    static final UnversionedSerializer<NonTreeDurableBefore> nonTreeDurableBefore = new ReducingRangeMapSerializer<>(NullableSerializer.wrap(durableBeforeEntry), DurableBefore.Entry[]::new, (i1, i2) -> { throw new UnsupportedOperationException(); }, NonTreeDurableBefore.EMPTY);
+    private static final class NonTreeDurableBeforeEntrySerializer implements UnversionedSerializer<DurableBefore.Entry>
+    {
+        private NonTreeDurableBeforeEntrySerializer() {}
+
+        @Override
+        public void serialize(DurableBefore.Entry t, DataOutputPlus out) throws IOException
+        {
+            CommandSerializers.txnId.serialize(t.quorum, out);
+            CommandSerializers.txnId.serialize(t.universal, out);
+        }
+
+        @Override
+        public DurableBefore.Entry deserialize(DataInputPlus in) throws IOException
+        {
+            TxnId quorumBefore = CommandSerializers.txnId.deserialize(in);
+            TxnId universalBefore = CommandSerializers.txnId.deserialize(in);
+            return DurableBefore.Entry.constructWithoutRange(quorumBefore, universalBefore);
+        }
+
+        @Override
+        public long serializedSize(DurableBefore.Entry t)
+        {
+            return CommandSerializers.txnId.serializedSize(t.quorum)
+                    + CommandSerializers.txnId.serializedSize(t.universal);
+        }
+    }
+
+    static class NonTreeDurableBefore extends ReducingRangeMap<DurableBefore.Entry>
+    {
+        static final NonTreeDurableBefore EMPTY = new NonTreeDurableBefore();
+
+        public NonTreeDurableBefore()
+        {
+        }
+
+        protected NonTreeDurableBefore(RoutingKey[] starts, DurableBefore.Entry[] values)
+        {
+            super(starts, values);
+        }
+
+        static NonTreeDurableBefore from(DurableBefore copy)
+        {
+            Builder builder = new Builder(copy.size());
+            for (DurableBefore.Entry e : copy)
+                builder.append(e.start(), e.end(), e);
+            return builder.build();
+        }
+
+        public boolean isEqualTo(DurableBefore that)
+        {
+            int i = 0;
+            for (DurableBefore.Entry e : that)
+            {
+                if (i >= this.size() || this.valueAt(i) == null && ++i == this.size())
+                    return false;
+                if (!e.equalsRange(this.startAt(i), this.startAt(i + 1)))
+                    return false;
+                if (!e.equalsIgnoreRange(this.valueAt(i)))
+                    return false;
+                ++i;
+            }
+            return i == this.size();
+        }
+
+        static class Builder extends AbstractIntervalBuilder<RoutingKey, DurableBefore.Entry, NonTreeDurableBefore>
+        {
+            protected Builder(int capacity)
+            {
+                super(capacity);
+            }
+
+            @Override
+            protected NonTreeDurableBefore buildInternal()
+            {
+                return new NonTreeDurableBefore(starts.toArray(new RoutingKey[0]), values.toArray(new DurableBefore.Entry[0]));
+            }
+
+            @Override
+            protected DurableBefore.Entry slice(RoutingKey start, RoutingKey end, DurableBefore.Entry value)
+            {
+                return new DurableBefore.Entry(start, end, value.quorum, value.universal);
+            }
+
+            @Override
+            protected DurableBefore.Entry reduce(DurableBefore.Entry a, DurableBefore.Entry b)
+            {
+                return DurableBefore.Entry.max(a, b);
             }
         }
     }

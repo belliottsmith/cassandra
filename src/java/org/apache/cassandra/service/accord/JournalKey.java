@@ -37,7 +37,13 @@ import org.apache.cassandra.utils.ByteArrayUtil;
 import static org.apache.cassandra.db.TypeSizes.BYTE_SIZE;
 import static org.apache.cassandra.db.TypeSizes.INT_SIZE;
 import static org.apache.cassandra.db.TypeSizes.LONG_SIZE;
-import static org.apache.cassandra.service.accord.journal.MergeSerializers.*;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.BootstrapBeganAtSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.CommandChangeSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.DurableBeforeSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.RangesForEpochSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.RedundantBeforeSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.SafeToReadSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.TopologySerializer;
 
 public final class JournalKey
 {

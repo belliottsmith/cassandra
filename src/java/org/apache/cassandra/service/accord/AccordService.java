@@ -388,7 +388,6 @@ public class AccordService implements IAccordService, Shutdownable
             return as;
 
         as.distributedStartupInternal();
-        instance = requestInstance = as;
 
         AccordReplicaMetrics.touch();
         AccordSystemMetrics.touch();
@@ -446,7 +445,7 @@ public class AccordService implements IAccordService, Shutdownable
         Invariants.require(localId != null, "static localId must be set before instantiating AccordService");
         logger.info("Starting accord with nodeId {}", localId);
         AccordAgent agent = FBUtilities.construct(CassandraRelevantProperties.ACCORD_AGENT_CLASS.getString(AccordAgent.class.getName()), "AccordAgent");
-        agent.setNodeId(localId);
+        agent.setup(localId);
         AccordTimeService time = new AccordTimeService();
         final RequestCallbacks callbacks = new RequestCallbacks(time);
         this.scheduler = new AccordScheduler();
@@ -614,19 +613,20 @@ public class AccordService implements IAccordService, Shutdownable
         // start the progress log on command store initialisation (so creates a synchronisation point)
         journal.writeStartMarker();
         state = State.STARTED;
-        node.commandStores().forAll("", safeStore -> safeStore.progressLog().start());
+        instance = requestInstance = this;
+        node.commandStores().forAllUnsafe(cs -> cs.unsafeProgressLog().start());
 
         node.durability().shards().reconfigure(Ints.checkedCast(getAccordShardDurabilityTargetSplits()),
                                                Ints.checkedCast(getAccordShardDurabilityMaxSplits()),
                                                Ints.checkedCast(getAccordShardDurabilityCycle(SECONDS)), SECONDS);
         node.durability().global().setGlobalCycleTime(Ints.checkedCast(getAccordGlobalDurabilityCycle(SECONDS)), SECONDS);
 
-        // trigger catchup only after our progress mechanisms are initialised
-        catchup();
-
-        // Only enable durability scheduling and progress logs _after_ we have fully replayed journal
+        // Only enable durability scheduling
         if (!node.durability().isStarted())
             node.durability().start();
+
+        // trigger catchup only after our progress mechanisms are initialised
+        catchup();
     }
 
     void catchup()

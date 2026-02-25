@@ -23,6 +23,7 @@ import accord.primitives.TxnId;
 import accord.utils.PersistentField;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
+
 import org.apache.cassandra.service.accord.JournalKey;
 
 public class DurableBeforePersister implements PersistentField.Persister<DurableBefore, DurableBefore>

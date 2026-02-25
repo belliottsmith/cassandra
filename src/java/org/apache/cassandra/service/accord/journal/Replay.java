@@ -23,6 +23,9 @@ import java.util.Deque;
 import java.util.Queue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.agrona.collections.Int2ObjectHashMap;
+import org.agrona.collections.IntArrayList;
+import org.agrona.collections.Long2LongHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,9 +35,7 @@ import accord.primitives.Route;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.UnhandledEnum;
-import org.agrona.collections.Int2ObjectHashMap;
-import org.agrona.collections.IntArrayList;
-import org.agrona.collections.Long2LongHashMap;
+
 import org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.journal.Journal;

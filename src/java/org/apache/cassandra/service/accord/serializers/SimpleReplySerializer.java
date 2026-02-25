@@ -19,6 +19,7 @@
 package org.apache.cassandra.service.accord.serializers;
 
 import accord.messages.SimpleReply;
+
 import org.apache.cassandra.io.UnversionedSerializer;
 
 public class SimpleReplySerializer

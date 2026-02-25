@@ -1316,7 +1316,7 @@ public class AccordCache implements CacheSize
                 Invariants.expect(value.saveStatus().compareTo(SaveStatus.ReadyToExecute) < 0);
 
             // TODO (expected): improve heuristics and consider transaction size
-            if (SHRINK_WITHOUT_LOCK < 0 || value.partialDeps() == null || value.partialDeps().txnIds().size() < SHRINK_WITHOUT_LOCK)
+            if (SHRINK_WITHOUT_LOCK <= 0 || value.partialDeps() == null || value.partialDeps().txnIds().size() <= SHRINK_WITHOUT_LOCK)
                 return Shrink.DONE;
 
             return Shrink.PERFORM_WITHOUT_LOCK;

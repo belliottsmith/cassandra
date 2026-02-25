@@ -653,17 +653,17 @@ public class AccordDebugKeyspace extends VirtualKeyspace
         public void collect(PartitionsCollector collector)
         {
             DurableBefore durableBefore = AccordService.unsafeInstance().node().durableBefore();
-            durableBefore.foldlWithBounds(
-                (entry, ignore, start, end) -> {
-                    TableId tableId = (TableId) start.prefix();
-                    collector.row(tableId.toString(), printToken(start))
+            durableBefore.foldl(
+                (entry, ignore) -> {
+                    TableId tableId = (TableId) entry.prefix();
+                    collector.row(tableId.toString(), printToken(entry.start()))
                              .lazyCollect(columns -> {
-                                  columns.add("token_end", end, AccordDebugKeyspace::printToken)
-                                         .add("quorum", entry.quorumBefore, TO_STRING)
-                                         .add("universal", entry.universalBefore, TO_STRING);
+                                  columns.add("token_end", entry.end(), AccordDebugKeyspace::printToken)
+                                         .add("quorum", entry.quorum, TO_STRING)
+                                         .add("universal", entry.universal, TO_STRING);
                              });
                     return null;
-                }, null, ignore -> false);
+                }, null);
         }
     }
 
@@ -837,16 +837,16 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 String tableIdStr = tableId.toString();
 
                 collector.partition(commandStoreId).collect(rows -> {
-                    maxConflicts.foldlWithBounds(
-                        (timestamp, rs, start, end) -> {
-                            rows.add(printToken(start))
+                    maxConflicts.foldl(
+                        (entry, rs) -> {
+                            rows.add(printToken(entry.start()))
                                 .lazyCollect(columns -> {
-                                    columns.add("token_end", end, AccordDebugKeyspace::printToken)
+                                    columns.add("token_end", entry.end(), AccordDebugKeyspace::printToken)
                                            .add("table_id", tableIdStr)
-                                           .add("timestamp", timestamp, TO_STRING);
+                                           .add("timestamp", entry, TO_STRING);
                                 });
                              return rows;
-                        }, rows, ignore -> false
+                        }, rows
                     );
                 });
             }

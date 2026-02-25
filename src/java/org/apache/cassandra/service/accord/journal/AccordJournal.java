@@ -26,22 +26,18 @@ import java.util.NavigableMap;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.agrona.collections.Long2LongHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import accord.local.CommandStore;
-import org.agrona.collections.Long2LongHashMap;
-import org.apache.cassandra.config.AccordSpec.JournalSpec;
-import org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode;
-import org.apache.cassandra.db.marshal.LongType;
-import org.apache.cassandra.io.util.*;
-
 import accord.impl.CommandChange;
 import accord.local.Command;
+import accord.local.CommandStore;
 import accord.local.CommandStores;
 import accord.local.CommandStores.RangesForEpoch;
 import accord.local.DurableBefore;
@@ -54,8 +50,14 @@ import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.PersistentField;
 
+import org.apache.cassandra.config.AccordSpec.JournalSpec;
+import org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.io.util.DataInputBuffer;
+import org.apache.cassandra.io.util.DataInputPlus;
+import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.journal.Compactor;
 import org.apache.cassandra.journal.Descriptor;
 import org.apache.cassandra.journal.Journal;
@@ -78,10 +80,10 @@ import static accord.local.Cleanup.Input.FULL;
 import static org.apache.cassandra.config.AccordSpec.RangeIndexMode.journal_sai;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccord;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordJournalDirectory;
+import static org.apache.cassandra.service.accord.JournalKey.Type.COMMAND_DIFF;
 import static org.apache.cassandra.service.accord.journal.ReplayMarkers.startMarker;
 import static org.apache.cassandra.service.accord.journal.ReplayMarkers.safeStopMarker;
 import static org.apache.cassandra.service.accord.journal.ReplayMarkers.writeMarker;
-import static org.apache.cassandra.service.accord.JournalKey.Type.COMMAND_DIFF;
 import static org.apache.cassandra.service.accord.journal.TopologyRecord.newTopology;
 
 public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier

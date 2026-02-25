@@ -89,10 +89,6 @@ import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.ClientState;
-import org.apache.cassandra.service.accord.journal.MergeSerializers;
-import org.apache.cassandra.service.accord.journal.Merger;
-import org.apache.cassandra.service.accord.journal.MergeSerializers.CommandChangeSerializer;
-import org.apache.cassandra.service.accord.journal.MergeSerializer;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordKeyspace.CommandsForKeyAccessor;
 import org.apache.cassandra.service.accord.AccordService;
@@ -101,10 +97,14 @@ import org.apache.cassandra.service.accord.IAccordService.AccordCompactionInfo;
 import org.apache.cassandra.service.accord.IAccordService.AccordCompactionInfos;
 import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.api.TokenKey;
-import org.apache.cassandra.service.accord.journal.TopologyRecord;
-import org.apache.cassandra.service.accord.journal.TopologyRecord.TopologyImage;
 import org.apache.cassandra.service.accord.journal.CommandChangeWriter;
 import org.apache.cassandra.service.accord.journal.CommandChanges;
+import org.apache.cassandra.service.accord.journal.MergeSerializer;
+import org.apache.cassandra.service.accord.journal.MergeSerializers;
+import org.apache.cassandra.service.accord.journal.MergeSerializers.CommandChangeSerializer;
+import org.apache.cassandra.service.accord.journal.Merger;
+import org.apache.cassandra.service.accord.journal.TopologyRecord;
+import org.apache.cassandra.service.accord.journal.TopologyRecord.TopologyImage;
 import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.paxos.PaxosRepairHistory;
 import org.apache.cassandra.service.paxos.uncommitted.PaxosRows;
@@ -125,9 +125,9 @@ import static org.apache.cassandra.config.Config.PaxosStatePurging.legacy;
 import static org.apache.cassandra.config.DatabaseDescriptor.paxosStatePurging;
 import static org.apache.cassandra.service.accord.AccordKeyspace.CFKAccessor;
 import static org.apache.cassandra.service.accord.AccordKeyspace.JournalColumns.getJournalKey;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.TopologySerializer.INSTANCE;
 import static org.apache.cassandra.service.accord.journal.TopologyRecord.Kind.Image;
 import static org.apache.cassandra.service.accord.journal.TopologyRecord.Kind.Repeat;
-import static org.apache.cassandra.service.accord.journal.MergeSerializers.TopologySerializer.INSTANCE;
 
 /**
  * Merge multiple iterators over the content of sstable into a "compacted" iterator.

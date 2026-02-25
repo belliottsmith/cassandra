@@ -38,9 +38,11 @@ import accord.api.ReplicaEventListener;
 import accord.api.RoutingKey;
 import accord.api.Tracing;
 import accord.coordinate.Coordination;
+import accord.coordinate.Exhausted;
 import accord.coordinate.Preempted;
 import accord.coordinate.Timeout;
 import accord.local.Command;
+import accord.local.LogUnavailableException;
 import accord.local.Node;
 import accord.local.SafeCommand;
 import accord.local.SafeCommandStore;
@@ -66,6 +68,7 @@ import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 import accord.utils.async.Cancellable;
 
+import org.apache.cassandra.config.AccordSpec;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
@@ -121,6 +124,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
     private final AccordTracing tracing = new AccordTracing();
     private final RandomSource random = new DefaultRandom();
     protected Node.Id self;
+    protected AccordSpec config;
 
     public AccordAgent()
     {
@@ -143,9 +147,10 @@ public class AccordAgent implements Agent, OwnershipEventListener
         return this;
     }
 
-    public void setNodeId(Node.Id id)
+    public void setup(Node.Id id)
     {
         self = id;
+        config = DatabaseDescriptor.getAccord();
     }
 
     @Override
@@ -205,7 +210,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
             return;
 
         AccordSystemMetrics.metrics.errors.inc();
-        if (t instanceof CancellationException || t instanceof TimeoutException || t instanceof Timeout || t instanceof Preempted)
+        if (t instanceof CancellationException || t instanceof TimeoutException || t instanceof Timeout || t instanceof Preempted || t instanceof Exhausted || t instanceof LogUnavailableException)
             // TODO (required): leaky logger, permitting multiple messages per time period and reporting how many were dropped
             noSpamLogger.warn("", t);
         else
@@ -264,6 +269,20 @@ public class AccordAgent implements Agent, OwnershipEventListener
     public long maxConflictsPruneInterval()
     {
         return 1024;
+    }
+
+    @Override
+    public boolean softReject(long unappliedCount, long maxUnappliedAge, long cumulativeUnappliedAge)
+    {
+        return unappliedCount > config.soft_reject_count
+                || maxUnappliedAge > config.soft_reject_age.toMicroseconds()
+                || cumulativeUnappliedAge > config.soft_reject_cumulative_age.toMicroseconds();
+    }
+
+    @Override
+    public boolean hardReject(int softRejectCount, int totalCount)
+    {
+        return (softRejectCount / (float) totalCount) >= config.hard_reject_ratio;
     }
 
     /**

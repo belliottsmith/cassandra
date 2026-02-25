@@ -40,7 +40,6 @@ public class AccordSpec
 
     // TODO (expected): move to JournalSpec
     public volatile String journal_directory;
-    public volatile boolean enable_journal_compaction = true;
 
     /**
      * Enables the virtual Accord debug-only keyspace with tables
@@ -199,6 +198,11 @@ public class AccordSpec
     public boolean ephemeralReadEnabled = true;
     public boolean state_cache_listener_jfr_enabled = false;
 
+    public float hard_reject_ratio = 0.5f;
+    public int soft_reject_count = 100;
+    public DurationSpec.LongMicrosecondsBound soft_reject_age = new DurationSpec.LongMicrosecondsBound("10s");
+    public DurationSpec.LongMicrosecondsBound soft_reject_cumulative_age = new DurationSpec.LongMicrosecondsBound("60s");
+
     public DurationSpec.IntSecondsBound catchup_on_start_success_latency = new DurationSpec.IntSecondsBound(60);
     public DurationSpec.IntSecondsBound catchup_on_start_fail_latency = new DurationSpec.IntSecondsBound(900);
     public int catchup_on_start_max_attempts = 5;
@@ -282,6 +286,7 @@ public class AccordSpec
         public DurationSpec.IntMillisecondsBound compactionPeriod = new DurationSpec.IntMillisecondsBound("60000ms");
         private volatile long flushCombinedBlockPeriod = Long.MIN_VALUE;
         public Version version = Version.DOWNGRADE_SAFE_VERSION;
+        public boolean enable_compaction = true;
 
         public JournalSpec setFlushPeriod(DurationSpec newFlushPeriod)
         {
@@ -329,7 +334,7 @@ public class AccordSpec
         @Override
         public boolean enableCompaction()
         {
-            return DatabaseDescriptor.getAccord().enable_journal_compaction;
+            return enable_compaction;
         }
 
         @Override
