@@ -21,8 +21,12 @@ package org.apache.cassandra.service.accord.serializers;
 import java.io.IOException;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.function.IntFunction;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import accord.api.LocalListeners.TxnListener;
 import accord.api.RoutingKey;
@@ -52,13 +56,17 @@ import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.utils.CollectionSerializers;
+import org.apache.cassandra.utils.NoSpamLogger;
 
+import static accord.utils.Invariants.illegalState;
 import static org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer.deserializeNullable;
 import static org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer.serializeNullable;
 import static org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer.serializedNullableSize;
 
 public class CommandStoreSerializers
 {
+    private static final Logger logger = LoggerFactory.getLogger(CommandStoreSerializers.class);
+    private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
     private static final int REDUCING_BTREE_MODE = 0;
     private static final int REDUCING_ARRAY_MODE = 1;
     private static final int REDUCING_MODE_BIT = 1;
@@ -385,7 +393,11 @@ public class CommandStoreSerializers
                 }
                 else
                 {
-                    if (!prev.end().equals(e.start()))
+                    int c = prev.end().compareTo(e.start());
+                    if (c > 0)
+                        throw illegalState("Not well-formed: %s overlaps %s in %s", prev, e, map);
+
+                    if (c < 0)
                     {
                         flags = DISCONTIGUOUS;
                         if (!prev.prefix().equals(e.prefix()))
@@ -428,6 +440,7 @@ public class CommandStoreSerializers
                 {
                     Object prefix = null;
                     RoutingKey prevEnd = null;
+                    E prev = null;
                     int fixedLength = 0;
                     while (mapSize-- > 0)
                     {
@@ -453,8 +466,28 @@ public class CommandStoreSerializers
 
                         int length = fixedLength >= 0 ? fixedLength : in.readUnsignedVInt32();
                         RoutingKey end = KeySerializers.routingKey.deserializeWithPrefix(prefix, length, in);
-                        builder.append(deserialize(start, end, in));
+                        E cur = deserialize(start, end, in);
+                        if ((flags & DISCONTIGUOUS) != 0)
+                        {
+                            if (prev != null && prev.end().compareTo(start) > 0)
+                            {
+                                if (prev.end().compareTo(end) > 0)
+                                {
+                                    noSpamLogger.warn("BTreeReducingRangeMap not well-formed: {} not before {}; skipping", prev, cur);
+                                    prevEnd = end;
+                                    continue;
+                                }
+                                else
+                                {
+                                    E newCur = cur.with(prev.end(), end);
+                                    noSpamLogger.warn("BTreeReducingRangeMap not well-formed: {} not before {}; appending {}", prev, cur, newCur);
+                                    cur = newCur;
+                                }
+                            }
+                        }
+                        builder.append(cur);
                         prevEnd = end;
+                        prev = cur;
                     }
                 }
                 else

@@ -132,7 +132,7 @@ public class CompressedFrameDataOutputPlus extends BufferedDataOutputStreamPlus
         {
             try
             {
-                T reconcile = CompressedFrameDataInputPlus.readOne(file, serializer);
+                List<T> reconcile = CompressedFrameDataInputPlus.readList(file, serializer);
                 Invariants.require(Objects.equals(value, reconcile));
             }
             catch (IOException e) {}
