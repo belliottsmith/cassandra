@@ -51,6 +51,7 @@ import org.apache.cassandra.service.accord.serializers.TxnRequestSerializer.With
 import org.apache.cassandra.utils.vint.VIntCoding;
 
 import static accord.messages.BeginRecovery.RecoverReply.Kind.Ok;
+import static org.apache.cassandra.service.accord.serializers.LatestDepsSerializers.latestDeps;
 
 public class RecoverySerializers
 {
@@ -202,82 +203,6 @@ public class RecoverySerializers
         {
             return TypeSizes.BYTE_SIZE
                    + (reply.kind() == Ok ? serializedOkSize((RecoverOk) reply, version) : serializedNackSize((RecoverNack) reply, version));
-        }
-    };
-
-    public static final UnversionedSerializer<LatestDeps> latestDeps = new UnversionedSerializer<>()
-    {
-        @Override
-        public void serialize(LatestDeps t, DataOutputPlus out) throws IOException
-        {
-            out.writeUnsignedVInt32(t.size());
-            for (int i = 0 ; i < t.size() ; ++i)
-            {
-                RoutingKey start = t.startAt(i);
-                KeySerializers.routingKey.serialize(start, out);
-                LatestDeps.LatestEntry e = t.valueAt(i);
-                if (e == null)
-                {
-                    CommandSerializers.knownDeps.serialize(null, out);
-                }
-                else
-                {
-                    CommandSerializers.knownDeps.serialize(e.known, out);
-                    CommandSerializers.ballot.serialize(e.ballot, out);
-                    DepsSerializers.nullableDeps.serialize(e.coordinatedDeps, out);
-                    DepsSerializers.nullableDeps.serialize(e.localDeps, out);
-                }
-            }
-            KeySerializers.routingKey.serialize(t.startAt(t.size()), out);
-        }
-
-        @Override
-        public LatestDeps deserialize(DataInputPlus in) throws IOException
-        {
-            int size = in.readUnsignedVInt32();
-            RoutingKey[] starts = new RoutingKey[size + 1];
-            LatestDeps.LatestEntry[] values = new LatestDeps.LatestEntry[size];
-            for (int i = 0 ; i < size ; ++i)
-            {
-                starts[i] = KeySerializers.routingKey.deserialize(in);
-                KnownDeps knownDeps = CommandSerializers.knownDeps.deserialize(in);
-                if (knownDeps == null)
-                    continue;
-
-                Ballot ballot = CommandSerializers.ballot.deserialize(in);
-                Deps coordinatedDeps = DepsSerializers.nullableDeps.deserialize(in);
-                Deps localDeps = DepsSerializers.nullableDeps.deserialize(in);
-                values[i] = new LatestDeps.LatestEntry(knownDeps, ballot, coordinatedDeps, localDeps);
-            }
-            starts[size] = KeySerializers.routingKey.deserialize(in);
-
-            return LatestDeps.SerializerSupport.create(starts, values);
-        }
-
-        @Override
-        public long serializedSize(LatestDeps t)
-        {
-            long size = 0;
-            size += TypeSizes.sizeofUnsignedVInt(t.size());
-            for (int i = 0 ; i < t.size() ; ++i)
-            {
-                RoutingKey start = t.startAt(i);
-                size += KeySerializers.routingKey.serializedSize(start);
-                LatestDeps.LatestEntry e = t.valueAt(i);
-                if (e == null)
-                {
-                    size += CommandSerializers.knownDeps.serializedSize(null);
-                }
-                else
-                {
-                    size += CommandSerializers.knownDeps.serializedSize(e.known);
-                    size += CommandSerializers.ballot.serializedSize(e.ballot);
-                    size += DepsSerializers.nullableDeps.serializedSize(e.coordinatedDeps);
-                    size += DepsSerializers.nullableDeps.serializedSize(e.localDeps);
-                }
-            }
-            size += KeySerializers.routingKey.serializedSize(t.startAt(t.size()));
-            return size;
         }
     };
 }
