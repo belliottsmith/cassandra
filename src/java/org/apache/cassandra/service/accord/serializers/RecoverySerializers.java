@@ -24,7 +24,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import accord.api.Result;
-import accord.api.RoutingKey;
 import accord.messages.BeginRecovery;
 import accord.messages.BeginRecovery.RecoverNack;
 import accord.messages.BeginRecovery.RecoverOk;
@@ -32,7 +31,6 @@ import accord.messages.BeginRecovery.RecoverReply;
 import accord.primitives.Ballot;
 import accord.primitives.Deps;
 import accord.primitives.FullRoute;
-import accord.primitives.Known.KnownDeps;
 import accord.primitives.LatestDeps;
 import accord.primitives.PartialTxn;
 import accord.primitives.Participants;
@@ -43,7 +41,6 @@ import accord.primitives.TxnId;
 import accord.primitives.Writes;
 
 import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer;

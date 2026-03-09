@@ -250,7 +250,7 @@ public class AccordCommandStore extends CommandStore
         {
             commands = exclusive.commands.newInstance(this);
             commandsForKey = exclusive.commandsForKey.newInstance(this);
-            this.caches = new ExclusiveCaches(sharedExecutor.lock, exclusive.global, commands, commandsForKey);
+            this.caches = new ExclusiveCaches(sharedExecutor.unsafeLock(), exclusive.global, commands, commandsForKey);
         }
 
         this.exclusiveExecutor = sharedExecutor.executor(id);

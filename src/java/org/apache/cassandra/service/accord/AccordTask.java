@@ -795,7 +795,7 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
         if (rangeScanner != null)
             rangeScanner.cancelled = true;
         if (callback != null)
-            callback.accept(null, new CancellationException());
+            commandStore.executor().submit(() -> callback.accept(null, new CancellationException()));
     }
 
     void cancelExclusive(AccordExecutor owner)
@@ -892,7 +892,7 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
     {
         for (AccordSafeState<K, V> safeState : map.values())
         {
-            if (safeState.invalidated()) continue;
+            if (safeState.isUnsafe()) continue;
             try { cache.release(safeState, this); }
             catch (Throwable t) { suppressedBy.addSuppressed(t); }
         }
@@ -902,7 +902,7 @@ public abstract class AccordTask<R> extends SubmittableTask implements Function<
     {
         for (AccordSafeState<?, ?> safeState : map.values())
         {
-            if (safeState.invalidated()) continue;
+            if (safeState.isUnsafe()) continue;
             try { cache.release(safeState, this); }
             catch (Throwable t) { suppressedBy.addSuppressed(t); }
         }

@@ -274,9 +274,10 @@ public class AccordAgent implements Agent, OwnershipEventListener
     @Override
     public boolean softReject(long unappliedCount, long maxUnappliedAge, long cumulativeUnappliedAge)
     {
-        return unappliedCount > config.soft_reject_count
+        return unappliedCount > config.min_soft_reject_count
+               && (unappliedCount > config.max_soft_reject_count
                 || maxUnappliedAge > config.soft_reject_age.toMicroseconds()
-                || cumulativeUnappliedAge > config.soft_reject_cumulative_age.toMicroseconds();
+                || cumulativeUnappliedAge > config.soft_reject_cumulative_age.toMicroseconds());
     }
 
     @Override

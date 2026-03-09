@@ -93,6 +93,8 @@ public class AccordSpec
 
         /**
          * The queue workers only require ownership of the lock, submissions happens fully asynchronously.
+         *
+         * NOTE: EXPERIMENTAL
          */
         ASYNC,
 
@@ -137,16 +139,16 @@ public class AccordSpec
     public DurationSpec.IntMillisecondsBound repair_timeout = new DurationSpec.IntMillisecondsBound("10m");
     public String recover_txn = "5s*attempts <= 60s";
     public StringRetryStrategy recover_syncpoint = new StringRetryStrategy("60s <= 30s*attempts...60s*attempts <= 600s");
-    public String fetch_txn = "1s*attempts";
-    public String fetch_syncpoint = "5s*attempts";
-    public String expire_txn = "5s*attempts";
+    public String fetch_txn = "2s*attempts <= 60s";
+    public String fetch_syncpoint = "5s*attempts <= 60s";
+    public String expire_txn = "5s*attempts <= 60s";
     public String expire_syncpoint = "60s*attempts<=300s";
     public String expire_epoch_wait = "10s";
     // we don't want to wait ages for durability as it blocks other durability progress; even this might be too long, as we can always retry
     public String expire_durability = "10s*attempts <= 30s";
     public String slow_syncpoint_preaccept = "10s";
-    public String slow_txn_preaccept = "30ms <= p50*2 <= 100ms";
-    public String slow_read = "30ms <= p50*2 <= 100ms";
+    public String slow_txn_preaccept = "30ms <= p50*2 <= 1000ms";
+    public String slow_read = "30ms <= p50*2 <= 1000ms";
     public StringRetryStrategy retry_syncpoint = new StringRetryStrategy("10s*attempt <= 600s");
     public StringRetryStrategy retry_durability = new StringRetryStrategy("10s*attempt <= 600s");
     public StringRetryStrategy retry_bootstrap = new StringRetryStrategy("10s*attempt <= 600s");
@@ -189,8 +191,6 @@ public class AccordSpec
         HARD
     }
 
-    public RebootstrapMode rebootstrap_mode = RebootstrapMode.full_repair;
-
     /**
      * default transactional mode for tables created by this node when no transactional mode has been specified in the DDL
      */
@@ -199,7 +199,8 @@ public class AccordSpec
     public boolean state_cache_listener_jfr_enabled = false;
 
     public float hard_reject_ratio = 0.5f;
-    public int soft_reject_count = 100;
+    public int min_soft_reject_count = 10;
+    public int max_soft_reject_count = 100;
     public DurationSpec.LongMicrosecondsBound soft_reject_age = new DurationSpec.LongMicrosecondsBound("10s");
     public DurationSpec.LongMicrosecondsBound soft_reject_cumulative_age = new DurationSpec.LongMicrosecondsBound("60s");
 

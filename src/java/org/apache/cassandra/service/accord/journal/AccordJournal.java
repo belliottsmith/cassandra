@@ -81,8 +81,8 @@ import static org.apache.cassandra.config.AccordSpec.RangeIndexMode.journal_sai;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccord;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordJournalDirectory;
 import static org.apache.cassandra.service.accord.JournalKey.Type.COMMAND_DIFF;
-import static org.apache.cassandra.service.accord.journal.ReplayMarkers.startMarker;
 import static org.apache.cassandra.service.accord.journal.ReplayMarkers.safeStopMarker;
+import static org.apache.cassandra.service.accord.journal.ReplayMarkers.startMarker;
 import static org.apache.cassandra.service.accord.journal.ReplayMarkers.writeMarker;
 import static org.apache.cassandra.service.accord.journal.TopologyRecord.newTopology;
 

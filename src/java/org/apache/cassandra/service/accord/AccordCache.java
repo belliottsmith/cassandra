@@ -534,7 +534,7 @@ public class AccordCache implements CacheSize
 
                 AccordCacheEntry<K, V> node = cache.get(key);
 
-                require(!safeRef.invalidated());
+                require(!safeRef.isUnsafe());
                 require(safeRef.global() != null, "safeRef node is null for %s", key);
                 require(safeRef.global() == node, "safeRef node not in map: %s != %s", safeRef.global(), node);
                 require(node.references() > 0, "references (%d) are zero for %s (%s)", node.references(), key, node);
@@ -563,7 +563,7 @@ public class AccordCache implements CacheSize
                 {
                     evict = node.is(LOADED) && node.isNull();
                 }
-                safeRef.invalidate();
+                safeRef.markUnsafe();
 
                 if (node.decrement() == 0)
                 {

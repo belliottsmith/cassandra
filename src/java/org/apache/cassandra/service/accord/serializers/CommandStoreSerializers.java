@@ -355,6 +355,8 @@ public class CommandStoreSerializers
 
     private static abstract class BTreeReducingRangeMapSerializer<E extends ReducingBTree.Entry<E>, Map extends BTreeReducingRangeMap<E>> implements UnversionedSerializer<Map>
     {
+        private static final int RESERVED_MAP_MASK = 0x3;
+
         private static final int DISCONTIGUOUS = 1;
         private static final int NEW_PREFIX = 2;
 
@@ -366,15 +368,18 @@ public class CommandStoreSerializers
         abstract BTreeReducingRangeMap.Builder<E, Map> builder();
         abstract void serializeWithoutRange(E e, DataOutputPlus out) throws IOException;
         abstract long serializedSizeWithoutRange(E e);
-        abstract E deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException;
+        abstract E deserialize(RoutingKey start, RoutingKey end, DataInputPlus in, int mapFlags) throws IOException;
         abstract E deserializeArrayModeWithoutRange(DataInputPlus in) throws IOException;
+
+        protected int mapFlags() { return 0; }
 
         @Override
         public void serialize(Map map, DataOutputPlus out) throws IOException
         {
             // for upgrading non-tree structures
-            // noinspection UnnecessaryLocalVariable
-            int mapFlags = REDUCING_BTREE_MODE;
+            int mapFlags = mapFlags();
+            Invariants.require((mapFlags & RESERVED_MAP_MASK) == 0);
+            mapFlags |= REDUCING_BTREE_MODE;
             int mapSize = map.size();
             out.writeUnsignedVInt32(mapFlags);
             out.writeUnsignedVInt32(mapSize);
@@ -436,7 +441,7 @@ public class CommandStoreSerializers
 
             try (BTreeReducingRangeMap.Builder<E, Map> builder = builder())
             {
-                if ((mapFlags & REDUCING_ARRAY_MODE) == REDUCING_BTREE_MODE)
+                if ((mapFlags & REDUCING_MODE_BIT) == REDUCING_BTREE_MODE)
                 {
                     Object prefix = null;
                     RoutingKey prevEnd = null;
@@ -466,7 +471,7 @@ public class CommandStoreSerializers
 
                         int length = fixedLength >= 0 ? fixedLength : in.readUnsignedVInt32();
                         RoutingKey end = KeySerializers.routingKey.deserializeWithPrefix(prefix, length, in);
-                        E cur = deserialize(start, end, in);
+                        E cur = deserialize(start, end, in, mapFlags);
                         if ((flags & DISCONTIGUOUS) != 0)
                         {
                             if (prev != null && prev.end().compareTo(start) > 0)
@@ -572,7 +577,15 @@ public class CommandStoreSerializers
 
     private static final class MaxConflictsSerializer extends BTreeReducingRangeMapSerializer<MaxConflicts.Entry, MaxConflicts>
     {
+        private static final int SEPARATE_WRITES = 0x4;
+
         private MaxConflictsSerializer() {}
+
+        @Override
+        protected int mapFlags()
+        {
+            return SEPARATE_WRITES;
+        }
 
         @Override
         MaxConflicts empty()
@@ -589,27 +602,30 @@ public class CommandStoreSerializers
         @Override
         void serializeWithoutRange(MaxConflicts.Entry entry, DataOutputPlus out) throws IOException
         {
-            CommandSerializers.timestamp.serialize(entry.all, out);
+            CommandSerializers.timestamp.serialize(entry.any, out);
         }
 
         @Override
         long serializedSizeWithoutRange(MaxConflicts.Entry entry)
         {
-            return CommandSerializers.timestamp.serializedSize(entry.all);
+            return CommandSerializers.timestamp.serializedSize(entry.any);
         }
 
         @Override
-        MaxConflicts.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException
+        MaxConflicts.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in, int mapFlags) throws IOException
         {
             Timestamp all = CommandSerializers.timestamp.deserialize(in);
-            return new MaxConflicts.Entry(start, end, all);
+            Timestamp writes = all;
+            if ((mapFlags & SEPARATE_WRITES) != 0)
+                writes = CommandSerializers.timestamp.deserialize(in);
+            return new MaxConflicts.Entry(start, end, all, writes);
         }
 
         @Override
         MaxConflicts.Entry deserializeArrayModeWithoutRange(DataInputPlus in) throws IOException
         {
             Timestamp all = CommandSerializers.timestamp.deserialize(in);
-            return new MaxConflicts.Entry(all);
+            return new MaxConflicts.Entry(all, all);
         }
     }
 
@@ -644,7 +660,7 @@ public class CommandStoreSerializers
         }
 
         @Override
-        DurableBefore.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in) throws IOException
+        DurableBefore.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in, int mapFlags) throws IOException
         {
             TxnId quorum = CommandSerializers.txnId.deserialize(in);
             TxnId universal = CommandSerializers.txnId.deserialize(in);

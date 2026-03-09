@@ -54,6 +54,7 @@ import org.apache.cassandra.distributed.api.IMessageFilters;
 import org.apache.cassandra.distributed.shared.DistributedTestBase;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.Schema;
+import org.apache.cassandra.service.accord.AccordExecutor;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.utils.EstimatedHistogram;
@@ -61,7 +62,6 @@ import org.apache.cassandra.utils.EstimatedHistogram;
 import static java.lang.System.currentTimeMillis;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.db.ColumnFamilyStore.FlushReason.UNIT_TESTS;
 
 public class AccordLoadTest extends AccordTestBase
@@ -119,7 +119,7 @@ public class AccordLoadTest extends AccordTestBase
             final int batchSizeLimit = 200;
             final long batchTime = TimeUnit.SECONDS.toNanos(10);
             final int concurrency = 200;
-            final int ratePerSecond = 1000;
+            final int ratePerSecond = 500;
 //            final int keyCount = 10_000;
             final int keyCount = 10_000;
             final float readChance = 0.33f;
@@ -165,7 +165,10 @@ public class AccordLoadTest extends AccordTestBase
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                             }, "BEGIN TRANSACTION\n" +
                                "SELECT * FROM " + qualifiedAccordTableName + " WHERE k IN ?;\n" +
-                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, List.of(k1, k2));
+                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL,
+                                                          List.of(k1, k2)
+//                                                          List.of(k1)
+                            );
                         }
                         else if (initialised.get(k1) && initialised.get(k2))
                         {
@@ -320,6 +323,12 @@ public class AccordLoadTest extends AccordTestBase
                 final Date date = new Date();
                 System.out.printf("%tT rate: %.2f/s (%d total)\n", date, (((float)batchSizeLimit * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)), batchSize);
                 System.out.printf("%tT percentiles: %d %d %d %d\n", date, histogram.percentile(.25)/1000, histogram.percentile(.5)/1000, histogram.percentile(.75)/1000, histogram.percentile(1)/1000);
+                cluster.forEach(() -> {
+                    String waiting = "";
+                    for (AccordExecutor executor : AccordService.instance().executors())
+                        waiting += executor.unsafeWaitingToRunCount() + " ";
+                    System.out.println(waiting);
+                });
 
                 class VerbCount
                 {
