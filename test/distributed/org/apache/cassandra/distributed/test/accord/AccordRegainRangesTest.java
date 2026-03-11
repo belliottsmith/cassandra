@@ -21,21 +21,14 @@ package org.apache.cassandra.distributed.test.accord;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 import accord.api.RoutingKey;
 import accord.local.CommandStore;
-import accord.local.CommandStores;
 import accord.local.PreLoadContext;
-import accord.local.SafeCommandStore;
 import accord.primitives.AbstractRanges;
 import accord.primitives.Ranges;
-import accord.topology.Shard;
-import accord.topology.Topology;
 import accord.topology.TopologyException;
-import accord.topology.TopologyManager;
 import accord.topology.TopologyRetiredException;
-import accord.utils.LargeBitSet;
 
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.distributed.api.ConsistencyLevel;
@@ -47,15 +40,12 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
-import org.apache.cassandra.tcm.ClusterMetadataService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static accord.local.CommandStores.checkQueryDisjointRangesAcrossCommandStores;
 import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static org.junit.Assert.assertFalse;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
