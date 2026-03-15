@@ -51,6 +51,12 @@ public class DurableBeforeIntegrationTest extends DurableBeforeTest
     }
 
     @Override
+    public void test()
+    {
+        super.test();
+    }
+
+    @Override
     protected void check(RandomSource rs, DurableBefore tree, DurableBeforeLinear linear, Gen<Ranges> genRanges)
     {
         super.check(rs, tree, linear, genRanges);

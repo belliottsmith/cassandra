@@ -41,6 +41,12 @@ public class MaxConflictsIntegrationTest extends MaxConflictsTest
     }
 
     @Override
+    public void test()
+    {
+        super.test();
+    }
+    
+    @Override
     protected RoutingKey key(int prefix, int hash)
     {
         return new TokenKey(TableId.fromLong(1 + prefix), new Murmur3Partitioner.LongToken(hash));

@@ -122,7 +122,7 @@ public class AccordCommandStoreTryExecuteListeningTest extends TestBaseImpl
                     commandStore.unsafeGetListeners().register(txn3.txnId(), SaveStatus.Applied, txn4.txnId());
                 }));
 
-                AccordService.getBlocking(commandStore.tryToExecuteListeningTxns());
+                AccordService.getBlocking(commandStore.tryToExecuteListeningTxns(true));
 
                 for (Command command : commands)
                 {

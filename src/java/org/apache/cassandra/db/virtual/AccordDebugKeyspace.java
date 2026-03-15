@@ -2101,9 +2101,12 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 }
                 case TRY_EXECUTE_LISTENING:
                 {
-                    if (param != null)
-                        throw new IllegalArgumentException("'param' is not supported for " + op);
-                    function = CommandStore::tryToExecuteListeningTxns;
+                    boolean loop;
+                    if (param == null) loop = false;
+                    else if (param.equalsIgnoreCase("loop")) loop = true;
+                    else throw new InvalidRequestException("Unknown param for " + CommandStoreOp.TRY_EXECUTE_LISTENING + ": '" + param + "'; expect only 'loop' or missing");
+
+                    function = commandStore -> commandStore.tryToExecuteListeningTxns(loop);
                     break;
                 }
                 case REPLAY:

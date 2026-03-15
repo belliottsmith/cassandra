@@ -85,7 +85,6 @@ import accord.utils.UnhandledEnum;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResult;
 import accord.utils.async.AsyncResults;
-
 import org.apache.cassandra.concurrent.Shutdownable;
 import org.apache.cassandra.config.AccordSpec;
 import org.apache.cassandra.config.AccordSpec.CatchupMode;
@@ -98,6 +97,7 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.SystemKeyspace.BootstrapState;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.journal.Descriptor;
 import org.apache.cassandra.journal.Params;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -165,15 +165,11 @@ import static accord.local.durability.DurabilityService.SyncRemote.All;
 import static accord.messages.SimpleReply.Ok;
 import static accord.primitives.Txn.Kind.ExclusiveSyncPoint;
 import static accord.primitives.Txn.Kind.Write;
-import static java.util.concurrent.TimeUnit.MINUTES;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import static java.util.concurrent.TimeUnit.*;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.concurrent.ExecutorFactory.SimulatorThreadTag.JOB;
 import static org.apache.cassandra.concurrent.ExecutorFactory.SystemThreadTag.DAEMON;
-import static org.apache.cassandra.config.AccordSpec.CatchupMode.DISABLED;
-import static org.apache.cassandra.config.AccordSpec.CatchupMode.FALLBACK_TO_HARD;
-import static org.apache.cassandra.config.AccordSpec.CatchupMode.HARD;
+import static org.apache.cassandra.config.AccordSpec.CatchupMode.*;
 import static org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode.RESET;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccord;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordCommandStoreShardCount;
@@ -578,13 +574,9 @@ public class AccordService implements IAccordService, Shutdownable
 
                 logger.info("Try to execute pending transactions...");
                 List<AsyncResult<Void>> results = new ArrayList<>();
-                node.commandStores().forAllUnsafe(commandStore -> results.add(commandStore.tryToExecuteListeningTxns()));
-<<<<<<< HEAD
-                getBlocking(AsyncResults.reduce(results, Reduce.toNull()));
-=======
+                node.commandStores().forAllUnsafe(commandStore -> results.add(commandStore.tryToExecuteListeningTxns(false)));
                 if (!results.isEmpty())
                     getBlocking(AsyncResults.reduce(results, Reduce.toNull()));
->>>>>>> 4d7b25d0dd (Fix:)
             }
         }
         finally
