@@ -574,6 +574,11 @@ public class AccordService implements IAccordService, Shutdownable
             else
             {
                 replayJournal(minSegments);
+
+                logger.info("Try to execute pending transactions...");
+                List<AsyncResult<Void>> results = new ArrayList<>();
+                node.commandStores().forAllUnsafe(commandStore -> results.add(commandStore.tryToExecuteListeningTxns()));
+                getBlocking(AsyncResults.reduce(results, Reduce.toNull()));
             }
         }
         finally

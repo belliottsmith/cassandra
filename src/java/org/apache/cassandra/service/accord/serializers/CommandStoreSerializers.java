@@ -577,7 +577,8 @@ public class CommandStoreSerializers
 
     private static final class MaxConflictsSerializer extends BTreeReducingRangeMapSerializer<MaxConflicts.Entry, MaxConflicts>
     {
-        private static final int SEPARATE_WRITES = 0x4;
+        // use top bits of a single byte vint, to leave room for base impl to fill other way
+        private static final int SEPARATE_WRITES = 0x40;
 
         private MaxConflictsSerializer() {}
 
@@ -603,12 +604,14 @@ public class CommandStoreSerializers
         void serializeWithoutRange(MaxConflicts.Entry entry, DataOutputPlus out) throws IOException
         {
             CommandSerializers.timestamp.serialize(entry.any, out);
+            CommandSerializers.timestamp.serialize(entry.write, out);
         }
 
         @Override
         long serializedSizeWithoutRange(MaxConflicts.Entry entry)
         {
-            return CommandSerializers.timestamp.serializedSize(entry.any);
+            return CommandSerializers.timestamp.serializedSize(entry.any)
+                    + CommandSerializers.timestamp.serializedSize(entry.write);
         }
 
         @Override

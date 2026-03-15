@@ -22,16 +22,15 @@ import java.io.IOException;
 
 import org.junit.Test;
 
-import accord.api.RoutingKey;
 import accord.local.CommandStores;
 import accord.local.DurableBefore;
+import accord.local.DurableBeforeTest.DurableBeforeLinear;
 import accord.local.RedundantBefore;
 import accord.primitives.Ranges;
 import accord.primitives.TxnId;
 import accord.utils.AccordGens;
 import accord.utils.Gen;
 import accord.utils.Gens;
-import accord.utils.ReducingRangeMap;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -89,7 +88,7 @@ public class CommandStoreSerializersTest
             // serializer doesn't support the empty set, so filter out
             DurableBefore durableBefore = AccordGenerators.durableBeforeGen(partitioner).next(rs);
             Serializers.testSerde(buffer, CommandStoreSerializers.durableBefore, durableBefore);
-            Serializers.testSerde(buffer, nonTreeDurableBefore, NonTreeDurableBefore.from(durableBefore), CommandStoreSerializers.durableBefore, NonTreeDurableBefore::isEqualTo);
+            Serializers.testSerde(buffer, durableBeforeLinear, DurableBeforeLinear.from(durableBefore), CommandStoreSerializers.durableBefore, DurableBeforeLinear::isEqualTo);
         });
     }
 
@@ -142,7 +141,7 @@ public class CommandStoreSerializersTest
     }
 
     static final UnversionedSerializer<DurableBefore.Entry> durableBeforeEntry = new NonTreeDurableBeforeEntrySerializer();
-    static final UnversionedSerializer<NonTreeDurableBefore> nonTreeDurableBefore = new ReducingRangeMapSerializer<>(NullableSerializer.wrap(durableBeforeEntry), DurableBefore.Entry[]::new, (i1, i2) -> { throw new UnsupportedOperationException(); }, NonTreeDurableBefore.EMPTY);
+    public static final UnversionedSerializer<DurableBeforeLinear> durableBeforeLinear = new ReducingRangeMapSerializer<>(NullableSerializer.wrap(durableBeforeEntry), DurableBefore.Entry[]::new, (i1, i2) -> { throw new UnsupportedOperationException(); }, DurableBeforeLinear.EMPTY);
     private static final class NonTreeDurableBeforeEntrySerializer implements UnversionedSerializer<DurableBefore.Entry>
     {
         private NonTreeDurableBeforeEntrySerializer() {}
@@ -167,70 +166,6 @@ public class CommandStoreSerializersTest
         {
             return CommandSerializers.txnId.serializedSize(t.quorum)
                     + CommandSerializers.txnId.serializedSize(t.universal);
-        }
-    }
-
-    static class NonTreeDurableBefore extends ReducingRangeMap<DurableBefore.Entry>
-    {
-        static final NonTreeDurableBefore EMPTY = new NonTreeDurableBefore();
-
-        public NonTreeDurableBefore()
-        {
-        }
-
-        protected NonTreeDurableBefore(RoutingKey[] starts, DurableBefore.Entry[] values)
-        {
-            super(starts, values);
-        }
-
-        static NonTreeDurableBefore from(DurableBefore copy)
-        {
-            Builder builder = new Builder(copy.size());
-            for (DurableBefore.Entry e : copy)
-                builder.append(e.start(), e.end(), e);
-            return builder.build();
-        }
-
-        public boolean isEqualTo(DurableBefore that)
-        {
-            int i = 0;
-            for (DurableBefore.Entry e : that)
-            {
-                if (i >= this.size() || this.valueAt(i) == null && ++i == this.size())
-                    return false;
-                if (!e.equalsRange(this.startAt(i), this.startAt(i + 1)))
-                    return false;
-                if (!e.equalsIgnoreRange(this.valueAt(i)))
-                    return false;
-                ++i;
-            }
-            return i == this.size();
-        }
-
-        static class Builder extends AbstractIntervalBuilder<RoutingKey, DurableBefore.Entry, NonTreeDurableBefore>
-        {
-            protected Builder(int capacity)
-            {
-                super(capacity);
-            }
-
-            @Override
-            protected NonTreeDurableBefore buildInternal()
-            {
-                return new NonTreeDurableBefore(starts.toArray(new RoutingKey[0]), values.toArray(new DurableBefore.Entry[0]));
-            }
-
-            @Override
-            protected DurableBefore.Entry slice(RoutingKey start, RoutingKey end, DurableBefore.Entry value)
-            {
-                return new DurableBefore.Entry(start, end, value.quorum, value.universal);
-            }
-
-            @Override
-            protected DurableBefore.Entry reduce(DurableBefore.Entry a, DurableBefore.Entry b)
-            {
-                return DurableBefore.Entry.max(a, b);
-            }
         }
     }
 }
