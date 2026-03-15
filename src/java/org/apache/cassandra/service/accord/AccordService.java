@@ -80,6 +80,7 @@ import accord.topology.TopologyManager;
 import accord.topology.TopologyRange;
 import accord.utils.DefaultRandom;
 import accord.utils.Invariants;
+import accord.utils.Reduce;
 import accord.utils.UnhandledEnum;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncResult;
@@ -578,7 +579,12 @@ public class AccordService implements IAccordService, Shutdownable
                 logger.info("Try to execute pending transactions...");
                 List<AsyncResult<Void>> results = new ArrayList<>();
                 node.commandStores().forAllUnsafe(commandStore -> results.add(commandStore.tryToExecuteListeningTxns()));
+<<<<<<< HEAD
                 getBlocking(AsyncResults.reduce(results, Reduce.toNull()));
+=======
+                if (!results.isEmpty())
+                    getBlocking(AsyncResults.reduce(results, Reduce.toNull()));
+>>>>>>> 4d7b25d0dd (Fix:)
             }
         }
         finally

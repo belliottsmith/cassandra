@@ -2103,7 +2103,7 @@ public class AccordDebugKeyspace extends VirtualKeyspace
                 {
                     if (param != null)
                         throw new IllegalArgumentException("'param' is not supported for " + op);
-                    function = CommandStore::operatorTryToExecuteListeningTxns;
+                    function = CommandStore::tryToExecuteListeningTxns;
                     break;
                 }
                 case REPLAY:
