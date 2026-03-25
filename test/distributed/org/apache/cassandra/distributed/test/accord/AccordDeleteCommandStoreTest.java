@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
 
 import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static org.junit.Assert.assertFalse;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -91,7 +92,7 @@ public class AccordDeleteCommandStoreTest extends AccordTestBase
 
                 for (CommandStore commandStore : AccordService.instance().node().commandStores().all())
                 {
-                    assert(!commandStoresThatWillBeRemoved.contains(commandStore.id()));
+                    assertFalse(commandStoresThatWillBeRemoved.contains(commandStore.id()));
                 }
             });
         });

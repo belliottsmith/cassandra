@@ -46,6 +46,8 @@ import org.slf4j.LoggerFactory;
 
 import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -87,7 +89,7 @@ public class AccordRegainRangesTest extends AccordTestBase
 
             long token = (Long) result.toObjectArrays()[0][0];
 
-            assert(token < Long.parseLong(originalToken));
+            assertTrue(token < Long.parseLong(originalToken));
 
             long epoch = cluster.get(2).callOnInstance(() -> {
                 long priorEpoch = AccordService.instance().topology().epoch();
@@ -109,14 +111,14 @@ public class AccordRegainRangesTest extends AccordTestBase
                 Ranges regainedRange = Ranges.of(TokenRange.create(start, end));
                 try
                 {
-                    assert (AccordService.instance().topology().active().get(epoch).retired().containsAll(regainedRange));
+                    assertTrue(AccordService.instance().topology().active().get(epoch).retired().containsAll(regainedRange));
                 }
                 catch (TopologyRetiredException ignored)
                 {
                 }
                 catch (TopologyException e)
                 {
-                    assert(false);
+                    fail();
                 }
 
                 Ranges range = Ranges.EMPTY;
@@ -128,7 +130,7 @@ public class AccordRegainRangesTest extends AccordTestBase
                         return mergedRanges;
                     }));
 
-                    assert(range.overlapping(safeToReadRanges).isEmpty());
+                    assertTrue(range.overlapping(safeToReadRanges).isEmpty());
                     range = range.union(AbstractRanges.UnionMode.MERGE_ADJACENT, safeToReadRanges);
                 }
             });
