@@ -35,12 +35,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.TopologyListener;
+import accord.primitives.AbstractRanges;
 import accord.primitives.Ranges;
 import accord.topology.EpochReady;
 import accord.topology.Topology;
-import accord.topology.TopologyException;
 import accord.topology.TopologyManager;
-import accord.topology.TopologyRetiredException;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -211,50 +210,57 @@ public class Move extends MultiStepOperation<Epoch>
         switch (next)
         {
             case START_MOVE:
+                class WaitForEpochAndRangeRetirement implements TopologyListener
+                {
+                    final Condition condition;
+                    final long waitingForEpoch;
+                    final Ranges waitingForRange;
+                    Ranges retiredRanges;
+
+                    public WaitForEpochAndRangeRetirement(Condition condition, long waitingForEpoch, Ranges waitingForRange)
+                    {
+                        this.condition = condition;
+                        this.waitingForEpoch = waitingForEpoch;
+                        this.waitingForRange = waitingForRange;
+                        this.retiredRanges = Ranges.EMPTY;
+                    }
+
+                    public synchronized void updateRetiredRanges(Ranges ranges)
+                    {
+                        retiredRanges = retiredRanges.union(AbstractRanges.UnionMode.MERGE_ADJACENT, ranges);
+                    }
+
+                    public synchronized Ranges getRetiredRanges()
+                    {
+                        return retiredRanges;
+                    }
+
+                    @Override
+                    public void onEpochRetired(Ranges ranges, long epoch, @Nullable Topology topology)
+                    {
+                        if (epoch >= waitingForEpoch)
+                            updateRetiredRanges(ranges);
+
+                        if (getRetiredRanges().containsAll(waitingForRange))
+                            condition.signal();
+                    }
+                }
+
+                WaitForEpochAndRangeRetirement wait = null;
+
                 try
                 {
                     ClusterMetadata metadata = ClusterMetadata.current();
                     TopologyManager.RegainingEpochRange regainingEpochRange = AccordService.instance().topology().epochAndRangeToBeRetired(AccordService.instance().topology().current(), AccordTopology.createAccordTopology(applyTo(metadata).success().metadata));
+
                     if (regainingEpochRange != null)
                     {
                         Condition condition = newOneTimeCondition();
-
-                        class waitForEpochAndRangeRetirement implements TopologyListener
-                        {
-                            final Condition condition;
-                            final long waitingForEpoch;
-                            final Ranges waitingForRange;
-
-                            public waitForEpochAndRangeRetirement(Condition condition, long waitingForEpoch, Ranges waitingForRange)
-                            {
-                                this.condition = condition;
-                                this.waitingForEpoch = waitingForEpoch;
-                                this.waitingForRange = waitingForRange;
-                            }
-
-                            @Override
-                            public void onEpochRetired(Ranges ranges, long epoch, @Nullable Topology topology)
-                            {
-                                try
-                                {
-                                    if (epoch >= waitingForEpoch && AccordService.instance().topology().active().get(waitingForEpoch).retired().containsAll(waitingForRange))
-                                        condition.signal();
-                                }
-                                catch (TopologyRetiredException e)
-                                {
-                                    condition.signal();
-                                }
-                                catch (TopologyException e)
-                                {
-                                    logger.info("Topology exception: ", e);
-                                }
-                            }
-                        }
-
-                        waitForEpochAndRangeRetirement wait = new waitForEpochAndRangeRetirement(condition, regainingEpochRange.epoch(), regainingEpochRange.range());
+                        wait = new WaitForEpochAndRangeRetirement(condition, regainingEpochRange.epoch(), regainingEpochRange.range());
                         AccordService.instance().topology().addListener(wait);
+                        Ranges retiredRanges = AccordService.instance().topology().active().get(regainingEpochRange.epoch()).retired();
+                        wait.updateRetiredRanges(retiredRanges);
                         condition.awaitThrowUncheckedOnInterrupt();
-                        AccordService.instance().topology().removeListener(wait);
                     }
 
                     logger.info("Moving {} from {} to {}.",
@@ -267,6 +273,11 @@ public class Move extends MultiStepOperation<Epoch>
                 {
                     JVMStabilityInspector.inspectThrowable(t);
                     return continuable();
+                }
+                finally
+                {
+                    if (wait != null)
+                        AccordService.instance().topology().removeListener(wait);
                 }
                 break;
             case MID_MOVE:
