@@ -34,11 +34,13 @@ import accord.local.Node;
 import accord.primitives.Ballot;
 import accord.primitives.Deps;
 import accord.primitives.TxnId;
+import accord.utils.UnhandledEnum;
 
 import org.apache.cassandra.service.accord.api.AccordTimeService;
 import org.apache.cassandra.tracing.Tracing;
 
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static org.apache.cassandra.metrics.CassandraMetricsRegistry.Metrics;
 
 public class AccordCoordinatorMetrics
@@ -53,6 +55,7 @@ public class AccordCoordinatorMetrics
     public static final String COORDINATOR_TABLES = "Tables";
     public static final String COORDINATOR_DEPENDENCIES = "Dependencies";
     public static final String COORDINATOR_PREACCEPT_LATENCY = "PreAcceptLatency";
+    public static final String COORDINATOR_COMMIT_LATENCY = "CommitLatency";
     public static final String COORDINATOR_EXECUTE_LATENCY = "ExecuteLatency";
     public static final String COORDINATOR_APPLY_LATENCY = "ApplyLatency";
     public static final String EPHEMERAL = "Ephemeral";
@@ -76,6 +79,12 @@ public class AccordCoordinatorMetrics
      * A histogram of the time to preaccept on this coordinator
      */
     public final Timer preacceptLatency;
+
+    /**
+     * A histogram of the time to decide a transaction's timestamp on this coordinator.
+     * This is time to complete preaccept for the fast and medium path, and time to accept on slow path.
+     */
+    public final Timer commitLatency;
 
     /**
      * A histogram of the time to begin execution on this coordinator
@@ -162,6 +171,7 @@ public class AccordCoordinatorMetrics
         DefaultNameFactory coordinator = new DefaultNameFactory(ACCORD_COORDINATOR, scope);
         dependencies = Metrics.histogram(coordinator.createMetricName(COORDINATOR_DEPENDENCIES), true);
         preacceptLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_PREACCEPT_LATENCY));
+        commitLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_COMMIT_LATENCY));
         executeLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_EXECUTE_LATENCY));
         applyLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_APPLY_LATENCY));
         epochs = Metrics.histogram(coordinator.createMetricName(COORDINATOR_EPOCHS), true);
@@ -235,6 +245,21 @@ public class AccordCoordinatorMetrics
         }
 
         @Override
+        public void onAccepted(TxnId txnId, Ballot ballot, ExecutePath path)
+        {
+            if (path == ExecutePath.SLOW)
+            {
+                AccordCoordinatorMetrics metrics = forTransaction(txnId);
+                if (metrics != null)
+                {
+                    long now = AccordTimeService.nowMicros();
+                    long latency = MICROSECONDS.toNanos(Math.max(0, now - txnId.hlc()));
+                    metrics.commitLatency.update(latency, NANOSECONDS);
+                }
+            }
+        }
+
+        @Override
         public void onExecuting(TxnId txnId, @Nullable Ballot ballot, Deps deps, @Nullable ExecutePath path)
         {
             Tracing.trace("{} agreed {}", path, txnId);
@@ -243,15 +268,27 @@ public class AccordCoordinatorMetrics
             {
                 metrics.dependencies.update(deps.txnIdCount());
                 long now = AccordTimeService.nowMicros();
-                metrics.executeLatency.update(Math.max(0, now - txnId.hlc()), MICROSECONDS);
+                long latency = MICROSECONDS.toNanos(Math.max(0, now - txnId.hlc()));
+                metrics.executeLatency.update(latency, NANOSECONDS);
                 if (path != null)
                 {
                     switch (path)
                     {
+                        case EPHEMERAL:
+                        case FAST:
+                        case MEDIUM:
+                            metrics.commitLatency.update(latency, NANOSECONDS);
+                        case SLOW:
+                        case RECOVER:
+                    }
+                    switch (path)
+                    {
+                        default: throw new UnhandledEnum(path);
                         case EPHEMERAL: metrics.ephemeral.mark(); break;
                         case FAST: metrics.fastPaths.mark(); break;
                         case MEDIUM: metrics.mediumPaths.mark(); break;
                         case SLOW: metrics.slowPaths.mark(); break;
+                        case RECOVER: break;
                     }
                 }
             }
