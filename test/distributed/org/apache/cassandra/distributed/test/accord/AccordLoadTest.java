@@ -164,10 +164,11 @@ public class AccordLoadTest extends AccordTestBase
                                 inFlight.release();
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                             }, "BEGIN TRANSACTION\n" +
-                               "SELECT * FROM " + qualifiedAccordTableName + " WHERE k IN ?;\n" +
+//                               "SELECT * FROM " + qualifiedAccordTableName + " WHERE k IN ?;\n" +
+                               "SELECT * FROM " + qualifiedAccordTableName + " WHERE k = ?;\n" +
                                "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL,
-                                                          List.of(k1, k2)
-//                                                          List.of(k1)
+//                                                          List.of(k1, k2)
+                                                          k1
                             );
                         }
                         else if (initialised.get(k1) && initialised.get(k2))

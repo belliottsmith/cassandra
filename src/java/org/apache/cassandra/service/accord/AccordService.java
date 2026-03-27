@@ -493,6 +493,7 @@ public class AccordService implements IAccordService, Shutdownable
                     case EXIT:
                         throw new RuntimeException("Stop marker is older than start marker (" + stopMarker + '<' + startMarker + ") , so cannot assume we have a complete log of our votes in any consensus groups. Exiting.");
 
+                    case ALLOW_UNSAFE_STARTUP:
                     case UNSAFE_STARTUP:
                         logger.warn("Stop marker is older than start marker ({}<{}), so cannot assume we have a complete log of our votes in any consensus groups. Continuing to startup as configured.", stopMarker, startMarker);
                         break;

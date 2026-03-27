@@ -268,7 +268,14 @@ public class AccordSpec
              * If the start marker exceeds the stop marker startup, assuming the consensus log has been determined complete externally.
              * Note this is VERY UNSAFE if you care about isolation guarantees.
              */
+            @Deprecated // for consistency with FailurePolicy, renamed to ALLOW_UNSAFE_STARTUP
             UNSAFE_STARTUP,
+
+            /**
+             * If the start marker exceeds the stop marker startup, assuming the consensus log has been determined complete externally.
+             * Note this is VERY UNSAFE if you care about isolation guarantees.
+             */
+            ALLOW_UNSAFE_STARTUP,
 
             REBOOTSTRAP
         }

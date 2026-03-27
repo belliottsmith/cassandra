@@ -189,7 +189,7 @@ public final class Relation
      * @return the <code>Restriction</code> corresponding to this <code>Relation</code>
      * @throws InvalidRequestException if this <code>Relation</code> is not valid
      */
-    public SingleRestriction toRestriction(TableMetadata table, VariableSpecifications boundNames, boolean allowFiltering)
+    public SingleRestriction toRestriction(TableMetadata table, VariableSpecifications boundNames, Object owner, boolean allowFiltering)
     {
         ColumnsExpression columnsExpression = rawExpressions.prepare(table);
 
@@ -205,7 +205,7 @@ public final class Relation
             checkFalse(baseType instanceof ListType, "Indexes on list entries (%s[index] = value) are not supported.", column.name);
             checkTrue(baseType instanceof MapType, "Column %s cannot be used as a map", column.name);
             checkTrue(baseType.isMultiCell(), "Map-entry predicates on frozen map column %s are not supported", column.name);
-            columnsExpression.collectMarkerSpecification(boundNames);
+            columnsExpression.collectMarkerSpecification(boundNames, owner);
         }
 
         operator.validateFor(columnsExpression);
@@ -215,7 +215,7 @@ public final class Relation
             receiver = ((CollectionType<?>) receiver.type).makeCollectionReceiver(receiver, operator.appliesToMapKeys());
 
         Terms terms = rawTerms.prepare(table.keyspace, receiver);
-        terms.collectMarkerSpecification(boundNames);
+        terms.collectMarkerSpecification(boundNames, owner);
 
         // An IN restriction with only one element is the same as an EQ restriction
         if (operator.isIN() && terms.containsSingleTerm())

@@ -22,9 +22,9 @@ import java.io.IOException;
 
 import org.junit.Test;
 
+import accord.local.AbstractDurableBeforeTest.DurableBeforeLinear;
 import accord.local.CommandStores;
 import accord.local.DurableBefore;
-import accord.local.DurableBeforeTest.DurableBeforeLinear;
 import accord.local.RedundantBefore;
 import accord.primitives.Ranges;
 import accord.primitives.TxnId;
