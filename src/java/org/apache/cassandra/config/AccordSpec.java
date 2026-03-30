@@ -195,6 +195,7 @@ public class AccordSpec
      * default transactional mode for tables created by this node when no transactional mode has been specified in the DDL
      */
     public TransactionalMode default_transactional_mode = TransactionalMode.off;
+    public boolean backlog_execution_enabled = true;
     public boolean ephemeralReadEnabled = true;
     public boolean state_cache_listener_jfr_enabled = false;
 
@@ -265,10 +266,9 @@ public class AccordSpec
             EXIT,
 
             /**
-             * If the start marker exceeds the stop marker startup, assuming the consensus log has been determined complete externally.
-             * Note this is VERY UNSAFE if you care about isolation guarantees.
+             * @deprecated since alpha release, replaced by ALLOW_UNSAFE_STARTUP for consistency with FailurePolicy.ALLOW_UNSAFE_STARTUP
              */
-            @Deprecated // for consistency with FailurePolicy, renamed to ALLOW_UNSAFE_STARTUP
+            @Deprecated(since="6.0")
             UNSAFE_STARTUP,
 
             /**

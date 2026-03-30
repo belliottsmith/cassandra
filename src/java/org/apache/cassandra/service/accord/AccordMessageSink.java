@@ -86,6 +86,7 @@ import static accord.messages.MessageType.StandardMessage.READ_REQ;
 import static accord.messages.MessageType.StandardMessage.READ_RSP;
 import static accord.messages.MessageType.StandardMessage.RECOVER_AWAIT_REQ;
 import static accord.messages.MessageType.StandardMessage.RECOVER_AWAIT_RSP;
+import static accord.messages.MessageType.StandardMessage.REMOTE_SUCCESS_REQ;
 import static accord.messages.MessageType.StandardMessage.SET_GLOBALLY_DURABLE_REQ;
 import static accord.messages.MessageType.StandardMessage.SET_SHARD_DURABLE_REQ;
 import static accord.messages.MessageType.StandardMessage.SIMPLE_RSP;
@@ -167,6 +168,7 @@ public class AccordMessageSink implements MessageSink
             builder.put(SET_GLOBALLY_DURABLE_REQ,                 Verb.ACCORD_SET_GLOBALLY_DURABLE_REQ);
             builder.put(GET_DURABLE_BEFORE_REQ,                   Verb.ACCORD_GET_DURABLE_BEFORE_REQ);
             builder.put(GET_DURABLE_BEFORE_RSP,                   Verb.ACCORD_GET_DURABLE_BEFORE_RSP);
+            builder.put(REMOTE_SUCCESS_REQ,                       Verb.ACCORD_REMOTE_SUCCESS_REQ);
             builder.put(FAILURE_RSP,                              Verb.FAILURE_RSP);
             Map<StandardMessage, Verb> mapping = builder.build();
             StandardMessage.initialise(mapping);

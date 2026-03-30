@@ -80,7 +80,7 @@ public class AccordLoadTest extends AccordTestBase
                                                                             .set("accord.shard_durability_cycle", "1m")
                                                                             .set("accord.catchup_on_start_fail_latency", "2m")
 //                                                                            .set("accord.ephemeral_read_enabled", "true")
-                                                                             ), 3);
+                                                                             ), 5);
     }
 
     @Ignore
@@ -121,7 +121,7 @@ public class AccordLoadTest extends AccordTestBase
             final int concurrency = 200;
             final int ratePerSecond = 500;
 //            final int keyCount = 10_000;
-            final int keyCount = 10_000;
+            final int keyCount = 10;
             final float readChance = 0.33f;
             long nextRepairAt = repairInterval;
             long nextCompactionAt = compactionInterval;
@@ -157,7 +157,7 @@ public class AccordLoadTest extends AccordTestBase
                     {
                         long commandStart = System.nanoTime();
                         int k1 = random.nextInt(keyCount);
-                        int k2 = random.nextInt(keyCount);
+//                        int k2 = random.nextInt(keyCount);
                         if (random.nextFloat() < readChance)
                         {
                             coordinator.executeWithResult((success, fail) -> {
@@ -171,30 +171,29 @@ public class AccordLoadTest extends AccordTestBase
                                                           k1
                             );
                         }
-                        else if (initialised.get(k1) && initialised.get(k2))
+                        else if (initialised.get(k1) )
                         {
                             coordinator.executeWithResult((success, fail) -> {
                                 inFlight.release();
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                             }, "BEGIN TRANSACTION\n" +
                                "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
-                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
-                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1, k2);
+//                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
+                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1);
                         }
                         else
                         {
                             initialised.set(k1);
-                            initialised.set(k2);
+//                            initialised.set(k2);
                             coordinator.executeWithResult((success, fail) -> {
                                 inFlight.release();
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                                 //                             else exceptions.add(fail);
                             }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ? IF NOT EXISTS;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1);
-                            coordinator.executeWithResult((success, fail) -> {
-                                inFlight.release();
-                                if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
-                                //                             else exceptions.add(fail);
-                            }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ? IF NOT EXISTS;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k2);
+//                            coordinator.executeWithResult((success, fail) -> {
+//                                inFlight.release();
+//                                if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
+//                            }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ? IF NOT EXISTS;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k2);
                         }
                     }
                     catch (RejectedExecutionException e)

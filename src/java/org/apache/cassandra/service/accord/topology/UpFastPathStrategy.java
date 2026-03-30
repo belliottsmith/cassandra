@@ -18,15 +18,16 @@
 
 package org.apache.cassandra.service.accord.topology;
 
+import java.util.Map;
+import java.util.Set;
+
+import com.google.common.collect.ImmutableMap;
+
 import accord.local.Node;
 import accord.topology.Shard;
 import accord.utils.ArrayBuffers;
 import accord.utils.Invariants;
 import accord.utils.SortedArrays.SortedArrayList;
-import com.google.common.collect.ImmutableMap;
-
-import java.util.Map;
-import java.util.Set;
 
 public class UpFastPathStrategy implements FastPathStrategy
 {

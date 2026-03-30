@@ -104,6 +104,7 @@ import org.apache.cassandra.service.accord.serializers.LatestDepsSerializers;
 import org.apache.cassandra.service.accord.serializers.PreacceptSerializers;
 import org.apache.cassandra.service.accord.serializers.ReadDataSerializer;
 import org.apache.cassandra.service.accord.serializers.RecoverySerializers;
+import org.apache.cassandra.service.accord.serializers.RemoteSuccessSerializers;
 import org.apache.cassandra.service.accord.serializers.SetDurableSerializers;
 import org.apache.cassandra.service.accord.serializers.SimpleReplySerializer;
 import org.apache.cassandra.service.accord.serializers.Version;
@@ -373,9 +374,10 @@ public enum Verb
     ACCORD_INTEROP_APPLY_REQ        (166, P2, writeTimeout, IMMEDIATE,          () -> accordEmbedded(AccordInteropApply.serializer),             AccordService::requestHandlerOrNoop,     ACCORD_APPLY_RSP),
     ACCORD_FETCH_WATERMARKS_RSP     (167, P0, shortTimeout, FETCH_METADATA,     () -> accordEmbedded(WatermarkCollector.serializer),             RESPONSE_HANDLER),
     // NoPayload can not be prefixed with accord version as it is special cased in C* messaging
-    ACCORD_FETCH_WATERMARKS_REQ     (168, P0, shortTimeout, FETCH_METADATA,     () -> NoPayload.serializer,                      AccordService::watermarkHandlerOrNoop,   ACCORD_FETCH_WATERMARKS_RSP),
+    ACCORD_FETCH_WATERMARKS_REQ     (168, P0, shortTimeout, FETCH_METADATA,     () -> NoPayload.serializer,                                      AccordService::watermarkHandlerOrNoop,   ACCORD_FETCH_WATERMARKS_RSP),
     ACCORD_FETCH_TOPOLOGY_RSP       (169, P0, shortTimeout, FETCH_METADATA,     () -> accordEmbedded(FetchTopologies.responseSerializer),        RESPONSE_HANDLER),
     ACCORD_FETCH_TOPOLOGY_REQ       (170, P0, shortTimeout, FETCH_METADATA,     () -> accordEmbedded(FetchTopologies.serializer),                () -> FetchTopologies.handler,           ACCORD_FETCH_TOPOLOGY_RSP),
+    ACCORD_REMOTE_SUCCESS_REQ       (173, P0, shortTimeout, IMMEDIATE,          () -> accordEmbedded(RemoteSuccessSerializers.remoteSuccess),    AccordService::requestHandlerOrNoop),
 
     DICTIONARY_UPDATE_RSP           (171, P1, rpcTimeout,   REQUEST_RESPONSE,  () -> NoPayload.serializer,                  RESPONSE_HANDLER                             ),
     DICTIONARY_UPDATE_REQ           (172, P1, rpcTimeout, MISC, () -> CompressionDictionaryUpdateMessage.serializer, () -> CompressionDictionaryUpdateVerbHandler.instance, DICTIONARY_UPDATE_RSP ),

@@ -53,6 +53,7 @@ import accord.api.Journal;
 import accord.api.Key;
 import accord.api.OwnershipEventListener;
 import accord.api.ProgressLog;
+import accord.api.Result;
 import accord.api.RoutingKey;
 import accord.api.Timeouts;
 import accord.impl.AbstractReplayer;
@@ -685,6 +686,7 @@ public class CommandsForKeySerializerTest
         @Override public long selfExpiresAt(TxnId txnId, Status.Phase phase, TimeUnit unit) { return 0; }
         @Override public AsyncChain<TxnId> awaitStaleId(Node node, TxnId staleId, boolean isRequested) { return null; }
         @Override public long minStaleHlc(Node node, boolean requested) { return 0; }
+        @Override public boolean reportRemoteSuccess(Result success) { return false; }
     }
 
     public static class TestSafeCommandStore extends AbstractSafeCommandStore

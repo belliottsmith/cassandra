@@ -18,10 +18,13 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.io.IOException;
+
 import accord.api.RoutingKey;
 import accord.local.MaxConflicts;
 import accord.local.MaxConflictsTest;
 import accord.utils.RandomSource;
+
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.Serializers;
@@ -29,8 +32,6 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers;
-
-import java.io.IOException;
 
 public class MaxConflictsIntegrationTest extends MaxConflictsTest
 {

@@ -280,6 +280,7 @@ public class AccordCoordinatorMetrics
                             metrics.commitLatency.update(latency, NANOSECONDS);
                         case SLOW:
                         case RECOVER:
+                        case BACKLOG:
                     }
                     switch (path)
                     {
@@ -288,7 +289,9 @@ public class AccordCoordinatorMetrics
                         case FAST: metrics.fastPaths.mark(); break;
                         case MEDIUM: metrics.mediumPaths.mark(); break;
                         case SLOW: metrics.slowPaths.mark(); break;
-                        case RECOVER: break;
+                        case BACKLOG:
+                        case RECOVER:
+                            break;
                     }
                 }
             }
