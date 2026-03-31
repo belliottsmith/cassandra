@@ -177,9 +177,9 @@ public class AccordLoadTest extends AccordTestBase
                                 inFlight.release();
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
                             }, "BEGIN TRANSACTION\n" +
-                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
+                               "UPDATE " + qualifiedAccordTableName + " SET v = ? WHERE k = ?;\n" +
 //                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
-                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1);
+                               "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, random.nextInt(100), k1);
                         }
                         else
                         {

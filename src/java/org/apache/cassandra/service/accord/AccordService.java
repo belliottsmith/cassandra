@@ -159,6 +159,7 @@ import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static accord.api.Journal.TopologyUpdate;
 import static accord.api.ProtocolModifiers.Toggles.FastExec.MAY_BYPASS_SAFESTORE;
+import static accord.api.ProtocolModifiers.Toggles.SendStableMessages.TO_ALL_IF_SINGLE_KEY_WRITE;
 import static accord.impl.progresslog.DefaultProgressLog.ModeFlag.CATCH_UP;
 import static accord.local.durability.DurabilityService.SyncLocal.Self;
 import static accord.local.durability.DurabilityService.SyncRemote.All;
@@ -282,6 +283,7 @@ public class AccordService implements IAccordService, Shutdownable
         ProtocolModifiers.Toggles.setFastReadExec(MAY_BYPASS_SAFESTORE);
         ProtocolModifiers.Toggles.setFastWriteExec(MAY_BYPASS_SAFESTORE);
         ProtocolModifiers.Toggles.setDataStoreDetectsFutureReads(true);
+        ProtocolModifiers.Toggles.setSendStableMessages(TO_ALL_IF_SINGLE_KEY_WRITE);
     }
 
     private enum State { INIT, STARTING, STARTED, STOPPED, SHUTTING_DOWN, SHUTDOWN }

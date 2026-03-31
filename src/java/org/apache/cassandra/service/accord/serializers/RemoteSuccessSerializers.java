@@ -35,7 +35,7 @@ public class RemoteSuccessSerializers
         public void serialize(RemoteSuccess msg, DataOutputPlus out, Version version) throws IOException
         {
             CommandSerializers.txnId.serialize(msg.txnId, out);
-            TxnData.serializer.serialize((TxnData) msg.success, out, version);
+            TxnData.serializer.serialize((TxnData) msg.result, out, version);
         }
 
         @Override
@@ -50,7 +50,7 @@ public class RemoteSuccessSerializers
         public long serializedSize(RemoteSuccess msg, Version version)
         {
             return CommandSerializers.txnId.serializedSize(msg.txnId)
-                   + TxnData.serializer.serializedSize((TxnData) msg.success, version);
+                   + TxnData.serializer.serializedSize((TxnData) msg.result, version);
         }
     };
 }

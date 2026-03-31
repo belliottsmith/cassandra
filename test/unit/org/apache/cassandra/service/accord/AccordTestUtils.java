@@ -43,6 +43,7 @@ import accord.api.RemoteListeners.NoOpRemoteListeners;
 import accord.api.Result;
 import accord.api.RoutingKey;
 import accord.api.Timeouts;
+import accord.coordinate.Coordinations;
 import accord.impl.DefaultLocalListeners;
 import accord.impl.DefaultLocalListeners.NotifySink.NoOpNotifySink;
 import accord.local.Command;
@@ -383,6 +384,7 @@ public class AccordTestUtils
             @Override public long uniqueNow(long atLeast) { return now.getAsLong(); }
             @Override public long elapsed(TimeUnit timeUnit) { return elapsed.applyAsLong(timeUnit); }
             @Override public TopologyManager topology() { throw new UnsupportedOperationException(); }
+            @Override public Coordinations coordinations() { return new Coordinations(); }
             @Override public long currentStamp() { return stamp; }
             @Override public void updateStamp() {++stamp;}
             @Override public boolean isReplaying() { return false; }
