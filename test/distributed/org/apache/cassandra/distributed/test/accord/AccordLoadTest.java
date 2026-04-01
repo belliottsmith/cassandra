@@ -175,7 +175,10 @@ public class AccordLoadTest extends AccordTestBase
                         {
                             coordinator.executeWithResult((success, fail) -> {
                                 inFlight.release();
-                                if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
+                                if (fail == null)
+                                    histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
+                                else
+                                    logger.error("{}", fail.getMessage());
                             }, "BEGIN TRANSACTION\n" +
                                "UPDATE " + qualifiedAccordTableName + " SET v = ? WHERE k = ?;\n" +
 //                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
@@ -188,8 +191,11 @@ public class AccordLoadTest extends AccordTestBase
                             coordinator.executeWithResult((success, fail) -> {
                                 inFlight.release();
                                 if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));
+                                else
+                                    logger.error("{}", fail.getMessage());
+
                                 //                             else exceptions.add(fail);
-                            }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ? IF NOT EXISTS;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1);
+                            }, "UPDATE " + qualifiedAccordTableName + " SET v = 0 WHERE k = ?", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, k1);
 //                            coordinator.executeWithResult((success, fail) -> {
 //                                inFlight.release();
 //                                if (fail == null) histogram.add(NANOSECONDS.toMicros(System.nanoTime() - commandStart));

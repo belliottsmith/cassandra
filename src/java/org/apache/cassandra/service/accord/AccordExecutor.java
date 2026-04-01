@@ -178,11 +178,11 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
 
     private static class WaitForCompletion
     {
-        final int position;
-        int maybeNotify;
+        final long position;
+        long maybeNotify;
         final Runnable run;
 
-        private WaitForCompletion(int position, Runnable run)
+        private WaitForCompletion(long position, Runnable run)
         {
             this.position = position;
             this.maybeNotify = position - 1;
@@ -207,7 +207,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
 
     private long maxWorkingSetSizeInBytes;
     private long maxWorkingCapacityInBytes;
-    private int nextPosition;
+    private long nextPosition;
     private int activeLoads, activeRangeLoads;
     private boolean hasPausedLoading;
     int tasks;
@@ -387,7 +387,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             if (waitingForCompletion == null)
                 waitingForCompletion = new ArrayDeque<>();
 
-            int position = nextPosition;
+            long position = nextPosition;
             waitingForCompletion.add(new WaitForCompletion(position, run));
         }
         finally
@@ -677,13 +677,23 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
 
     private void assignQueuePosition(Task task)
     {
+        if (task.queuePosition == 0) assignNewQueuePosition(task);
+        else nextPosition = Math.max(nextPosition, task.queuePosition + 1);
+    }
+
+    private void assignQueuePosition(AccordTask<?> task)
+    {
         if (task.queuePosition == 0)
-            assignNewQueuePosition(task);
+        {
+            TxnId txnId = task.preLoadContext().primaryTxnId();
+            if (txnId != null) task.queuePosition = txnId.hlc();
+            else assignNewQueuePosition(task);
+        }
+        else nextPosition = Math.max(nextPosition, task.queuePosition + 1);
     }
 
     private void assignNewQueuePosition(Task task)
     {
-        if (nextPosition == 0) nextPosition++;
         task.queuePosition = nextPosition++;
     }
 
@@ -698,7 +708,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         //  - first take the position so that represents the just-executed task
         //  - call cleanup to submit any following task on the relevant sub-queue
         //  - remove the previous task from the running collection only if still present (SequentialExecutor will have removed it)
-        int position = task.queuePosition;
+        long position = task.queuePosition;
         try
         {
             task.cleanupExclusive();
@@ -709,7 +719,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             if (running.contains(task))
                 running.remove(task);
 
-            if (waitingForCompletion != null && waitingForCompletion.peek().maybeNotify - position >= 0)
+            if (waitingForCompletion != null)
                 maybeNotifyWaitingForCompletion();
 
             cache.tryShrinkOrEvict(lock);
@@ -718,7 +728,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
 
     private void maybeNotifyWaitingForCompletion()
     {
-        int min = minPosition(waitingToRun.peek(),
+        long min = minPosition(waitingToRun.peek(),
                     minPosition(waitingToLoad.peek(),
                       minPosition(waitingToLoadRangeTxns.peek(),
                         minPosition(running.peek(),
@@ -733,9 +743,9 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             waitingForCompletion.peek().maybeNotify = min;
     }
 
-    private static int minPosition(@Nullable Task task, int min)
+    private static long minPosition(@Nullable Task task, long min)
     {
-        return task == null ? min : Integer.min(task.queuePosition, min);
+        return task == null ? min : Long.min(task.queuePosition, min);
     }
 
     void cancelExclusive(AccordTask<?> task)
@@ -947,8 +957,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
 
     public static abstract class Task extends IntrusivePriorityHeap.Node
     {
-        int queuePosition;
-        Thread assigned;
+        long queuePosition;
 
         protected Task()
         {
@@ -1242,7 +1251,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         @Override
         public AsyncChain<Void> chain(Runnable run)
         {
-            int position = inheritQueuePosition();
+            long position = inheritQueuePosition();
             return new AsyncChains.Head<>()
             {
                 @Override
@@ -1256,7 +1265,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         @Override
         public <T> AsyncChain<T> chain(Callable<T> call)
         {
-            int position = inheritQueuePosition();
+            long position = inheritQueuePosition();
             return new AsyncChains.Head<>()
             {
                 @Override
@@ -1270,7 +1279,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         @Override
         public <T> AsyncChain<T> flatChain(Callable<? extends AsyncChain<T>> call)
         {
-            int position = inheritQueuePosition();
+            long position = inheritQueuePosition();
             return new AsyncChains.Head<>()
             {
                 @Override
@@ -1287,12 +1296,12 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             return execute(runOrFail, inheritQueuePosition());
         }
 
-        private int inheritQueuePosition()
+        private long inheritQueuePosition()
         {
             return inExecutor() && task != null ? task.queuePosition : 0;
         }
 
-        private Cancellable execute(RunOrFail runOrFail, int queuePosition)
+        private Cancellable execute(RunOrFail runOrFail, long queuePosition)
         {
             PlainChain submit = new PlainChain(runOrFail, SequentialExecutor.this, queuePosition);
             return AccordExecutor.this.submit(submit);
@@ -1475,7 +1484,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             this(result, run, null, 0);
         }
 
-        PlainRunnable(AsyncPromise<Void> result, Runnable run, @Nullable SequentialExecutor executor, int queuePosition)
+        PlainRunnable(AsyncPromise<Void> result, Runnable run, @Nullable SequentialExecutor executor, long queuePosition)
         {
             this.result = result;
             this.run = run;
@@ -1710,7 +1719,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             this(runOrFail, null, 0);
         }
 
-        PlainChain(RunOrFail runOrFail, @Nullable SequentialExecutor executor, int queuePosition)
+        PlainChain(RunOrFail runOrFail, @Nullable SequentialExecutor executor, long queuePosition)
         {
             this.runOrFail = runOrFail;
             this.executor = executor;
@@ -1829,7 +1838,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             return commandStoreId >= 0 ? commandStoreId : null;
         }
 
-        public int position()
+        public long position()
         {
             return task.queuePosition;
         }
@@ -1858,7 +1867,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         public int compareTo(TaskInfo that)
         {
             int c = this.status.compareTo(that.status);
-            if (c == 0) c = Integer.compare(this.position(), that.position());
+            if (c == 0) c = Long.compare(this.position(), that.position());
             return c;
         }
     }

@@ -50,6 +50,8 @@ public class AccordSafeCommandsForKey extends SafeCommandsForKey implements Acco
         this.global = global;
         this.original = null;
         this.current = null;
+//        if (overrideSink() == null)
+//            overrideSink(new RecordingNotifySink());
     }
 
     @Override

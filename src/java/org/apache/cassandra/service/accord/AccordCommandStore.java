@@ -422,6 +422,22 @@ public class AccordCommandStore extends CommandStore
         return AccordTask.create(this, preLoadContext, consumer).chain();
     }
 
+//    @Override
+//    public AsyncChain<Void> priorityChain(PreLoadContext preLoadContext, Consumer<? super SafeCommandStore> consumer)
+//    {
+//        AccordTask<Void> task = AccordTask.create(this, preLoadContext, consumer);
+//        task.queuePosition = 1;
+//        return task.chain();
+//    }
+//
+//    @Override
+//    public <T> AsyncChain<T> priorityChain(PreLoadContext preLoadContext, Function<? super SafeCommandStore, T> function)
+//    {
+//        AccordTask<T> task = AccordTask.create(this, preLoadContext, function);
+//        task.queuePosition = 1;
+//        return task.chain();
+//    }
+
     @Override
     public <T> AsyncChain<T> chain(Callable<T> call)
     {
@@ -433,6 +449,21 @@ public class AccordCommandStore extends CommandStore
     {
         taskExecutor().execute(run);
     }
+
+    @Override
+    public boolean tryExecuteImmediately(Runnable run)
+    {
+        return taskExecutor().tryExecuteImmediately(run);
+    }
+//
+//    @Override
+//    public boolean tryExecuteImmediately(PreLoadContext context, Consumer<? super SafeCommandStore> consumer)
+//    {
+//        AccordTask.create(this, context, consumer).chain()
+//        return taskExecutor().tryExecuteImmediately(() -> {
+//
+//        });
+//    }
 
     public AccordSafeCommandStore begin(AccordTask<?> operation, @Nullable CommandSummaries commandsForRanges)
     {
@@ -621,7 +652,7 @@ public class AccordCommandStore extends CommandStore
         RedundantBefore forCommandStore = nonDurable(unsafeGetRedundantBefore(), LOCALLY_DURABLE_TO_COMMAND_STORE, LOCALLY_DURABLE_TO_COMMAND_STORE_ONLY);
         RedundantBefore forDataStore = nonDurable(unsafeGetRedundantBefore(), LOCALLY_DURABLE_TO_DATA_STORE, LOCALLY_DURABLE_TO_DATA_STORE_ONLY);
         this.ensureDurable(forCommandStore.ranges(Objects::nonNull), forCommandStore);
-        dataStore.ensureDurable(this, forDataStore, 0);
+//        dataStore.ensureDurable(this, forDataStore, 0);
     }
 
     private RedundantBefore nonDurable(RedundantBefore redundantBefore, Property durableProperty, SomeStatus durableStatus)
@@ -643,58 +674,58 @@ public class AccordCommandStore extends CommandStore
         if (node().isReplaying() && onCommandStoreDurable.flags == 0 && unsafeGetRedundantBefore().isAtLeast(onCommandStoreDurable.redundantBefore))
             return;
 
-        long reportId = nextDurabilityLoggingId.incrementAndGet();
-        logger.debug("{} durability: ensuring for {} ({})", this, onCommandStoreDurable, reportId);
-        executor().afterSubmittedAndConsequences(() -> {
-            logger.debug("{} durability: saving intersecting keys ({})", this, reportId);
-            class Ready extends CountingResult implements Runnable
-            {
-                public Ready() { super(1); }
-                @Override public void run() { decrement(); }
-
-                void maybeFlush(ExclusiveCaches caches, AccordCacheEntry<RoutingKey, CommandsForKey> e)
-                {
-                    if (e.isModified())
-                    {
-                        increment();
-                        caches.global().saveWhenReadyExclusive(e, this);
-                    }
-                }
-            }
-
-            Ready ready = new Ready();
-            try (ExclusiveCaches caches = lockCaches())
-            {
-                if (ranges == null)
-                {
-                    for (AccordCacheEntry<RoutingKey, CommandsForKey> e : caches.commandsForKeys())
-                        ready.maybeFlush(caches, e);
-                }
-                else
-                {
-                    for (Range range : ranges)
-                    {
-                        for (RoutingKey k : caches.commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
-                            ready.maybeFlush(caches, caches.commandsForKeys().getUnsafe(k));
-                    }
-                }
-            }
-
-            ready.invoke((success, fail) -> {
-                if (fail != null)
-                {
-                    logger.error("{} failed to ensure durability of {} ({})", this, ranges, reportId, fail);
-                }
-                else
-                {
-                    logger.debug("{} waiting for CommandsForKey to flush ({})", this, reportId);
-                    ColumnFamilyStore cfs = AccordKeyspace.AccordColumnFamilyStores.commandsForKey;
-
-                    AccordDurableOnFlush.notifyOnDurable(cfs, this, onCommandStoreDurable);
-                }
-            });
-            ready.decrement();
-        });
+//        long reportId = nextDurabilityLoggingId.incrementAndGet();
+//        logger.debug("{} durability: ensuring for {} ({})", this, onCommandStoreDurable, reportId);
+//        executor().afterSubmittedAndConsequences(() -> {
+//            logger.debug("{} durability: saving intersecting keys ({})", this, reportId);
+//            class Ready extends CountingResult implements Runnable
+//            {
+//                public Ready() { super(1); }
+//                @Override public void run() { decrement(); }
+//
+//                void maybeFlush(ExclusiveCaches caches, AccordCacheEntry<RoutingKey, CommandsForKey> e)
+//                {
+//                    if (e.isModified())
+//                    {
+//                        increment();
+//                        caches.global().saveWhenReadyExclusive(e, this);
+//                    }
+//                }
+//            }
+//
+//            Ready ready = new Ready();
+//            try (ExclusiveCaches caches = lockCaches())
+//            {
+//                if (ranges == null)
+//                {
+//                    for (AccordCacheEntry<RoutingKey, CommandsForKey> e : caches.commandsForKeys())
+//                        ready.maybeFlush(caches, e);
+//                }
+//                else
+//                {
+//                    for (Range range : ranges)
+//                    {
+//                        for (RoutingKey k : caches.commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
+//                            ready.maybeFlush(caches, caches.commandsForKeys().getUnsafe(k));
+//                    }
+//                }
+//            }
+//
+//            ready.invoke((success, fail) -> {
+//                if (fail != null)
+//                {
+//                    logger.error("{} failed to ensure durability of {} ({})", this, ranges, reportId, fail);
+//                }
+//                else
+//                {
+//                    logger.debug("{} waiting for CommandsForKey to flush ({})", this, reportId);
+//                    ColumnFamilyStore cfs = AccordKeyspace.AccordColumnFamilyStores.commandsForKey;
+//
+//                    AccordDurableOnFlush.notifyOnDurable(cfs, this, onCommandStoreDurable);
+//                }
+//            });
+//            ready.decrement();
+//        });
     }
 
     @VisibleForTesting

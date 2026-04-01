@@ -45,6 +45,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.ProtocolModifiers;
+import accord.api.ProtocolModifiers.Toggles.FastExec;
 import accord.coordinate.CoordinateMaxConflict;
 import accord.coordinate.CoordinateTransaction;
 import accord.coordinate.KeyBarriers;
@@ -158,8 +159,7 @@ import org.apache.cassandra.utils.concurrent.ImmediateFuture;
 import org.apache.cassandra.utils.concurrent.UncheckedInterruptedException;
 
 import static accord.api.Journal.TopologyUpdate;
-import static accord.api.ProtocolModifiers.Toggles.FastExec.MAY_BYPASS_SAFESTORE;
-import static accord.api.ProtocolModifiers.Toggles.SendStableMessages.TO_ALL_IF_SINGLE_KEY_WRITE;
+import static accord.api.ProtocolModifiers.Toggles.SendStableMessages.TO_ALL;
 import static accord.impl.progresslog.DefaultProgressLog.ModeFlag.CATCH_UP;
 import static accord.local.durability.DurabilityService.SyncLocal.Self;
 import static accord.local.durability.DurabilityService.SyncRemote.All;
@@ -172,7 +172,6 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.concurrent.ExecutorFactory.Global.executorFactory;
 import static org.apache.cassandra.concurrent.ExecutorFactory.SimulatorThreadTag.JOB;
 import static org.apache.cassandra.concurrent.ExecutorFactory.SystemThreadTag.DAEMON;
-import static org.apache.cassandra.config.AccordSpec.CatchupMode.DISABLED;
 import static org.apache.cassandra.config.AccordSpec.CatchupMode.FALLBACK_TO_HARD;
 import static org.apache.cassandra.config.AccordSpec.CatchupMode.HARD;
 import static org.apache.cassandra.config.AccordSpec.JournalSpec.ReplayMode.RESET;
@@ -280,10 +279,10 @@ public class AccordService implements IAccordService, Shutdownable
         ProtocolModifiers.Toggles.setPermitLocalExecution(true);
         ProtocolModifiers.Toggles.setRequiresUniqueHlcs(true);
         ProtocolModifiers.Toggles.setFastReadExecMayResendTxn(true);
-        ProtocolModifiers.Toggles.setFastReadExec(MAY_BYPASS_SAFESTORE);
-        ProtocolModifiers.Toggles.setFastWriteExec(MAY_BYPASS_SAFESTORE);
+        ProtocolModifiers.Toggles.setFastReadExec(FastExec.DISABLED);
+        ProtocolModifiers.Toggles.setFastWriteExec(FastExec.DISABLED);
         ProtocolModifiers.Toggles.setDataStoreDetectsFutureReads(true);
-        ProtocolModifiers.Toggles.setSendStableMessages(TO_ALL_IF_SINGLE_KEY_WRITE);
+        ProtocolModifiers.Toggles.setSendStableMessages(TO_ALL);
     }
 
     private enum State { INIT, STARTING, STARTED, STOPPED, SHUTTING_DOWN, SHUTDOWN }
@@ -645,7 +644,7 @@ public class AccordService implements IAccordService, Shutdownable
     void catchup()
     {
         AccordSpec spec = DatabaseDescriptor.getAccord();
-        if (spec.catchup_on_start == DISABLED)
+        if (spec.catchup_on_start == CatchupMode.DISABLED)
         {
             logger.info("Catchup disabled; continuing to startup");
             return;
