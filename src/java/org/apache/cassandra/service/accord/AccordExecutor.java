@@ -1328,12 +1328,11 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
             {
                 if (owner == null)
                 {
-                    this.owner = null;
+                    Thread waiting = this.waiting;
+                    Invariants.require(waiting != self);
+                    this.owner = waiting;
                     if (waiting != null)
-                    {
                         LockSupport.unpark(waiting);
-                        ownerUpdater.compareAndSet(this, null, waiting);
-                    }
                 }
             }
             return true;
