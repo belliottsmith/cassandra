@@ -180,8 +180,8 @@ public class AccordLoadTest extends AccordTestBase
                                 else
                                     logger.error("{}", fail.getMessage());
                             }, "BEGIN TRANSACTION\n" +
-                               "UPDATE " + qualifiedAccordTableName + " SET v = ? WHERE k = ?;\n" +
-//                               "UPDATE " + qualifiedAccordTableName + " SET v += 1 WHERE k = ?;\n" +
+//                               "UPDATE " + qualifiedAccordTableName + " SET v = ? WHERE k = ?;\n" +
+                               "UPDATE " + qualifiedAccordTableName + " SET v += ? WHERE k = ?;\n" +
                                "COMMIT TRANSACTION;", ConsistencyLevel.SERIAL, ConsistencyLevel.QUORUM, random.nextInt(100), k1);
                         }
                         else
