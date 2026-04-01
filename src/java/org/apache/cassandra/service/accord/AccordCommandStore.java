@@ -388,7 +388,7 @@ public class AccordCommandStore extends CommandStore
         RedundantBefore.QuickBounds bounds = safeGetRedundantBefore().get(key);
         if (!Invariants.expect(bounds != null, "No RedundantBefore information found when loading key %s", key))
             return cfk;
-        return cfk.withGcBeforeAtLeast(bounds.gcBefore, false);
+        return cfk.withShardAppliedBeforeAtLeast(bounds.shardAppliedBefore, false);
     }
 
     boolean validateCommandsForKey(RoutableKey key, CommandsForKey evicting)
@@ -652,7 +652,7 @@ public class AccordCommandStore extends CommandStore
         RedundantBefore forCommandStore = nonDurable(unsafeGetRedundantBefore(), LOCALLY_DURABLE_TO_COMMAND_STORE, LOCALLY_DURABLE_TO_COMMAND_STORE_ONLY);
         RedundantBefore forDataStore = nonDurable(unsafeGetRedundantBefore(), LOCALLY_DURABLE_TO_DATA_STORE, LOCALLY_DURABLE_TO_DATA_STORE_ONLY);
         this.ensureDurable(forCommandStore.ranges(Objects::nonNull), forCommandStore);
-//        dataStore.ensureDurable(this, forDataStore, 0);
+        dataStore.ensureDurable(this, forDataStore, 0);
     }
 
     private RedundantBefore nonDurable(RedundantBefore redundantBefore, Property durableProperty, SomeStatus durableStatus)
@@ -674,58 +674,59 @@ public class AccordCommandStore extends CommandStore
         if (node().isReplaying() && onCommandStoreDurable.flags == 0 && unsafeGetRedundantBefore().isAtLeast(onCommandStoreDurable.redundantBefore))
             return;
 
-//        long reportId = nextDurabilityLoggingId.incrementAndGet();
-//        logger.debug("{} durability: ensuring for {} ({})", this, onCommandStoreDurable, reportId);
-//        executor().afterSubmittedAndConsequences(() -> {
-//            logger.debug("{} durability: saving intersecting keys ({})", this, reportId);
-//            class Ready extends CountingResult implements Runnable
-//            {
-//                public Ready() { super(1); }
-//                @Override public void run() { decrement(); }
-//
-//                void maybeFlush(ExclusiveCaches caches, AccordCacheEntry<RoutingKey, CommandsForKey> e)
-//                {
-//                    if (e.isModified())
-//                    {
-//                        increment();
-//                        caches.global().saveWhenReadyExclusive(e, this);
-//                    }
-//                }
-//            }
-//
-//            Ready ready = new Ready();
-//            try (ExclusiveCaches caches = lockCaches())
-//            {
-//                if (ranges == null)
-//                {
-//                    for (AccordCacheEntry<RoutingKey, CommandsForKey> e : caches.commandsForKeys())
-//                        ready.maybeFlush(caches, e);
-//                }
-//                else
-//                {
-//                    for (Range range : ranges)
-//                    {
-//                        for (RoutingKey k : caches.commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
-//                            ready.maybeFlush(caches, caches.commandsForKeys().getUnsafe(k));
-//                    }
-//                }
-//            }
-//
-//            ready.invoke((success, fail) -> {
-//                if (fail != null)
-//                {
-//                    logger.error("{} failed to ensure durability of {} ({})", this, ranges, reportId, fail);
-//                }
-//                else
-//                {
-//                    logger.debug("{} waiting for CommandsForKey to flush ({})", this, reportId);
-//                    ColumnFamilyStore cfs = AccordKeyspace.AccordColumnFamilyStores.commandsForKey;
-//
-//                    AccordDurableOnFlush.notifyOnDurable(cfs, this, onCommandStoreDurable);
-//                }
-//            });
-//            ready.decrement();
-//        });
+        long reportId = nextDurabilityLoggingId.incrementAndGet();
+        logger.debug("{} durability: ensuring for {} ({})", this, onCommandStoreDurable, reportId);
+        executor().afterSubmittedAndConsequences(() -> {
+            long start = System.nanoTime();
+            logger.debug("{} durability: saving intersecting keys ({})", this, reportId);
+            class Ready extends CountingResult implements Runnable
+            {
+                public Ready() { super(1); }
+                @Override public void run() { decrement(); }
+
+                void maybeFlush(ExclusiveCaches caches, AccordCacheEntry<RoutingKey, CommandsForKey> e)
+                {
+                    if (e.isModified())
+                    {
+                        increment();
+                        caches.global().saveWhenReadyExclusive(e, this);
+                    }
+                }
+            }
+
+            Ready ready = new Ready();
+            try (ExclusiveCaches caches = lockCaches())
+            {
+                if (ranges == null)
+                {
+                    for (AccordCacheEntry<RoutingKey, CommandsForKey> e : caches.commandsForKeys())
+                        ready.maybeFlush(caches, e);
+                }
+                else
+                {
+                    for (Range range : ranges)
+                    {
+                        for (RoutingKey k : caches.commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
+                            ready.maybeFlush(caches, caches.commandsForKeys().getUnsafe(k));
+                    }
+                }
+            }
+
+            ready.invoke((success, fail) -> {
+                if (fail != null)
+                {
+                    logger.error("{} failed to ensure durability of {} ({})", this, ranges, reportId, fail);
+                }
+                else
+                {
+                    logger.debug("{} waiting for CommandsForKey to flush ({})", this, reportId);
+                    ColumnFamilyStore cfs = AccordKeyspace.AccordColumnFamilyStores.commandsForKey;
+
+                    AccordDurableOnFlush.notifyOnDurable(cfs, this, onCommandStoreDurable);
+                }
+            });
+            ready.decrement();
+        });
     }
 
     @VisibleForTesting
