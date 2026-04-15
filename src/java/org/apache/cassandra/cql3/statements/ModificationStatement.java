@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -1008,20 +1009,28 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
         return fragments;
     }
 
-    public Set<RowKey> getRowKeys(List<TxnWrite.Fragment> writeFragments)
+    public <V> void forEachRowKey(List<TxnWrite.Fragment> writeFragments, Map<? super RowKey, V> map, V param, BiFunction<V, V, V> merge)
     {
-        Set<RowKey> rowKeys = new HashSet<>();
-
-        for (TxnWrite.Fragment writeFragment : writeFragments)
+        for (int i = 0, size = writeFragments.size() ; i < size ; i++)
         {
+            TxnWrite.Fragment writeFragment = writeFragments.get(i);
             DecoratedKey key = writeFragment.key.partitionKey();
             List<Clustering<?>> clusteringColumns = writeFragment.referenceOps.getClusterings();
             for (Clustering<?> clustering : clusteringColumns)
-                rowKeys.add(new RowKey(key, clustering));
+                map.merge(new RowKey(key, clustering), param, merge);
             for (Row row : writeFragment.baseUpdate)
-                rowKeys.add(new RowKey(key, row.clustering()));
+                map.merge(new RowKey(key, row.clustering()), param, merge);
         }
-        return rowKeys;
+    }
+
+    public <V> void forEachPartitionKey(List<TxnWrite.Fragment> writeFragments, Map<? super DecoratedKey, V> map, V param, BiFunction<V, V, V> mergeFunction)
+    {
+        for (int i = 0, size = writeFragments.size() ; i < size ; i++)
+        {
+            TxnWrite.Fragment writeFragment = writeFragments.get(i);
+            DecoratedKey key = writeFragment.key.partitionKey();
+            map.merge(key, param, mergeFunction);
+        }
     }
 
     public static class RowKey
