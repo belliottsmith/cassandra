@@ -35,11 +35,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import accord.api.TopologyListener;
-import accord.primitives.AbstractRanges;
 import accord.primitives.Ranges;
+import accord.primitives.Routables;
+import accord.topology.ActiveEpoch;
+import accord.topology.ActiveEpochs;
 import accord.topology.EpochReady;
 import accord.topology.Topology;
 import accord.topology.TopologyManager;
+import accord.topology.TopologyManager.RegainingEpochRange;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
@@ -86,6 +89,8 @@ import org.apache.cassandra.utils.concurrent.Future;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.vint.VIntCoding;
 
+import static accord.primitives.AbstractRanges.UnionMode.MERGE_ADJACENT;
+import static accord.primitives.Routables.Slice.Minimal;
 import static com.google.common.collect.ImmutableList.of;
 import static org.apache.cassandra.tcm.MultiStepOperation.Kind.MOVE;
 import static org.apache.cassandra.tcm.Transformation.Kind.FINISH_MOVE;
@@ -204,62 +209,66 @@ public class Move extends MultiStepOperation<Epoch>
         return applyMultipleTransformations(metadata, next, of(startMove, midMove, finishMove));
     }
 
+    static class WaitForEpochAndRangeRetirement implements TopologyListener
+    {
+        final Condition condition = newOneTimeCondition();
+        final long waitingForEpoch;
+        final Ranges waitingForRanges;
+        Ranges retiredRanges;
+
+        public WaitForEpochAndRangeRetirement(long waitingForEpoch, Ranges waitingForRanges)
+        {
+            this.waitingForEpoch = waitingForEpoch;
+            this.waitingForRanges = waitingForRanges;
+            this.retiredRanges = Ranges.EMPTY;
+        }
+
+        synchronized void updateRetiredRanges(Ranges ranges)
+        {
+            ranges = ranges.slice(waitingForRanges, Minimal).without(retiredRanges);
+            if (!ranges.isEmpty())
+            {
+                retiredRanges = retiredRanges.union(MERGE_ADJACENT, ranges);
+                if (retiredRanges.containsAll(waitingForRanges))
+                    condition.signal();
+            }
+        }
+
+        @Override
+        public synchronized void onEpochRetired(Ranges ranges, long epoch, @Nullable Topology topology)
+        {
+            if (epoch >= waitingForEpoch)
+                updateRetiredRanges(ranges);
+        }
+    }
+
     @Override
     public SequenceState executeNext()
     {
         switch (next)
         {
             case START_MOVE:
-                class WaitForEpochAndRangeRetirement implements TopologyListener
-                {
-                    final Condition condition;
-                    final long waitingForEpoch;
-                    final Ranges waitingForRange;
-                    Ranges retiredRanges;
-
-                    public WaitForEpochAndRangeRetirement(Condition condition, long waitingForEpoch, Ranges waitingForRange)
-                    {
-                        this.condition = condition;
-                        this.waitingForEpoch = waitingForEpoch;
-                        this.waitingForRange = waitingForRange;
-                        this.retiredRanges = Ranges.EMPTY;
-                    }
-
-                    public synchronized void updateRetiredRanges(Ranges ranges)
-                    {
-                        retiredRanges = retiredRanges.union(AbstractRanges.UnionMode.MERGE_ADJACENT, ranges);
-                    }
-
-                    public synchronized Ranges getRetiredRanges()
-                    {
-                        return retiredRanges;
-                    }
-
-                    @Override
-                    public void onEpochRetired(Ranges ranges, long epoch, @Nullable Topology topology)
-                    {
-                        if (epoch >= waitingForEpoch)
-                            updateRetiredRanges(ranges);
-
-                        if (getRetiredRanges().containsAll(waitingForRange))
-                            condition.signal();
-                    }
-                }
-
                 WaitForEpochAndRangeRetirement wait = null;
 
                 try
                 {
                     ClusterMetadata metadata = ClusterMetadata.current();
-                    TopologyManager.RegainingEpochRange regainingEpochRange = AccordService.instance().topology().epochAndRangeToBeRetired(AccordService.instance().topology().current(), AccordTopology.createAccordTopology(applyTo(metadata).success().metadata));
+                    TopologyManager topologyManager = AccordService.instance().topology();
+                    AccordService.toFuture(topologyManager.await(metadata.epoch.getEpoch() - 1, null))
+                                 .awaitThrowUncheckedOnInterrupt().rethrowIfFailed();
 
-                    if (regainingEpochRange != null)
+                    ActiveEpochs activeEpochs = topologyManager.active();
+                    Topology current = activeEpochs.globalForEpoch(metadata.epoch.getEpoch() - 1);
+                    RegainingEpochRange regaining = topologyManager.computeRegaining(current, AccordTopology.createAccordTopology(applyTo(metadata).success().metadata));
+
+                    if (regaining != null)
                     {
                         Condition condition = newOneTimeCondition();
-                        wait = new WaitForEpochAndRangeRetirement(condition, regainingEpochRange.epoch(), regainingEpochRange.range());
-                        AccordService.instance().topology().addListener(wait);
-                        Ranges retiredRanges = AccordService.instance().topology().active().get(regainingEpochRange.epoch()).retired();
-                        wait.updateRetiredRanges(retiredRanges);
+                        wait = new WaitForEpochAndRangeRetirement(regaining.epoch(), regaining.ranges());
+                        topologyManager.addListener(wait);
+                        ActiveEpoch e = activeEpochs.ifExists(regaining.epoch());
+                        if (e != null)
+                            wait.updateRetiredRanges(e.retired());
                         condition.awaitThrowUncheckedOnInterrupt();
                     }
 

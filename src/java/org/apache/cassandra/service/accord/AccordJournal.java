@@ -405,12 +405,13 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
                         logger.error("Encountered TopologyImage Repeat record for epoch {}, but no prior image record was found", ref.key().id.epoch());
                         return null;
                     }
-                    prev = reader.read().asImage(Invariants.nonNull(prev.getUpdate()));
+                    prev = reader.read().asImage(Invariants.nonNull(prev.update()));
                 }
                 else prev = reader.read();
 
-                return new TopologyUpdate(prev.getUpdate().commandStores,
-                                          prev.getUpdate().global);
+                return new TopologyUpdate(prev.update().commandStores,
+                                          prev.update().global,
+                                          prev.update().previouslyOwned);
             }
 
             @Override

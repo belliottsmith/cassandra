@@ -126,9 +126,7 @@ public class AccordTopologyUpdateTest
             for (Node.Id node : topology.nodes())
                 commandStores.put(node.id, rangesForEpochGen.next(rs));
 
-            Node.Id self = rs.pick(topology.nodes());
-
-            return new Journal.TopologyUpdate(commandStores, topology);
+            return new Journal.TopologyUpdate(commandStores, topology, CommandStores.PreviouslyOwned.EMPTY);
         };
     }
 
@@ -156,9 +154,9 @@ public class AccordTopologyUpdateTest
 
     private static void maybeUpdatePartitioner(AccordTopologyUpdate expected)
     {
-        Journal.TopologyUpdate update = expected.getUpdate();
+        Journal.TopologyUpdate update = expected.update();
         if (update != null)
-            maybeUpdatePartitioner(expected.getUpdate());
+            maybeUpdatePartitioner(expected.update());
     }
 
     private void maybeUpdatePartitioner(CommandStores.RangesForEpoch expected)
