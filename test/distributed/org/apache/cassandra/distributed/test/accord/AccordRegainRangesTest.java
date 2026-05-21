@@ -22,6 +22,11 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import accord.local.CommandStore;
 import accord.local.CommandStores.PreviouslyOwned;
 import accord.local.PreLoadContext;
@@ -41,17 +46,11 @@ import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class AccordRegainRangesTest extends AccordTestBase
 {

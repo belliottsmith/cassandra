@@ -22,18 +22,17 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.cassandra.Util;
 import org.apache.cassandra.distributed.api.Feature;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.AccordService;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import static com.google.common.collect.Iterables.getOnlyElement;
-
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class AccordDeleteCommandStoreTest extends AccordTestBase
 {
@@ -52,7 +51,7 @@ public class AccordDeleteCommandStoreTest extends AccordTestBase
                                                .withoutVNodes()
                                                .withConfig(config ->
                                                            config
-                                                           .set("accord.shard_durability_cycle", "30s")
+                                                           .set("accord.shard_durability_cycle", "20s")
                                                            .set("accord.topology_sync_propagator_enabled_pre_start", true)
                                                            .with(Feature.NETWORK, Feature.GOSSIP)), 4);
     }
