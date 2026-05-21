@@ -31,7 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
-import static org.junit.Assert.assertTrue;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -68,11 +67,9 @@ public class AccordDeleteCommandStoreTest extends AccordTestBase
             String newToken = cluster.get(1).callOnInstance(() -> getOnlyElement(StorageService.instance.getTokens()));
 
             int numberOfCommandStores = cluster.get(2).callOnInstance(() -> {
-                Util.spinUntilTrue(AccordService::isStarted);
+                Util.spinUntilTrue(() -> AccordService.instance().node().commandStores().all().length > 0);
                 return AccordService.instance().node().commandStores().all().length;
             });
-
-            assertTrue(numberOfCommandStores > 0);
 
             cluster.get(2).runOnInstance(() -> {
                 StorageService.instance.move(Long.toString(Long.parseLong(newToken) + 1));
