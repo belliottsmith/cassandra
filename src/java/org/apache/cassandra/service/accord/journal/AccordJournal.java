@@ -288,12 +288,13 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
                         logger.error("Encountered TopologyImage Repeat record for epoch {}, but no prior image record was found", ref.key().id.epoch());
                         return null;
                     }
-                    prev = reader.read().asImage(Invariants.nonNull(prev.getUpdate()));
+                    prev = reader.read().asImage(Invariants.nonNull(prev.update()));
                 }
                 else prev = reader.read();
 
-                return new accord.api.Journal.TopologyUpdate(prev.getUpdate().commandStores,
-                                                             prev.getUpdate().global);
+                return new accord.api.Journal.TopologyUpdate(prev.update().commandStores,
+                                                             prev.update().global,
+                                                             prev.update().previouslyOwned);
             }
 
             @Override
@@ -355,6 +356,13 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
     public CommandStores.RangesForEpoch loadRangesForEpoch(int commandStoreId)
     {
         KeepFirst<RangesForEpoch> accumulator = readLast(new JournalKey(TxnId.NONE, JournalKey.Type.RANGES_FOR_EPOCH, commandStoreId));
+        return accumulator.get();
+    }
+
+    @Override
+    public Ranges loadPermanentlyUnsafeToRead(int commandStoreId)
+    {
+        KeepFirst<Ranges> accumulator = readLast(new JournalKey(TxnId.NONE, JournalKey.Type.PERMANENTLY_UNSAFE_TO_READ, commandStoreId));
         return accumulator.get();
     }
 

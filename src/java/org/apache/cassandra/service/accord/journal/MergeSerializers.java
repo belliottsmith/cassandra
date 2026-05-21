@@ -37,6 +37,7 @@ import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.journal.Merger.KeepFirst;
 import org.apache.cassandra.service.accord.journal.Merger.SimpleMerger;
 import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers;
+import org.apache.cassandra.service.accord.serializers.KeySerializers;
 import org.apache.cassandra.service.accord.serializers.Version;
 
 import static accord.local.CommandStores.RangesForEpoch;
@@ -275,6 +276,36 @@ public class MergeSerializers
         }
     }
 
+    public static class PermanentlyUnsafeToReadSerializer
+    implements MergeSerializer<Ranges,
+                              SimpleMerger<?, ? super Ranges>,
+                              SimpleMerger<Ranges, Ranges>>
+    {
+        public static final PermanentlyUnsafeToReadSerializer instance = new PermanentlyUnsafeToReadSerializer();
+        public KeepFirst<Ranges> mergerFor()
+        {
+            return new KeepFirst<>(Ranges.EMPTY);
+        }
+
+        @Override
+        public void serialize(JournalKey key, Ranges from, DataOutputPlus out, Version userVersion) throws IOException
+        {
+            KeySerializers.ranges.serialize(from, out);
+        }
+
+        @Override
+        public void reserialize(JournalKey key, SimpleMerger<Ranges, Ranges> from, DataOutputPlus out, Version userVersion) throws IOException
+        {
+            serialize(key, from.get(), out, userVersion);
+        }
+
+        @Override
+        public void deserialize(JournalKey key, SimpleMerger<?, ? super Ranges> into, DataInputPlus in, Version userVersion) throws IOException
+        {
+            into.update(KeySerializers.ranges.deserialize(in));
+        }
+    }
+
     public static class TopologySerializer implements MergeSerializer<TopologyRecord, TopologyMerger, TopologyMerger>
     {
         public static final TopologySerializer INSTANCE = new TopologySerializer();
@@ -328,7 +359,7 @@ public class MergeSerializers
         public void read(TopologyRecord update)
         {
             if (Objects.requireNonNull(update.kind()) == TopologyRecord.Kind.New)
-                read = new TopologyRecord.TopologyImage(update.epoch(), TopologyRecord.Kind.Image, update.getUpdate());
+                read = new TopologyRecord.TopologyImage(update.epoch(), TopologyRecord.Kind.Image, update.update());
             else
                 read = (TopologyRecord.TopologyImage) update;
             write = read;

@@ -40,6 +40,7 @@ import static org.apache.cassandra.db.TypeSizes.LONG_SIZE;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.BootstrapBeganAtSerializer;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.CommandChangeSerializer;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.DurableBeforeSerializer;
+import static org.apache.cassandra.service.accord.journal.MergeSerializers.PermanentlyUnsafeToReadSerializer;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.RangesForEpochSerializer;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.RedundantBeforeSerializer;
 import static org.apache.cassandra.service.accord.journal.MergeSerializers.SafeToReadSerializer;
@@ -274,6 +275,7 @@ public final class JournalKey
         BOOTSTRAP_BEGAN_AT           (4, new BootstrapBeganAtSerializer(), false),
         RANGES_FOR_EPOCH             (5, new RangesForEpochSerializer(), false),
         TOPOLOGY_UPDATE              (6, new TopologySerializer(), true),
+        PERMANENTLY_UNSAFE_TO_READ   (7, new PermanentlyUnsafeToReadSerializer(), false)
         ;
 
         public final int id;
