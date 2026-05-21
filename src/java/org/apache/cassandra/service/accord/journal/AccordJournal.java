@@ -311,7 +311,7 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
                 if (next == null)
                     continue;
 
-                Invariants.require(prev == null || next.global.epoch() > prev.global.epoch());
+                Invariants.require(prev == null || next.global.epoch() >= prev.global.epoch());
                 // Due to partial compaction, we can clean up only some of the old epochs, creating gaps. We skip these epochs here.
                 if (prev != null && next.global.epoch() > prev.global.epoch() + 1)
                     images.clear();
