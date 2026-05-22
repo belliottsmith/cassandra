@@ -311,7 +311,7 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
                 if (next == null)
                     continue;
 
-                Invariants.require(prev == null || next.global.epoch() >= prev.global.epoch());
+                Invariants.require(prev == null || next.global.epoch() > prev.global.epoch());
                 // Due to partial compaction, we can clean up only some of the old epochs, creating gaps. We skip these epochs here.
                 if (prev != null && next.global.epoch() > prev.global.epoch() + 1)
                     images.clear();
@@ -384,6 +384,8 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
             pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.SAFE_TO_READ, commandStoreId), fieldUpdates.newSafeToRead);
         if (fieldUpdates.newRangesForEpoch != null)
             pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.RANGES_FOR_EPOCH, commandStoreId), fieldUpdates.newRangesForEpoch);
+        if (fieldUpdates.newPermanentlyUnsafeToRead != null)
+            pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.PERMANENTLY_UNSAFE_TO_READ, commandStoreId), fieldUpdates.newPermanentlyUnsafeToRead);
 
         if (onFlush == null)
             return;
