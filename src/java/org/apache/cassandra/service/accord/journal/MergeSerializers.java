@@ -340,6 +340,7 @@ public class MergeSerializers
     public static class TopologyMerger implements Merger
     {
         TopologyRecord.TopologyImage read, write;
+        boolean hasRead;
 
         public TopologyMerger()
         {
@@ -358,11 +359,15 @@ public class MergeSerializers
 
         public void read(TopologyRecord update)
         {
+            if (hasRead)
+                return;
+
             if (Objects.requireNonNull(update.kind()) == TopologyRecord.Kind.New)
                 read = new TopologyRecord.TopologyImage(update.epoch(), TopologyRecord.Kind.Image, update.update());
             else
                 read = (TopologyRecord.TopologyImage) update;
             write = read;
+            hasRead = true;
         }
 
         public void write(TopologyRecord.TopologyImage image)

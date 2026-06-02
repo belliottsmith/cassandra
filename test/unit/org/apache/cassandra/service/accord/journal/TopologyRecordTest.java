@@ -37,11 +37,11 @@ import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.Serializers;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.TableId;
-import org.apache.cassandra.service.accord.serializers.CommandStoreSerializersTest;
 import org.apache.cassandra.utils.AccordGenerators;
 
 import static accord.utils.Property.qt;
 import static org.apache.cassandra.service.accord.serializers.CommandStoreSerializersTest.rangesForEpochGen;
+import static org.apache.cassandra.service.accord.serializers.CommandStoreSerializersTest.previouslyOwnedGen;
 
 public class TopologyRecordTest
 {
@@ -86,7 +86,7 @@ public class TopologyRecordTest
             Gen<Ranges> rangesGen = AccordGenerators.ranges(TBL1, partitioner);
             Gen<CommandStores.RangesForEpoch> rangesForEpochGen = rangesForEpochGen(rangesGen);
             Topology topology = AccordGenerators.topologyGen(rangesGen).next(rs);
-            CommandStores.PreviouslyOwned previouslyOwned = CommandStoreSerializersTest.previouslyOwnedGen(rangesGen).next(rs);
+            CommandStores.PreviouslyOwned previouslyOwned = previouslyOwnedGen(rangesGen).next(rs);
 
             Int2ObjectHashMap<CommandStores.RangesForEpoch> commandStores = new Int2ObjectHashMap<>();
             for (Node.Id node : topology.nodes())
