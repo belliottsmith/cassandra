@@ -274,7 +274,7 @@ public final class JournalKey
         SAFE_TO_READ                 (3, new SafeToReadSerializer(), false),
         BOOTSTRAP_BEGAN_AT           (4, new BootstrapBeganAtSerializer(), false),
         RANGES_FOR_EPOCH             (5, new RangesForEpochSerializer(), false),
-        TOPOLOGY_UPDATE              (6, new TopologySerializer(), true),
+        TOPOLOGY_UPDATE              (6, TopologySerializer.INSTANCE, true),
         PERMANENTLY_UNSAFE_TO_READ   (7, new PermanentlyUnsafeToReadSerializer(), false)
         ;
 

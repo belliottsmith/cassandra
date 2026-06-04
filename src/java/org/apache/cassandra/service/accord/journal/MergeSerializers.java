@@ -251,7 +251,6 @@ public class MergeSerializers
                               SimpleMerger<?, ? super RangesForEpoch>,
                               SimpleMerger<RangesForEpoch, RangesForEpoch>>
     {
-        public static final RangesForEpochSerializer instance = new RangesForEpochSerializer();
         public KeepFirst<RangesForEpoch> mergerFor()
         {
             return new KeepFirst<>(null);
@@ -281,7 +280,6 @@ public class MergeSerializers
                               SimpleMerger<?, ? super Ranges>,
                               SimpleMerger<Ranges, Ranges>>
     {
-        public static final PermanentlyUnsafeToReadSerializer instance = new PermanentlyUnsafeToReadSerializer();
         public KeepFirst<Ranges> mergerFor()
         {
             return new KeepFirst<>(Ranges.EMPTY);
@@ -310,7 +308,7 @@ public class MergeSerializers
     {
         public static final TopologySerializer INSTANCE = new TopologySerializer();
 
-        public TopologySerializer() {}
+        private TopologySerializer() {}
 
         @Override
         public TopologyMerger mergerFor()
@@ -349,6 +347,7 @@ public class MergeSerializers
         @Override
         public void reset(JournalKey key)
         {
+            hasRead = false;
             read = write = null;
         }
 

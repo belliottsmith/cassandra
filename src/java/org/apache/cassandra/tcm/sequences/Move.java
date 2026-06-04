@@ -288,7 +288,9 @@ public class Move extends MultiStepOperation<Epoch>
                             if (e != null)
                             {
                                 wait.updateRetiredRanges(e.retired());
+                                logger.info("Waiting for previous ownership of ranges {} to retire before regaining", regaining.ranges());
                                 wait.waitForRetirement();
+                                logger.info("Previously owned ranges {} now retired", regaining.ranges());
                             }
                         }
                     }

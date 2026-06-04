@@ -264,7 +264,7 @@ public interface TopologyRecord
                 Ranges[] ranges = new Ranges[previouslyOwnedSize];
                 for (int i = 0 ; i < previouslyOwnedSize ; ++i)
                 {
-                    epochs[i] = in .readUnsignedVInt();
+                    epochs[i] = in.readUnsignedVInt();
                     ranges[i] = KeySerializers.ranges.deserialize(in);
                 }
                 previouslyOwned = new PreviouslyOwned(epochs.length == 0 ? 0 : epochs[0], epochs, ranges);

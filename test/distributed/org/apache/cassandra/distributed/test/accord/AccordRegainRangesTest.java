@@ -32,6 +32,7 @@ import accord.local.CommandStores.PreviouslyOwned;
 import accord.local.PreLoadContext;
 import accord.primitives.AbstractRanges;
 import accord.primitives.Ranges;
+import accord.topology.ActiveEpochs;
 import accord.topology.TopologyException;
 import accord.topology.TopologyRetiredException;
 
@@ -50,7 +51,6 @@ import static com.google.common.collect.Iterables.getOnlyElement;
 import static org.apache.cassandra.service.accord.AccordService.getBlocking;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 public class AccordRegainRangesTest extends AccordTestBase
 {
@@ -109,19 +109,16 @@ public class AccordRegainRangesTest extends AccordTestBase
                 TokenKey start = TokenKey.parse(tid, String.valueOf(token), Murmur3Partitioner.instance);
                 TokenKey end = TokenKey.parse(tid, originalToken, Murmur3Partitioner.instance);
                 Ranges regainedRange = Ranges.of(TokenRange.create(start, end));
-                try
+
+                ActiveEpochs activeEpochs = AccordService.instance().topology().active();
+                PreviouslyOwned previouslyOwned = AccordService.instance().node().commandStores().getPreviouslyOwnedFromSnapshot();
+                assertEquals(previouslyOwned.regains(regainedRange), regainedRange);
+                for (int i = 0; i < previouslyOwned.size(); i++)
                 {
-                    PreviouslyOwned previouslyOwned = AccordService.instance().node().commandStores().getPreviouslyOwnedFromSnapshot();
-                    assertEquals(previouslyOwned.regains(regainedRange), regainedRange);
-                    for (int i = 0; i < previouslyOwned.size(); i++)
-                        assertTrue(AccordService.instance().topology().active().get(previouslyOwned.epochs(i)).retired().containsAll(previouslyOwned.ranges(i)));
-                }
-                catch (TopologyRetiredException ignored)
-                {
-                }
-                catch (TopologyException e)
-                {
-                    fail();
+                    long epoch = previouslyOwned.epochs(i);
+                    if (!activeEpochs.hasAtLeastEpoch(epoch))
+                        continue;
+                    assertTrue(activeEpochs.getKnown(epoch).retired().containsAll(previouslyOwned.ranges(i)));
                 }
 
                 Ranges range = Ranges.EMPTY;
