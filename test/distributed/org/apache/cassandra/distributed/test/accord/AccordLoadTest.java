@@ -361,6 +361,22 @@ public class AccordLoadTest extends AccordTestBase
                       .setReadRatio(0.5f);
     }
 
+    private static SettingsBuilder populate(SettingsBuilder builder, int keyCount)
+    {
+        return builder.setKeySelector(new IntSupplier()
+                      {
+                          int i = 0;
+                          @Override
+                          public int getAsInt()
+                          {
+                              int result = i;
+                              i = (i + 1) % keyCount;
+                              return result;
+                          }
+                      })
+                      .setReadRatio(0f);
+    }
+
     private static SettingsBuilder ycsbB(SettingsBuilder builder, int keyCount)
     {
         return builder.setKeySelector(ycsbZipfian(keyCount))
@@ -745,7 +761,7 @@ public class AccordLoadTest extends AccordTestBase
                             }
                         }
                         restarting = restartExecutor.submit(() -> {
-                            System.out.printf("restarting node %d...\n", nodeIdx);
+                            System.out.println(String.format("restarting node %d...\n", nodeIdx));
                             try
                             {
                                 cluster.get(nodeIdx).shutdown().get();
@@ -776,7 +792,7 @@ public class AccordLoadTest extends AccordTestBase
                                 for (Message message : event.messages())
                                 {
                                     long multiplier = message.atNanos < event.doneAtNanos() ? 1 : -1;
-                                    System.out.printf("%s %s %s %s %s %s\n", txnId, event.kind, multiplier * (message.atNanos - event.atNanos)/1000000, message.nodeId, message.commandStoreId, message.message);
+                                    System.out.println(String.format("%s %s %s %s %s %s\n", txnId, event.kind, multiplier * (message.atNanos - event.atNanos)/1000000, message.nodeId, message.commandStoreId, message.message));
                                 }
                             });
                         });
@@ -915,7 +931,7 @@ public class AccordLoadTest extends AccordTestBase
                 cluster.forEach(() -> {
                     refresh(AccordExecutorMetrics.INSTANCE.elapsedRunning);
                     refresh(AccordExecutorMetrics.INSTANCE.elapsed);
-                    System.out.printf("%tT.%tL (%d %d %d %d %d %d)ms (%d %d %d %d %d %d)ms (%d %d %d %d %.0f, %d %d %d)us %d %d %d\n", nowMillis, nowMillis,
+                    System.out.println(String.format("%tT.%tL (%d %d %d %d %d %d)ms (%d %d %d %d %d %d)ms (%d %d %d %d %.0f, %d %d %d)us %d %d %d\n", nowMillis, nowMillis,
                                       getLatency(AccordCoordinatorMetrics.readMetrics.preacceptLatency, 0.5),
                                       getLatency(AccordCoordinatorMetrics.readMetrics.executeLatency, 0.5),
                                       getLatency(AccordCoordinatorMetrics.readMetrics.applyLatency, 0.5),
@@ -939,13 +955,13 @@ public class AccordLoadTest extends AccordTestBase
                                       AccordExecutorMetrics.INSTANCE.running.getValue(),
                                       AccordExecutorMetrics.INSTANCE.waitingToRun.getValue(),
                                       AccordExecutorMetrics.INSTANCE.preparingToRun.getValue()
-                    );
+                    ));
                     clear(AccordExecutorMetrics.INSTANCE.elapsedRunning);
                     clear(AccordExecutorMetrics.INSTANCE.elapsed);
                 });
-                System.out.printf("%tT.%tL rate: %.2f/s (%d total)\n", nowMillis, nowMillis, (((float)batchSize * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)), batchSize);
-                System.out.printf("%tT.%tL reads : %d %d %d %d %d %d\n", nowMillis, nowMillis, reads.percentile(.25)/1000, reads.percentile(.5)/1000, reads.percentile(.95)/1000, reads.percentile(.99)/1000, reads.percentile(.999)/1000, reads.percentile(1)/1000);
-                System.out.printf("%tT.%tL writes: %d %d %d %d %d %d\n", nowMillis, nowMillis, writes.percentile(.25)/1000, writes.percentile(.5)/1000, writes.percentile(.95)/1000, writes.percentile(.99)/1000, writes.percentile(.999)/1000, writes.percentile(1)/1000);
+                System.out.println(String.format("%tT.%tL rate: %.2f/s (%d total)\n", nowMillis, nowMillis, (((float)batchSize * 1000) / NANOSECONDS.toMillis(System.nanoTime() - batchStart)), batchSize));
+                System.out.println(String.format("%tT.%tL reads : %d %d %d %d %d %d\n", nowMillis, nowMillis, reads.percentile(.25)/1000, reads.percentile(.5)/1000, reads.percentile(.95)/1000, reads.percentile(.99)/1000, reads.percentile(.999)/1000, reads.percentile(1)/1000));
+                System.out.println(String.format("%tT.%tL writes: %d %d %d %d %d %d\n", nowMillis, nowMillis, writes.percentile(.25)/1000, writes.percentile(.5)/1000, writes.percentile(.95)/1000, writes.percentile(.99)/1000, writes.percentile(.999)/1000, writes.percentile(1)/1000));
 
                 class VerbCount
                 {
@@ -977,7 +993,7 @@ public class AccordLoadTest extends AccordTestBase
                         verbSummary.append(vs.count);
                     }
                 }
-                System.out.printf("%tT.%tL verbs: %s\n", nowMillis, nowMillis, verbSummary);
+                System.out.println(String.format("%tT.%tL verbs: %s\n", nowMillis, nowMillis, verbSummary));
             }
         }
         catch (Throwable t)
@@ -1076,7 +1092,7 @@ public class AccordLoadTest extends AccordTestBase
     @Test
     public void testLoad() throws Exception
     {
-        testLoad(ycsbA(new SettingsBuilder(), 100_000)
+        testLoad(populate(new SettingsBuilder(), 1_000_000)
                  .setRatePerSecond(1600).setMinRatePerSecond(200)
                  .setIncreaseRatePerSecondInterval(5000)
                  .build());

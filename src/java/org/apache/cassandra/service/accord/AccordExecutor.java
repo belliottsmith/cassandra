@@ -1265,13 +1265,15 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         }
     }
 
-    private static final AtomicReferenceFieldUpdater<SequentialExecutor, Thread> ownerUpdater = AtomicReferenceFieldUpdater.newUpdater(SequentialExecutor.class, Thread.class, "owner");
+    private static final AtomicReferenceFieldUpdater<SequentialExecutor, Object> ownerUpdater = AtomicReferenceFieldUpdater.newUpdater(SequentialExecutor.class, Object.class, "owner");
+    private static final Object OWNER_CLEANUP_SENTINEL = new Object();
     public class SequentialExecutor extends TaskQueue<Task> implements SequentialAsyncExecutor
     {
         final int commandStoreId;
         final SequentialQueueTask selfTask;
         private Task task;
-        private volatile Thread owner, waiting;
+        private volatile Object owner;
+        private volatile Thread waiting;
         private boolean stopped;
         private volatile boolean visibleStopped;
         private boolean terminated;
@@ -1309,21 +1311,22 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
                 {
                     while (true)
                     {
-                        Thread owner = this.owner;
+                        Object owner = this.owner;
                         if (owner == self) break outer;
                         if (owner == null) continue outer;
                         LockSupport.park();
                     }
                 }
                 while (!ownerUpdater.compareAndSet(this, null, self));
+                waiting = null;
             }
-            waiting = null;
 
             if (stopped && reject(task))
                 task.fail(new RejectedExecutionException(commandStoreId + " is terminated. Cannot execute " + ((AccordTask<?>) task).preLoadContext()));
             else
                 task.runInternal();
-            // NOTE: cannot safely release owner here, in case an immediate-execution runs before we can release our references and store their changes to the cache
+
+            owner = OWNER_CLEANUP_SENTINEL;
         }
 
         private boolean reject(Task task)
@@ -1537,7 +1540,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<AccordTa
         public boolean tryExecuteImmediately(Runnable run)
         {
             Thread self = Thread.currentThread();
-            Thread owner = this.owner;
+            Object owner = this.owner;
             if (owner != null ? owner != self : !ownerUpdater.compareAndSet(this, null, self))
                 return false;
 
