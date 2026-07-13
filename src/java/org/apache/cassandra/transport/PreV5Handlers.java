@@ -337,7 +337,9 @@ public class PreV5Handlers
             if (ctx.channel().isOpen())
             {
                 Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(ctx.channel(), false);
-                ErrorMessage errorMessage = ErrorMessage.fromException(cause, handler);
+                // No request in scope at the channel level; a WrappedException cause carries the frame's stream id
+                // and overrides this 0 fallback, otherwise the channel is torn down for fatal errors.
+                ErrorMessage errorMessage = ErrorMessage.fromException(cause, 0, handler);
                 ChannelFuture future = ctx.writeAndFlush(errorMessage.encode(getConnectionVersion(ctx)));
                 // On protocol exception, close the channel as soon as the message have been sent.
                 // Most cases of PE are wrapped so the type check below is expected to fail more often than not.

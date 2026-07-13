@@ -658,6 +658,7 @@ public class CQLConnectionTest
         TestConsumer(Message.Response fixedResponse, FrameEncoder frameEncoder)
         {
             this.fixedResponse = fixedResponse;
+            this.fixedResponse.setStreamId(0);
             this.responseTemplate = fixedResponse.encode(ProtocolVersion.V5);
             this.frameEncoder = frameEncoder;
         }

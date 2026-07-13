@@ -161,7 +161,7 @@ public class ProtocolErrorTest {
     public void testErrorMessageWithNullString()
     {
         // test for CASSANDRA-11167
-        ErrorMessage msg = ErrorMessage.fromException(new ServerError((String) null));
+        ErrorMessage msg = ErrorMessage.fromException(new ServerError((String) null), 0);
         assert msg.toString().endsWith("null") : msg.toString();
         int size = ErrorMessage.codec.encodedSize(msg, ProtocolVersion.CURRENT);
         ByteBuf buf = Unpooled.buffer(size);

@@ -112,8 +112,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             // We can not respond with a custom, transport, or server exceptions since, given current implementation of clients,
             // they will defunct the connection. Without a protocol version bump that introduces an "I am going away message",
             // we have to stick to an existing error code.
-            Message.Response response = ErrorMessage.fromException(new OverloadedException("Server is shutting down"));
-            response.setStreamId(request.getStreamId());
+            Message.Response response = ErrorMessage.fromException(new OverloadedException("Server is shutting down"), request.getStreamId());
             response.setWarnings(ClientWarn.instance.getWarnings());
             response.attach(request.connection);
             FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
@@ -374,7 +373,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
         if (queueTime > DatabaseDescriptor.getNativeTransportTimeout(TimeUnit.NANOSECONDS))
         {
             ClientMetrics.instance.markTimedOutBeforeProcessing();
-            return ErrorMessage.fromException(new OverloadedException("Query timed out before it could start"));
+            return ErrorMessage.fromException(new OverloadedException("Query timed out before it could start"), request.getStreamId());
         }
 
         if (connection.getVersion().isGreaterOrEqualTo(ProtocolVersion.V4))
@@ -434,8 +433,6 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             CoordinatorWriteWarnings.done();
         }
 
-        response.setStreamId(request.getStreamId());
-        response.setWarnings(ClientWarn.instance.getWarnings());
         response.attach(connection);
         connection.applyStateTransition(request.type, response.type);
         return response;
@@ -448,7 +445,8 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     {
         try
         {
-            return processRequest((ServerConnection) request.connection(), request, backpressure, requestTime);
+            return decorateResponse(processRequest((ServerConnection) request.connection(), request, backpressure, requestTime),
+                                    request);
         }
         catch (Throwable t)
         {
@@ -461,10 +459,8 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             }
 
             Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(channel, true);
-            ErrorMessage error = ErrorMessage.fromException(t, handler);
-            error.setStreamId(request.getStreamId());
-            error.setWarnings(ClientWarn.instance.getWarnings());
-            return error;
+            ErrorMessage error = ErrorMessage.fromException(t, request.getStreamId(), handler);
+            return decorateResponse(error, request);
         }
         finally
         {
@@ -472,6 +468,14 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             CoordinatorWriteWarnings.reset();
             ClientWarn.instance.resetWarnings();
         }
+    }
+
+    private static Message.Response decorateResponse(Message.Response response, Message.Request request)
+    {
+        assert response != null;
+        response.setStreamId(request.getStreamId());
+        response.setWarnings(ClientWarn.instance.getWarnings());
+        return response;
     }
 
     /**

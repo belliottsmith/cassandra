@@ -429,20 +429,21 @@ public class ErrorMessage extends Message.Response
         setStreamId(streamId);
     }
 
-    public static ErrorMessage fromException(Throwable e)
+    public static ErrorMessage fromException(Throwable e, int streamId)
     {
-        return fromException(e, null);
+        return fromException(e, streamId, null);
     }
 
     /**
      * @param e the exception
+     * @param streamId the stream id of the request this error responds to, so the error frame is routed back
+     *                 to the correct in-flight request. A {@link WrappedException} cause overrides this with the
+     *                 stream id recovered from the frame header.
      * @param unexpectedExceptionHandler a callback for handling unexpected exceptions. If null, or if this
      *                                   returns false, the error is logged at ERROR level via sl4fj
      */
-    public static ErrorMessage fromException(Throwable e, Predicate<Throwable> unexpectedExceptionHandler)
+    public static ErrorMessage fromException(Throwable e, int streamId, Predicate<Throwable> unexpectedExceptionHandler)
     {
-        int streamId = 0;
-
         // Netty will wrap exceptions during decoding in a CodecException. If the cause was one of our ProtocolExceptions
         // or some other internal exception, extract that and use it.
         if (e instanceof CodecException)

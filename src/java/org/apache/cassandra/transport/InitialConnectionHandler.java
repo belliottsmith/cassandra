@@ -131,7 +131,7 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                                 if (null == cause)
                                     cause = new ServerError("Unexpected error establishing connection");
                                 logger.warn("Writing response to STARTUP failed, unable to configure pipeline", cause);
-                                ErrorMessage error = ErrorMessage.fromException(cause);
+                                ErrorMessage error = ErrorMessage.fromException(cause, inbound.header.streamId);
                                 Envelope response = error.encode(inbound.header.version);
                                 ChannelPromise closeChannel = AsyncChannelPromise.withListener(ctx, f -> ctx.close());
                                 ctx.writeAndFlush(response, closeChannel);
@@ -161,7 +161,8 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                     ErrorMessage error =
                         ErrorMessage.fromException(
                             new ProtocolException(String.format("Unexpected message %s, expecting STARTUP or OPTIONS",
-                                                                inbound.header.type)));
+                                                                inbound.header.type)),
+                            inbound.header.streamId);
                     outbound = error.encode(inbound.header.version);
                     ctx.writeAndFlush(outbound);
             }

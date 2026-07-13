@@ -64,6 +64,7 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 public abstract class Message
 {
     protected static final Logger logger = LoggerFactory.getLogger(Message.class);
+    public static final int UNSET_STREAM_ID = Integer.MIN_VALUE;
 
     public interface Codec<M extends Message> extends CBCodec<M> {}
 
@@ -314,6 +315,7 @@ public abstract class Message
         protected Response(Type type)
         {
             super(type);
+            setStreamId(UNSET_STREAM_ID); // must be overwritten before encode
 
             if (type.direction != Direction.RESPONSE)
                 throw new IllegalArgumentException();
@@ -430,6 +432,7 @@ public abstract class Message
             if (responseVersion.isBeta())
                 flags = Flag.add(flags, Flag.USE_BETA);
 
+            assert getStreamId() != UNSET_STREAM_ID : "Response streamId was never set: " + this;
             return Envelope.create(type, getStreamId(), responseVersion, flags, body);
         }
         catch (Throwable e)

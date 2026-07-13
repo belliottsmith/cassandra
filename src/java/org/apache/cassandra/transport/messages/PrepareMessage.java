@@ -134,7 +134,7 @@ public class PrepareMessage extends Message.Request
         {
             QueryEvents.instance.notifyPrepareFailure(null, query, state, e);
             JVMStabilityInspector.inspectThrowable(e);
-            return ErrorMessage.fromException(e);
+            return ErrorMessage.fromException(e, getStreamId());
         }
     }
 

@@ -81,6 +81,6 @@ public class AuthResponse extends Message.Request
             {
                 return new AuthChallenge(challenge);
             }
-        });
+        }, getStreamId());
     }
 }
