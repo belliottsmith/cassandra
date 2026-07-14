@@ -74,6 +74,15 @@ public class ErrorMessage extends Message.Response
 {
     private static final Logger logger = LoggerFactory.getLogger(ErrorMessage.class);
 
+    /**
+     * Stream id used for channel-level errors that have no associated request (e.g. a raw protocol,
+     * SSL, or other unexpected failure caught in a pipeline {@code exceptionCaught} handler, where no
+     * request frame - and therefore no stream id - is in scope). A {@link WrappedException} cause, when
+     * present, carries the originating frame's stream id and overrides this value in
+     * {@link #fromException(Throwable, int, com.google.common.base.Predicate)}.
+     */
+    public static final int NO_REQUEST_STREAM_ID = 0;
+
     public static final Message.Codec<ErrorMessage> codec = new Message.Codec<ErrorMessage>()
     {
         public ErrorMessage decode(ByteBuf body, ProtocolVersion version)

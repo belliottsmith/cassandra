@@ -445,8 +445,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     {
         try
         {
-            return decorateResponse(processRequest((ServerConnection) request.connection(), request, backpressure, requestTime),
-                                    request);
+            return processRequest((ServerConnection) request.connection(), request, backpressure, requestTime);
         }
         catch (Throwable t)
         {
@@ -459,8 +458,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             }
 
             Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(channel, true);
-            ErrorMessage error = ErrorMessage.fromException(t, request.getStreamId(), handler);
-            return decorateResponse(error, request);
+            return ErrorMessage.fromException(t, request.getStreamId(), handler);
         }
         finally
         {
@@ -470,23 +468,23 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
         }
     }
 
-    private static Message.Response decorateResponse(Message.Response response, Message.Request request)
-    {
-        assert response != null;
-        response.setStreamId(request.getStreamId());
-        response.setWarnings(ClientWarn.instance.getWarnings());
-        return response;
-    }
-
     /**
      * Note: this method is not expected to execute on the netty event loop.
      */
     void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure, RequestTime requestTime)
     {
         Message.Response response = processRequest(channel, request, backpressure, requestTime);
-        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
+        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, decorateResponse(response, request));
         Message.logger.trace("Responding: {}, v={}", response, request.connection().getVersion());
         flush(toFlush);
+    }
+
+    private static Message.Response decorateResponse(Message.Response response, Message.Request request)
+    {
+        assert response != null;
+        response.setStreamId(request.getStreamId());
+        response.setWarnings(ClientWarn.instance.getWarnings());
+        return response;
     }
 
     private void flush(FlushItem<?> item)

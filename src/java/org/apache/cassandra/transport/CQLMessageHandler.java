@@ -465,18 +465,6 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         errorHandler.accept(ErrorMessage.wrap(t, streamId));
     }
 
-    /**
-     * For use in the case where the error can't be mapped to a specific stream id,
-     * such as a corrupted frame, or when extracting a CQL message from the frame's
-     * payload fails. This does not attempt to release any resources, as these errors
-     * should only occur before any capacity acquisition is attempted (e.g. on receipt
-     * of a corrupt frame, or failure to extract a CQL message from the envelope).
-     */
-    private void handleError(Throwable t)
-    {
-        errorHandler.accept(t);
-    }
-
     // Acts as a Dispatcher.FlushItemConverter
     private Framed toFlushItem(Channel channel, Message.Request request, Message.Response response)
     {
@@ -524,8 +512,9 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
             if (!extracted.isSuccess())
             {
                 // Hard fail on any decoding error as we can't trust the subsequent frames of
-                // the large message
-                handleError(ProtocolException.toFatalException(extracted.error()));
+                // the large message. The stream id is a best-effort value read before extraction
+                // failed, so route it back where possible rather than defaulting.
+                handleError(ProtocolException.toFatalException(extracted.error()), extracted.streamId());
                 return false;
             }
 
@@ -542,7 +531,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
                 // not make sense to continue processing subsequent frames
                 handleError(ProtocolException.toFatalException(new OversizedAuthMessageException(
                             MULTI_FRAME_AUTH_ERROR_MESSAGE_PREFIX +
-                            "type = " + header.type + ", size = " + header.bodySizeInBytes)));
+                            "type = " + header.type + ", size = " + header.bodySizeInBytes)), header.streamId);
                 ClientMetrics.instance.markRequestDiscarded();
                 return false;
             }
@@ -731,7 +720,9 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
                 processSubsequentFrameOfLargeMessage(frame);
         }
 
-        handleError(ProtocolException.toFatalException(new ProtocolException(error)));
+        // A corrupt frame's bytes can't be trusted to map back to a single stream (it may span
+        // several), so there is no usable stream id here; use the explicit no-request sentinel.
+        handleError(ProtocolException.toFatalException(new ProtocolException(error)), ErrorMessage.NO_REQUEST_STREAM_ID);
     }
 
     protected void fatalExceptionCaught(Throwable cause)
