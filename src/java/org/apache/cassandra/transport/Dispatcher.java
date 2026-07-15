@@ -445,7 +445,10 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     {
         try
         {
-            return processRequest((ServerConnection) request.connection(), request, backpressure, requestTime);
+            // decorateResponse must run before the finally below resets ClientWarn, so that it can read the
+            // warnings accumulated during processing. Decorating in the caller (after this method returns)
+            // would observe the reset state and drop all client warnings.
+            return decorateResponse(processRequest((ServerConnection) request.connection(), request, backpressure, requestTime), request);
         }
         catch (Throwable t)
         {
@@ -458,7 +461,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             }
 
             Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(channel, true);
-            return ErrorMessage.fromException(t, request.getStreamId(), handler);
+            return decorateResponse(ErrorMessage.fromException(t, request.getStreamId(), handler), request);
         }
         finally
         {
@@ -474,7 +477,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure, RequestTime requestTime)
     {
         Message.Response response = processRequest(channel, request, backpressure, requestTime);
-        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, decorateResponse(response, request));
+        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
         Message.logger.trace("Responding: {}, v={}", response, request.connection().getVersion());
         flush(toFlush);
     }
