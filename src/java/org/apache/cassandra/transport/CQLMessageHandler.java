@@ -722,7 +722,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
 
         // A corrupt frame's bytes can't be trusted to map back to a single stream (it may span
         // several), so there is no usable stream id here; use the explicit no-request sentinel.
-        handleError(ProtocolException.toFatalException(new ProtocolException(error)), ErrorMessage.NO_REQUEST_STREAM_ID);
+        handleError(ProtocolException.toFatalException(new ProtocolException(error)), Message.NO_REQUEST_STREAM_ID);
     }
 
     protected void fatalExceptionCaught(Throwable cause)

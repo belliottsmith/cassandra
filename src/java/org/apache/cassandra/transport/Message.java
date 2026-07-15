@@ -64,7 +64,16 @@ import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
 public abstract class Message
 {
     protected static final Logger logger = LoggerFactory.getLogger(Message.class);
+
     public static final int UNSET_STREAM_ID = Integer.MIN_VALUE;
+    /**
+     * Stream id used for channel-level errors that have no associated request (e.g. a raw protocol,
+     * SSL, or other unexpected failure caught in a pipeline {@code exceptionCaught} handler, where no
+     * request frame - and therefore no stream id - is in scope). A {@link ErrorMessage.WrappedException} cause, when
+     * present, carries the originating frame's stream id and overrides this value in
+     * {@link ErrorMessage#fromException(Throwable, int, com.google.common.base.Predicate)}.
+     */
+    public static final int NO_REQUEST_STREAM_ID = 0;
 
     public interface Codec<M extends Message> extends CBCodec<M> {}
 

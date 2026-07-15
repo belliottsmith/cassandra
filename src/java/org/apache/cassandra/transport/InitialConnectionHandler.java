@@ -42,6 +42,8 @@ import io.netty.channel.VoidChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.util.Attribute;
 
+import static org.apache.cassandra.transport.Message.NO_REQUEST_STREAM_ID;
+
 /**
  * Added to the Netty pipeline whenever a new Channel is initialized. This handler only processes
  * the messages which constitute the initial handshake between client and server, namely
@@ -151,6 +153,7 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                     }
 
                     final Message.Response response = Dispatcher.processRequest(ctx.channel(), startup, Overload.NONE, Dispatcher.RequestTime.forImmediateExecution());
+                    response.setStreamId(NO_REQUEST_STREAM_ID);
 
                     outbound = response.encode(inbound.header.version);
                     ctx.writeAndFlush(outbound, promise);

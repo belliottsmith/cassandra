@@ -445,8 +445,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     {
         try
         {
-            return decorateResponse(processRequest((ServerConnection) request.connection(), request, backpressure, requestTime),
-                                    request);
+            return processRequest((ServerConnection) request.connection(), request, backpressure, requestTime);
         }
         catch (Throwable t)
         {
@@ -459,8 +458,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
             }
 
             Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(channel, true);
-            ErrorMessage error = ErrorMessage.fromException(t, request.getStreamId(), handler);
-            return decorateResponse(error, request);
+            return ErrorMessage.fromException(t, request.getStreamId(), handler);
         }
         finally
         {
@@ -476,7 +474,7 @@ public class Dispatcher implements CQLMessageHandler.MessageConsumer<Message.Req
     void processRequest(Channel channel, Message.Request request, FlushItemConverter forFlusher, Overload backpressure, RequestTime requestTime)
     {
         Message.Response response = processRequest(channel, request, backpressure, requestTime);
-        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, response);
+        FlushItem<?> toFlush = forFlusher.toFlushItem(channel, request, decorateResponse(response, request));
         Message.logger.trace("Responding: {}, v={}", response, request.connection().getVersion());
         flush(toFlush);
     }
