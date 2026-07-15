@@ -153,7 +153,7 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                     }
 
                     final Message.Response response = Dispatcher.processRequest(ctx.channel(), startup, Overload.NONE, Dispatcher.RequestTime.forImmediateExecution());
-                    response.setStreamId(NO_REQUEST_STREAM_ID);
+                    response.setStreamId(inbound.header.streamId);
 
                     outbound = response.encode(inbound.header.version);
                     ctx.writeAndFlush(outbound, promise);
