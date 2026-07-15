@@ -65,6 +65,7 @@ public abstract class Message
 {
     protected static final Logger logger = LoggerFactory.getLogger(Message.class);
 
+    /** Sentinel default for a {@link Response}'s stream id; must be overwritten before {@link #encode} (asserted there). */
     public static final int UNSET_STREAM_ID = Integer.MIN_VALUE;
     /**
      * Stream id used for channel-level errors that have no associated request (e.g. a raw protocol,
