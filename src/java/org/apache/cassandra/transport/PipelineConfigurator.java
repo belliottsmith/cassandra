@@ -294,6 +294,7 @@ public class PipelineConfigurator
                                         ServerConnection serverConnection,
                                         ClientResourceLimits.Allocator resourceAllocator,
                                         ProtocolVersion version,
+                                        int streamId,
                                         Map<String, String> options)
     {
         BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
@@ -345,7 +346,8 @@ public class PipelineConfigurator
                                     resourceProvider,
                                     onClosed,
                                     errorHandler,
-                                    throwOnOverload);
+                                    throwOnOverload,
+                                    streamId);
 
         pipeline.remove(ENVELOPE_ENCODER);    // remove old outbound cql envelope encoder
         pipeline.addBefore(INITIAL_HANDLER, FRAME_DECODER, frameDecoder);

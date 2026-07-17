@@ -98,6 +98,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
     private final boolean throwOnOverload;
     private final ProtocolVersion version;
     private final NonBlockingRateLimiter requestRateLimiter;
+    private final int streamId;
 
     long channelPayloadBytesInFlight;
     private int consecutiveMessageErrors = 0;
@@ -128,7 +129,8 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
                       ClientResourceLimits.ResourceProvider resources,
                       OnHandlerClosed onClosed,
                       ErrorHandler errorHandler,
-                      boolean throwOnOverload)
+                      boolean throwOnOverload,
+                      int streamId)
     {
         super(decoder,
               channel,
@@ -149,6 +151,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         this.throwOnOverload    = throwOnOverload;
         this.version            = version;
         this.requestRateLimiter = resources.requestRateLimiter();
+        this.streamId           = streamId;
     }
 
     @Override
@@ -722,7 +725,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
 
         // A corrupt frame's bytes can't be trusted to map back to a single stream (it may span
         // several), so there is no usable stream id here; use the explicit no-request sentinel.
-        handleError(ProtocolException.toFatalException(new ProtocolException(error)), Message.NO_REQUEST_STREAM_ID);
+        handleError(ProtocolException.toFatalException(new ProtocolException(error)), streamId);
     }
 
     protected void fatalExceptionCaught(Throwable cause)

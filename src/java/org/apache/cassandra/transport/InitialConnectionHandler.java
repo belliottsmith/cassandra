@@ -122,7 +122,10 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                             if (future.isSuccess())
                             {
                                 logger.trace("Response to STARTUP sent, configuring pipeline for {}", inbound.header.version);
-                                configurator.configureModernPipeline(ctx, serverConnection, allocator, inbound.header.version, startup.options);
+                                configurator.configureModernPipeline(ctx, serverConnection, allocator,
+                                                                     inbound.header.version,
+                                                                     inbound.header.streamId,
+                                                                     startup.options);
                                 allocator.release(inbound.header.bodySizeInBytes);
                             }
                             else

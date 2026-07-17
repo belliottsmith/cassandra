@@ -258,7 +258,7 @@ public class Envelope
                 // This throws a protocol exception if the version number is unsupported,
                 // the opcode is unknown or invalid flags are set for the version
                 version = ProtocolVersion.decode(versionNum, DatabaseDescriptor.getNativeTransportAllowOlderProtocols());
-                validateFlags(version, flags);
+                validateFlags(version, flags, streamId);
                 type = Message.Type.fromOpcode(opcode, direction);
                 return new HeaderExtractionResult.Success(new Header(version, flags, streamId, type, bodyLength));
             }
@@ -370,7 +370,8 @@ public class Envelope
             Message.Direction direction = Message.Direction.extractFromVersion(firstByte);
             int versionNum = firstByte & PROTOCOL_VERSION_MASK;
 
-            ProtocolVersion version;
+            ProtocolVersion version = null;
+            ProtocolException protocolException = null;
             
             try
             {
@@ -378,19 +379,36 @@ public class Envelope
             }
             catch (ProtocolException e)
             {
-                // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again. 
-                buffer.skipBytes(readableBytes);
-                throw e;
+                // defer throw to attempt to extract the stream id
+                protocolException = e;
             }
 
             // Wait until we have the complete header
             if (readableBytes < Header.LENGTH)
+            {
+                if (protocolException != null)
+                {
+                    // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again.
+                    buffer.skipBytes(readableBytes);
+                    // we still need to set a stream id here, since we don't have a stream id
+                    // set it to NO_REQUEST_STREAM_ID here
+                    throw ErrorMessage.wrap(protocolException, Message.NO_REQUEST_STREAM_ID);
+                }
                 return null;
+            }
 
             int flags = buffer.getByte(idx++);
-            validateFlags(version, flags);
-
             int streamId = buffer.getShort(idx);
+
+            if (protocolException != null)
+            {
+                // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again. 
+                buffer.skipBytes(readableBytes);
+                throw ErrorMessage.wrap(protocolException, streamId);
+            }
+
+            validateFlags(version, flags, streamId);
+
             idx += 2;
 
             // This throws a protocol exceptions if the opcode is unknown
@@ -436,11 +454,12 @@ public class Envelope
             return new Envelope(new Header(version, flags, streamId, type, bodyLength), body);
         }
 
-        private void validateFlags(ProtocolVersion version, int flags)
+        private void validateFlags(ProtocolVersion version, int flags, int streamId)
         {
             if (version.isBeta() && !Header.Flag.contains(flags, Header.Flag.USE_BETA))
-                throw new ProtocolException(String.format("Beta version of the protocol used (%s), but USE_BETA flag is unset", version),
-                                            version);
+                throw ErrorMessage.wrap(new ProtocolException(String.format("Beta version of the protocol used (%s), but USE_BETA flag is unset", version),
+                                                              version),
+                                        streamId);
         }
 
         @Override

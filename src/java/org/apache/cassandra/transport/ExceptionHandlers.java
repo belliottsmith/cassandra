@@ -78,7 +78,7 @@ public class ExceptionHandlers
                 Predicate<Throwable> handler = getUnexpectedExceptionHandler(ctx.channel(), false);
                 // No request in scope at the channel level; a WrappedException cause carries the frame's
                 // stream id and overrides this fallback, otherwise the channel is torn down for fatal errors.
-                ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.NO_REQUEST_STREAM_ID, handler);
+                ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.UNSET_STREAM_ID, handler);
                 Envelope response = errorMessage.encode(version);
                 FrameEncoder.Payload payload = allocator.allocate(true, CQLMessageHandler.envelopeSize(response.header));
                 try
