@@ -73,7 +73,7 @@ public class ProtocolErrorTest {
         try {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
-        } catch (ProtocolException e) {
+        } catch (ErrorMessage.WrappedException e) {
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }
@@ -96,7 +96,39 @@ public class ProtocolErrorTest {
         try {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
-        } catch (ProtocolException e) {
+        } catch (ErrorMessage.WrappedException e) {
+            // CASSANDRA-21508: an incomplete header yields no recoverable stream id, so the error is
+            // wrapped with the unset sentinel (which drives the channel handler to close the connection).
+            Assert.assertEquals(Message.UNSET_STREAM_ID, e.getStreamId());
+            Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
+        }
+    }
+
+    @Test
+    public void testIncompleteHeaderWithInvalidProtocolVersion() throws Exception
+    {
+        // CASSANDRA-21508: when fewer than a full header's worth of bytes have arrived AND the protocol
+        // version is unsupported, decode cannot trust/recover a stream id. It defers the protocol error and
+        // wraps it with Message.UNSET_STREAM_ID, so the channel-level exception handler closes the connection
+        // rather than emit an unroutable error frame. Exercises Envelope.Decoder.decode() lines 387-398.
+        Envelope.Decoder dec = new Envelope.Decoder();
+
+        List<Object> results = new ArrayList<>();
+        // Unsupported version (two above CURRENT) with only part of a header - fewer than Header.LENGTH (9) bytes.
+        byte[] bytes = new byte[] {
+                (byte) REQUEST.addToVersion(ProtocolVersion.CURRENT.asInt() + 2),  // direction & unsupported version
+                0x00,        // flags
+                0x00, 0x2a,  // partial header, truncated before the length field
+        };
+        ByteBuf buf = Unpooled.wrappedBuffer(bytes);
+        try {
+            dec.decode(null, buf, results);
+            Assert.fail("Expected protocol error");
+        } catch (ErrorMessage.WrappedException e) {
+            // No stream id can be trusted from an incomplete header, so the unset sentinel is used.
+            Assert.assertEquals(Message.UNSET_STREAM_ID, e.getStreamId());
+            Assert.assertTrue("expected a ProtocolException cause, got: " + e.getCause(),
+                              e.getCause() instanceof ProtocolException);
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }

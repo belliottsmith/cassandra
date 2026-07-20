@@ -177,6 +177,45 @@ public class CQLConnectionTest
     }
 
     @Test
+    public void handleIncompleteHeaderErrorDuringNegotiation() throws Throwable
+    {
+        // CASSANDRA-21508: a partial header (fewer than Header.LENGTH=9 bytes) carrying an unsupported
+        // protocol version gives the server no stream id to route an error back to. Rather than emit an
+        // unroutable error frame (which could be misapplied to another request), the server closes the
+        // connection. Here the client observes a closed connection with no error frame.
+        int messageCount = 0;
+        Codec codec = Codec.crc(alloc);
+        AllocationObserver observer = new AllocationObserver();
+        InboundProxyHandler.Controller controller = new InboundProxyHandler.Controller();
+        // Truncate the client's STARTUP to a partial header (< 9 bytes) and set an unsupported version.
+        controller.withPayloadTransform(msg -> {
+            ByteBuf bb = (ByteBuf) msg;
+            ByteBuf truncated = bb.copy(0, 4);
+            truncated.setByte(0, 99 & Envelope.PROTOCOL_VERSION_MASK);
+            bb.release();
+            return truncated;
+        });
+
+        ServerConfigurator configurator = ServerConfigurator.builder()
+                                                            .withAllocationObserver(observer)
+                                                            .withProxyController(controller)
+                                                            .build();
+        Server server = server(configurator);
+        Client client = new Client(codec, messageCount);
+        server.start();
+        client.connect(address, port);
+
+        // The server cannot recover a stream id from the incomplete header, so it closes the connection
+        // without sending an error frame.
+        assertFalse(client.isConnected());
+        assertThat(client.getConnectionError()).isNull();
+        server.stop();
+
+        // the failure happens before any capacity is allocated
+        observer.verifier().accept(0);
+    }
+
+    @Test
     public void handleFrameCorruptionAfterNegotiation() throws Throwable
     {
         // A corrupt messaging frame should terminate the connection as clients
@@ -1100,6 +1139,17 @@ public class CQLConnectionTest
                             // written, via enqueue(Envelope message), and flush them to the outbound pipeline
                             flusher.schedule(channel.pipeline().lastContext());
                             ready.countDown();
+                        }
+
+                        @Override
+                        public void channelInactive(ChannelHandlerContext ctx)
+                        {
+                            // If the server closes the connection during negotiation (e.g. an unroutable
+                            // protocol error that cannot be answered with a stream id), unblock connect()
+                            // so the test observes the disconnection rather than hanging for a READY/ERROR.
+                            connected = false;
+                            ready.countDown();
+                            ctx.fireChannelInactive();
                         }
                     });
                 }

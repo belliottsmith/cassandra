@@ -558,7 +558,8 @@ public class SimpleClient implements Closeable
                                         resources,
                                         handler -> {},
                                         errorHandler,
-                                        ctx.channel().attr(Connection.attributeKey).get().isThrowOnOverload())
+                                        ctx.channel().attr(Connection.attributeKey).get().isThrowOnOverload(),
+                                        response.header.streamId)
                 {
                     protected boolean processRequest(Envelope request, Overload overload)
                     {

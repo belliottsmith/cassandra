@@ -65,16 +65,11 @@ public abstract class Message
 {
     protected static final Logger logger = LoggerFactory.getLogger(Message.class);
 
-    /** Sentinel default for a {@link Response}'s stream id; must be overwritten before {@link #encode} (asserted there). */
-    public static final int UNSET_STREAM_ID = Integer.MIN_VALUE;
     /**
-     * Stream id used for channel-level errors that have no associated request (e.g. a raw protocol,
-     * SSL, or other unexpected failure caught in a pipeline {@code exceptionCaught} handler, where no
-     * request frame - and therefore no stream id - is in scope). A {@link ErrorMessage.WrappedException} cause, when
-     * present, carries the originating frame's stream id and overrides this value in
-     * {@link ErrorMessage#fromException(Throwable, int, com.google.common.base.Predicate)}.
-     */
-    public static final int NO_REQUEST_STREAM_ID = 0;
+     * Sentinel default for a {@link Response}'s stream id;
+     * must be overwritten before {@link #encode}.
+     **/
+    public static final int UNSET_STREAM_ID = Integer.MIN_VALUE;
 
     public interface Codec<M extends Message> extends CBCodec<M> {}
 
@@ -356,6 +351,14 @@ public abstract class Message
 
     public Envelope encode(ProtocolVersion version)
     {
+        // A Response's stream id must be stamped before it is serialized to the wire. UNSET_STREAM_ID here
+        // means a server code path produced a response without routing information; sending it would risk
+        // delivering it to an unrelated in-flight request (CASSANDRA-21508). Fail fatally so the connection
+        // is torn down rather than mis-route a response. Checked before the try below so it is not caught and
+        // re-wrapped (which would carry the unset id forward).
+        if (getStreamId() == UNSET_STREAM_ID)
+            throw ProtocolException.toFatalException(new ProtocolException("Attempted to encode a response with an unset stream id: " + this));
+
         int flags = Flag.none();
         @SuppressWarnings("unchecked")
         Codec<Message> codec = (Codec<Message>)this.type.codec;
@@ -442,7 +445,6 @@ public abstract class Message
             if (responseVersion.isBeta())
                 flags = Flag.add(flags, Flag.USE_BETA);
 
-            assert getStreamId() != UNSET_STREAM_ID : "Response streamId was never set: " + this;
             return Envelope.create(type, getStreamId(), responseVersion, flags, body);
         }
         catch (Throwable e)

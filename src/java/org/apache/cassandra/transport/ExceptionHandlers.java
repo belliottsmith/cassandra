@@ -77,24 +77,39 @@ public class ExceptionHandlers
             {
                 Predicate<Throwable> handler = getUnexpectedExceptionHandler(ctx.channel(), false);
                 // No request in scope at the channel level; a WrappedException cause carries the frame's
-                // stream id and overrides this fallback, otherwise the channel is torn down for fatal errors.
+                // stream id and overrides this fallback.
                 ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.UNSET_STREAM_ID, handler);
-                Envelope response = errorMessage.encode(version);
-                FrameEncoder.Payload payload = allocator.allocate(true, CQLMessageHandler.envelopeSize(response.header));
                 try
                 {
-                    response.encodeInto(payload.buffer);
-                    response.release();
-                    payload.finish();
-                    ChannelPromise promise = ctx.newPromise();
-                    // On protocol exception, close the channel as soon as the message has been sent
-                    if (isFatal(cause))
-                        promise.addListener(future -> ctx.close());
-                    ctx.writeAndFlush(payload, promise);
+                    if (errorMessage.getStreamId() == Message.UNSET_STREAM_ID)
+                    {
+                        // No stream id could be recovered, so we have no request to route a response to.
+                        // Close the connection rather than emit an unroutable frame (CASSANDRA-21508).
+                        ctx.close();
+                    }
+                    else
+                    {
+                        Envelope response = errorMessage.encode(version);
+                        FrameEncoder.Payload payload = allocator.allocate(true, CQLMessageHandler.envelopeSize(response.header));
+                        try
+                        {
+                            response.encodeInto(payload.buffer);
+                            response.release();
+                            payload.finish();
+                            ChannelPromise promise = ctx.newPromise();
+                            // On protocol exception, close the channel as soon as the message has been sent
+                            if (isFatal(cause))
+                                promise.addListener(future -> ctx.close());
+                            ctx.writeAndFlush(payload, promise);
+                        }
+                        finally
+                        {
+                            payload.release();
+                        }
+                    }
                 }
                 finally
                 {
-                    payload.release();
                     JVMStabilityInspector.inspectThrowable(cause);
                 }
             }

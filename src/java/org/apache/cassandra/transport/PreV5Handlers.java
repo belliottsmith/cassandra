@@ -338,14 +338,23 @@ public class PreV5Handlers
             {
                 Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(ctx.channel(), false);
                 // No request in scope at the channel level; a WrappedException cause carries the frame's
-                // stream id and overrides this fallback, otherwise the channel is torn down for fatal errors.
+                // stream id and overrides this fallback.
                 ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.UNSET_STREAM_ID, handler);
-                ChannelFuture future = ctx.writeAndFlush(errorMessage.encode(getConnectionVersion(ctx)));
-                // On protocol exception, close the channel as soon as the message have been sent.
-                // Most cases of PE are wrapped so the type check below is expected to fail more often than not.
-                // At this moment Fatal exceptions are not thrown in v4, but just as a precaustion we check for them here
-                if (isFatal(cause))
-                    future.addListener((ChannelFutureListener) f -> ctx.close());
+                if (errorMessage.getStreamId() == Message.UNSET_STREAM_ID)
+                {
+                    // No stream id could be recovered, so we have no request to route a response to.
+                    // Close the connection rather than emit an unroutable frame (CASSANDRA-21508).
+                    ctx.close();
+                }
+                else
+                {
+                    ChannelFuture future = ctx.writeAndFlush(errorMessage.encode(getConnectionVersion(ctx)));
+                    // On protocol exception, close the channel as soon as the message have been sent.
+                    // Most cases of PE are wrapped so the type check below is expected to fail more often than not.
+                    // At this moment Fatal exceptions are not thrown in v4, but just as a precaustion we check for them here
+                    if (isFatal(cause))
+                        future.addListener((ChannelFutureListener) f -> ctx.close());
+                }
             }
 
             SocketAddress remoteAddress = ctx.channel().remoteAddress();

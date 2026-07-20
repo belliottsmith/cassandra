@@ -36,6 +36,7 @@ import org.apache.cassandra.transport.messages.StartupMessage;
 import org.apache.cassandra.transport.messages.SupportedMessage;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.VoidChannelPromise;
@@ -167,7 +168,9 @@ public class InitialConnectionHandler extends ByteToMessageDecoder
                                                                 inbound.header.type)),
                             inbound.header.streamId);
                     outbound = error.encode(inbound.header.version);
-                    ctx.writeAndFlush(outbound);
+                    // An unexpected message during initial connection setup leaves the connection in a
+                    // corrupted state; send the error, then close the connection.
+                    ctx.writeAndFlush(outbound).addListener(ChannelFutureListener.CLOSE);
             }
         }
         finally

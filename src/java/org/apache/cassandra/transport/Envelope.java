@@ -390,9 +390,10 @@ public class Envelope
                 {
                     // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again.
                     buffer.skipBytes(readableBytes);
-                    // we still need to set a stream id here, since we don't have a stream id
-                    // set it to NO_REQUEST_STREAM_ID here
-                    throw ErrorMessage.wrap(protocolException, Message.NO_REQUEST_STREAM_ID);
+                    // The header is incomplete, so there is no stream id to recover. Wrap with the unset
+                    // sentinel; the channel-level exception handler sees it has no routable stream id and
+                    // closes the connection rather than emit an unroutable error frame.
+                    throw ErrorMessage.wrap(protocolException, Message.UNSET_STREAM_ID);
                 }
                 return null;
             }
