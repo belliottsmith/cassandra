@@ -98,6 +98,11 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
     private final boolean throwOnOverload;
     private final ProtocolVersion version;
     private final NonBlockingRateLimiter requestRateLimiter;
+    /**
+     * The stream id of the STARTUP request that established this connection. Used as a best-effort
+     * fallback when reporting a corrupt frame (see {@link #processCorruptFrame}), where the offending
+     * request's own stream id cannot be recovered from the frame.
+     */
     private final int streamId;
 
     long channelPayloadBytesInFlight;
@@ -723,8 +728,12 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
                 processSubsequentFrameOfLargeMessage(frame);
         }
 
-        // A corrupt frame's bytes can't be trusted to map back to a single stream (it may span
-        // several), so there is no usable stream id here; use the explicit no-request sentinel.
+        // A corrupt frame's bytes can't be reliably mapped back to a specific in-flight request (the
+        // frame may span several streams, and the stream id bytes may themselves be part of the
+        // corruption). We fall back to this connection's STARTUP stream id purely so the client still
+        // receives a diagnostic error frame before we tear the connection down (see the class javadoc
+        // above and CQLConnectionTest#handleFrameCorruptionAfterNegotiation). The exception is fatal, so
+        // the channel is closed as soon as the error has been written.
         handleError(ProtocolException.toFatalException(new ProtocolException(error)), streamId);
     }
 

@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.transport;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -131,6 +132,47 @@ public class ProtocolErrorTest {
                               e.getCause() instanceof ProtocolException);
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
+    }
+
+    @Test
+    public void extractHeaderReturnsRecoverableErrorOnBetaFlagViolation() throws Exception
+    {
+        // CASSANDRA-21508: on the framed (V5+) path, a V6 (beta) envelope whose USE_BETA flag is
+        // unset is an invalid but *recoverable* protocol error. Envelope.Decoder.extractHeader documents that
+        // it never throws, and instead returns a HeaderExtractionResult carrying the frame's stream id, so the
+        // caller (CQLMessageHandler.processOneContainedMessage) can route an ERROR back on that stream and keep
+        // processing subsequent envelopes.
+        Envelope.Decoder dec = new Envelope.Decoder();
+
+        int streamId = 42;
+        // A complete 9-byte header advertising V6 (beta) as a REQUEST, with USE_BETA deliberately unset.
+        byte[] header = new byte[] {
+                (byte) REQUEST.addToVersion(ProtocolVersion.V6.asInt()),  // direction & beta version
+                0x00,        // flags - USE_BETA deliberately unset
+                0x00, 0x2a,  // stream id = 42
+                0x05,        // opcode = OPTIONS
+                0x00, 0x00, 0x00, 0x00,  // body length = 0
+        };
+        ByteBuffer buf = ByteBuffer.wrap(header);
+
+        Envelope.Decoder.HeaderExtractionResult result;
+        try
+        {
+            result = dec.extractHeader(buf);
+        }
+        catch (ErrorMessage.WrappedException e)
+        {
+            throw new AssertionError("extractHeader must not throw on a USE_BETA violation; a recoverable " +
+                                     "protocol error escaped as a WrappedException and would tear down the " +
+                                     "connection instead of returning a routable error", e);
+        }
+
+        Assert.assertFalse("A USE_BETA violation should be reported as a (recoverable) extraction error",
+                           result.isSuccess());
+        Assert.assertEquals("the frame's stream id must be preserved so the error can be routed back",
+                            streamId, result.streamId());
+        Assert.assertTrue("expected a USE_BETA protocol error, got: " + result.error().getMessage(),
+                          result.error().getMessage().contains("USE_BETA flag is unset"));
     }
 
     @Test

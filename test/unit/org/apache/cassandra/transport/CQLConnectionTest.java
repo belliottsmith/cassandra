@@ -362,6 +362,48 @@ public class CQLConnectionTest
     }
 
     @Test
+    public void testRecoverableBetaFlagEnvelopeErrors()
+    {
+        // CASSANDRA-21508: a V6 (beta) envelope header with the USE_BETA flag unset is an
+        // invalid but *recoverable* protocol error, exactly like an unknown opcode. The server should
+        // return an ERROR on the offending stream id and continue processing subsequent envelopes on the
+        // same connection.
+
+        // every other message advertises V6 with USE_BETA unset and should error while extracting the header
+        IntPredicate shouldError = i -> i % 2 == 0;
+        testBetaFlagEnvelopeErrors(10, shouldError, Codec.crc(alloc));
+        testBetaFlagEnvelopeErrors(10, shouldError, Codec.lz4(alloc));
+
+        testBetaFlagEnvelopeErrors(100, shouldError, Codec.crc(alloc));
+    }
+
+    private void testBetaFlagEnvelopeErrors(int messageCount, IntPredicate shouldError, Codec codec)
+    {
+        TestConsumer consumer = new TestConsumer(new ResultMessage.Void(), codec.encoder);
+        AllocationObserver observer = new AllocationObserver(false);
+        Message.Decoder<Message.Request> decoder = new FixedDecoder();
+
+        // Mutate the erroring streams' headers to advertise the V6 (beta) version with the USE_BETA flag
+        // cleared. In the envelope header, byte 0 is the (direction & version) byte and byte 1 is the flags.
+        int betaBit = 1 << Envelope.Header.Flag.USE_BETA.ordinal();
+        IntFunction<Envelope> envelopeProvider = mutatedEnvelopeProvider(shouldError, b -> {
+            b.put(0, (byte) ProtocolVersion.V6.asInt());     // REQUEST direction, V6 (beta)
+            b.put(1, (byte) (b.get(1) & ~betaBit));          // clear USE_BETA
+        });
+
+        Predicate<Envelope.Header> responseMatcher =
+        h -> (shouldError.test(h.streamId) && h.type == Message.Type.ERROR) || h.type == Message.Type.RESULT;
+
+        ServerConfigurator configurator = ServerConfigurator.builder()
+                                                            .withConsumer(consumer)
+                                                            .withAllocationObserver(observer)
+                                                            .withDecoder(decoder)
+                                                            .build();
+
+        runTest(configurator, codec, messageCount, envelopeProvider, responseMatcher, observer.verifier());
+    }
+
+    @Test
     public void testUnrecoverableEnvelopeDecodingErrors()
     {
         // If multiple consecutive Envelopes in a Frame cause protocol
