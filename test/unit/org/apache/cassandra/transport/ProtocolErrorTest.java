@@ -75,6 +75,7 @@ public class ProtocolErrorTest {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
         } catch (ErrorMessage.WrappedException e) {
+            Assert.assertEquals(1, e.getStreamId());
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }
