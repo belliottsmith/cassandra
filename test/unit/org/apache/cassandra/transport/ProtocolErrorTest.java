@@ -102,10 +102,7 @@ public class ProtocolErrorTest {
         try {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
-        } catch (ErrorMessage.WrappedException e) {
-            // CASSANDRA-21508: an incomplete header yields no recoverable stream id, so the error is
-            // wrapped with the unset sentinel (which drives the channel handler to close the connection).
-            Assert.assertEquals(Message.UNSET_STREAM_ID, e.getStreamId());
+        } catch (ProtocolException e) {
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }
@@ -130,11 +127,7 @@ public class ProtocolErrorTest {
         try {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
-        } catch (ErrorMessage.WrappedException e) {
-            // No stream id can be trusted from an incomplete header, so the unset sentinel is used.
-            Assert.assertEquals(Message.UNSET_STREAM_ID, e.getStreamId());
-            Assert.assertTrue("expected a ProtocolException cause, got: " + e.getCause(),
-                              e.getCause() instanceof ProtocolException);
+        } catch (ProtocolException e) {
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }
@@ -276,7 +269,7 @@ public class ProtocolErrorTest {
     public void testErrorMessageWithNullString()
     {
         // test for CASSANDRA-11167
-        ErrorMessage msg = ErrorMessage.fromException(new ServerError((String) null), 0);
+        ErrorMessage msg = ErrorMessage.fromTransportException(new ServerError((String) null));
         assert msg.toString().endsWith("null") : msg.toString();
         int size = ErrorMessage.codec.encodedSize(msg, ProtocolVersion.CURRENT);
         ByteBuf buf = Unpooled.buffer(size);

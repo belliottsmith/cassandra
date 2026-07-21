@@ -38,6 +38,7 @@ import org.apache.cassandra.exceptions.OversizedCQLMessageException;
 import org.apache.cassandra.metrics.ClientMetrics;
 import org.apache.cassandra.net.FrameEncoder;
 import org.apache.cassandra.transport.messages.ErrorMessage;
+import org.apache.cassandra.transport.messages.ErrorMessage.WithStreamId;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.Throwables;
@@ -78,34 +79,36 @@ public class ExceptionHandlers
                 Predicate<Throwable> handler = getUnexpectedExceptionHandler(ctx.channel(), false);
                 // No request in scope at the channel level; a WrappedException cause carries the frame's
                 // stream id and overrides this fallback.
-                ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.UNSET_STREAM_ID, handler);
+                WithStreamId withStreamId = ErrorMessage.fromException(cause, handler);
+                ErrorMessage errorMessage = withStreamId.message;
                 try
                 {
-                    if (errorMessage.getStreamId() == Message.UNSET_STREAM_ID)
+                    int streamId = withStreamId.streamId;
+                    boolean isFatal = isFatal(cause);
+                    if (streamId == Message.UNSET_STREAM_ID)
                     {
                         // No stream id could be recovered, so we have no request to route a response to.
                         // Close the connection rather than emit an unroutable frame (CASSANDRA-21508).
-                        ctx.close();
+                        isFatal = true;
+                        streamId = 0;
                     }
-                    else
+
+                    Envelope response = errorMessage.encode(version, streamId);
+                    FrameEncoder.Payload payload = allocator.allocate(true, CQLMessageHandler.envelopeSize(response.header));
+                    try
                     {
-                        Envelope response = errorMessage.encode(version);
-                        FrameEncoder.Payload payload = allocator.allocate(true, CQLMessageHandler.envelopeSize(response.header));
-                        try
-                        {
-                            response.encodeInto(payload.buffer);
-                            response.release();
-                            payload.finish();
-                            ChannelPromise promise = ctx.newPromise();
-                            // On protocol exception, close the channel as soon as the message has been sent
-                            if (isFatal(cause))
-                                promise.addListener(future -> ctx.close());
-                            ctx.writeAndFlush(payload, promise);
-                        }
-                        finally
-                        {
-                            payload.release();
-                        }
+                        response.encodeInto(payload.buffer);
+                        response.release();
+                        payload.finish();
+                        ChannelPromise promise = ctx.newPromise();
+                        // On protocol exception, close the channel as soon as the message has been sent
+                        ctx.writeAndFlush(payload, promise);
+                        if (isFatal)
+                            ctx.close();
+                    }
+                    finally
+                    {
+                        payload.release();
                     }
                 }
                 finally

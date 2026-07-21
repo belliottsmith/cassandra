@@ -98,12 +98,6 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
     private final boolean throwOnOverload;
     private final ProtocolVersion version;
     private final NonBlockingRateLimiter requestRateLimiter;
-    /**
-     * The stream id of the STARTUP request that established this connection. Used as a best-effort
-     * fallback when reporting a corrupt frame (see {@link #processCorruptFrame}), where the offending
-     * request's own stream id cannot be recovered from the frame.
-     */
-    private final int streamId;
 
     long channelPayloadBytesInFlight;
     private int consecutiveMessageErrors = 0;
@@ -112,7 +106,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
 
     interface MessageConsumer<M extends Message>
     {
-        void dispatch(Channel channel, M message, Dispatcher.FlushItemConverter toFlushItem, Overload backpressure);
+        <P> void dispatch(Channel channel, M message, Dispatcher.FlushItemConverter<P> toFlushItem, P param, Overload backpressure);
         boolean hasQueueCapacity();
     }
 
@@ -134,8 +128,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
                       ClientResourceLimits.ResourceProvider resources,
                       OnHandlerClosed onClosed,
                       ErrorHandler errorHandler,
-                      boolean throwOnOverload,
-                      int streamId)
+                      boolean throwOnOverload)
     {
         super(decoder,
               channel,
@@ -156,7 +149,6 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         this.throwOnOverload    = throwOnOverload;
         this.version            = version;
         this.requestRateLimiter = resources.requestRateLimiter();
-        this.streamId           = streamId;
     }
 
     @Override
@@ -397,7 +389,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         try
         {
             message = messageDecoder.decode(channel, request);
-            dispatcher.dispatch(channel, message, this::toFlushItem, backpressure);
+            dispatcher.dispatch(channel, message, CQLMessageHandler::toFlushItem, this, backpressure);
             
             // sucessfully delivered a CQL message to the execution
             // stage, so reset the counter of consecutive errors
@@ -473,6 +465,11 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         errorHandler.accept(ErrorMessage.wrap(t, streamId));
     }
 
+    private void handleError(Throwable t)
+    {
+        errorHandler.accept(t);
+    }
+
     // Acts as a Dispatcher.FlushItemConverter
     private Framed toFlushItem(Channel channel, Message.Request request, Message.Response response)
     {
@@ -481,7 +478,8 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         // The Dispatcher will call this to obtain the FlushItem to enqueue with its Flusher once
         // a dispatched request has been processed.
 
-        Envelope responseFrame = response.encode(request.getSource().header.version);
+        Envelope.Header header = request.getSource().header;
+        Envelope responseFrame = response.encode(header.version, header.streamId);
         int responseSize = envelopeSize(responseFrame.header);
         ClientMessageSizeMetrics.bytesSent.inc(responseSize);
         ClientMessageSizeMetrics.bytesSentPerResponse.update(responseSize);
@@ -734,7 +732,7 @@ public class CQLMessageHandler<M extends Message> extends AbstractMessageHandler
         // receives a diagnostic error frame before we tear the connection down (see the class javadoc
         // above and CQLConnectionTest#handleFrameCorruptionAfterNegotiation). The exception is fatal, so
         // the channel is closed as soon as the error has been written.
-        handleError(ProtocolException.toFatalException(new ProtocolException(error)), streamId);
+        handleError(ProtocolException.toFatalException(new ProtocolException(error)));
     }
 
     protected void fatalExceptionCaught(Throwable cause)

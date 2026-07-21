@@ -43,6 +43,7 @@ import org.apache.cassandra.distributed.Cluster;
 import org.apache.cassandra.exceptions.OverloadedException;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.Dispatcher;
+import org.apache.cassandra.transport.Envelope;
 import org.apache.cassandra.transport.Message;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.transport.SimpleClient;
@@ -166,7 +167,7 @@ public class StreamIdMisrouteTest extends TestBaseImpl
                 // on stream id 42 too because Dispatcher stamps every response with the request's id.
                 Assert.assertEquals("Load-shed OVERLOADED error should carry the request's own stream id (" +
                                     TIMED_OUT_STREAM_ID + ')',
-                                    TIMED_OUT_STREAM_ID, shed.getStreamId());
+                                    TIMED_OUT_STREAM_ID, shed.getSource().header.streamId);
 
                 // Drain the backlog so the connection can close cleanly.
                 cluster.get(1).runOnInstance(() -> SlowSelect.enabled.set(false));
@@ -196,7 +197,7 @@ public class StreamIdMisrouteTest extends TestBaseImpl
     {
         QueryMessage msg = new QueryMessage(cql, QueryOptions.forInternalCalls(
         org.apache.cassandra.db.ConsistencyLevel.ONE, Collections.emptyList()));
-        msg.setStreamId(streamId);
+        msg.setSource(new Envelope(Envelope.Header.dummy(streamId, Message.Type.QUERY), null));
         return msg;
     }
 

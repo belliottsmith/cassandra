@@ -53,13 +53,10 @@ public final class AuthUtil
      * @param messageToSendBasedOnNegotiation Determines what response to return on based on whether sasl negotiation
      *                                        is complete (1st parameter) and the challenege token returned from the
      *                                        negotiator (2nd parameter).
-     * @param streamId                        The stream id of the request being handled, used to stamp any error
-     *                                        response so it is routed back to the correct in-flight request.
      * @return the response to send back to the client.
      */
     static Response handleLogin(Connection connection, QueryState queryState, byte[] token,
-                                BiFunction<Boolean, byte[], Response> messageToSendBasedOnNegotiation,
-                                int streamId)
+                                BiFunction<Boolean, byte[], Response> messageToSendBasedOnNegotiation)
     {
         IAuthenticator.SaslNegotiator negotiator = ((ServerConnection) connection).getSaslNegotiator(queryState);
         try
@@ -90,7 +87,7 @@ public final class AuthUtil
         {
             ClientMetrics.instance.markAuthFailure(negotiator.getAuthenticationMode());
             AuthEvents.instance.notifyAuthFailure(queryState, e);
-            return ErrorMessage.fromException(e, streamId);
+            return ErrorMessage.fromTransportException(e);
         }
     }
 

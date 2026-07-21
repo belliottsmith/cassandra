@@ -81,6 +81,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
@@ -88,11 +89,13 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.handler.codec.MessageToMessageEncoder;
 
 import static org.apache.cassandra.config.EncryptionOptions.TlsEncryptionPolicy.UNENCRYPTED;
 import static org.apache.cassandra.io.util.FileUtils.ONE_MIB;
 import static org.apache.cassandra.net.FramingTest.randomishBytes;
 import static org.apache.cassandra.transport.Flusher.MAX_FRAMED_PAYLOAD_SIZE;
+import static org.apache.cassandra.transport.PreV5Handlers.getConnectionVersion;
 import static org.apache.cassandra.utils.concurrent.Condition.newOneTimeCondition;
 import static org.apache.cassandra.utils.concurrent.NonBlockingRateLimiter.NO_OP_LIMITER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -720,7 +723,6 @@ public class CQLConnectionTest
 
             Message.Request request = new OptionsMessage();
             request.setSource(source);
-            request.setStreamId(source.header.streamId);
             Connection connection = channel.attr(Connection.attributeKey).get();
             request.attach(connection);
 
@@ -739,18 +741,17 @@ public class CQLConnectionTest
         TestConsumer(Message.Response fixedResponse, FrameEncoder frameEncoder)
         {
             this.fixedResponse = fixedResponse;
-            this.fixedResponse.setStreamId(0);
-            this.responseTemplate = fixedResponse.encode(ProtocolVersion.V5);
+            this.responseTemplate = fixedResponse.encode(ProtocolVersion.V5, 0);
             this.frameEncoder = frameEncoder;
         }
 
-        public void dispatch(Channel channel, Message.Request message, Dispatcher.FlushItemConverter toFlushItem, Overload backpressure)
+        public <P> void dispatch(Channel channel, Message.Request message, Dispatcher.FlushItemConverter<P> toFlushItem, P param, Overload backpressure)
         {
             if (flusher == null)
                 flusher = new SimpleClient.SimpleFlusher(frameEncoder);
 
             Envelope response = Envelope.create(responseTemplate.header.type,
-                                                message.getStreamId(),
+                                                message.getSource().header.streamId,
                                                 ProtocolVersion.V5,
                                                 responseTemplate.header.flags,
                                                 responseTemplate.body.copy());
@@ -759,7 +760,7 @@ public class CQLConnectionTest
             // and flush them to the outbound pipeline
             flusher.schedule(channel.pipeline().lastContext());
             // this simulates the release of the allocated resources that a real flusher would do
-            Flusher.FlushItem.Framed item = (Flusher.FlushItem.Framed)toFlushItem.toFlushItem(channel, message, fixedResponse);
+            Flusher.FlushItem.Framed item = (Flusher.FlushItem.Framed)toFlushItem.toFlushItem(param, channel, message, fixedResponse);
             item.release();
         }
 
@@ -1066,6 +1067,21 @@ public class CQLConnectionTest
         }
     }
 
+    /**
+     * Simple adaptor to plug CQL message encoding into pre-V5 pipelines
+     */
+    @ChannelHandler.Sharable
+    public static class ProtocolEncoder extends MessageToMessageEncoder<Message>
+    {
+        public static final ProtocolEncoder instance = new ProtocolEncoder();
+        private ProtocolEncoder(){}
+        public void encode(ChannelHandlerContext ctx, Message source, List<Object> results)
+        {
+            ProtocolVersion version = getConnectionVersion(ctx);
+            results.add(source.encode(version, 0));
+        }
+    }
+
     static class Client
     {
         private final Codec codec;
@@ -1104,7 +1120,7 @@ public class CQLConnectionTest
                     ChannelPipeline pipeline = channel.pipeline();
                     // Outbound handlers to enable us to send the initial STARTUP
                     pipeline.addLast("envelopeEncoder", Envelope.Encoder.instance);
-                    pipeline.addLast("messageEncoder", PreV5Handlers.ProtocolEncoder.instance);
+                    pipeline.addLast("messageEncoder", ProtocolEncoder.instance);
                     pipeline.addLast("envelopeDecoder", new Envelope.Decoder());
                     // Inbound handler to perform the handshake & modify the pipeline on receipt of a READY
                     pipeline.addLast("handshake", new MessageToMessageDecoder<Envelope>()

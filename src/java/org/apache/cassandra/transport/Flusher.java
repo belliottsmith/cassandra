@@ -57,7 +57,8 @@ abstract class Flusher implements Runnable
     interface OnFlushCleanup<T> {
         void cleanup(FlushItem<T> item);
     }
-    static class FlushItem<T>
+
+    public static class FlushItem<T>
     {
         enum Kind {FRAMED, UNFRAMED}
 
@@ -95,9 +96,9 @@ abstract class Flusher implements Runnable
             }
         }
 
-        static class Unframed extends FlushItem<Response>
+        static class Unframed extends FlushItem<Envelope>
         {
-            Unframed(Channel channel, Response response, Envelope request, OnFlushCleanup<Response> tidy)
+            Unframed(Channel channel, Envelope response, Envelope request, OnFlushCleanup<Envelope> tidy)
             {
                 super(Kind.UNFRAMED, channel, response, request, tidy);
             }

@@ -146,6 +146,11 @@ public class Envelope
         public final Message.Type type;
         public final long bodySizeInBytes;
 
+        public static Header dummy(int streamId, Message.Type type)
+        {
+            return new Header(ProtocolVersion.CURRENT, 0, streamId, type, 0);
+        }
+
         private Header(ProtocolVersion version, int flags, int streamId, Message.Type type, long bodySizeInBytes)
         {
             this.version = version;
@@ -397,7 +402,7 @@ public class Envelope
                     // The header is incomplete, so there is no stream id to recover. Wrap with the unset
                     // sentinel; the channel-level exception handler sees it has no routable stream id and
                     // closes the connection rather than emit an unroutable error frame.
-                    throw ErrorMessage.wrap(protocolException, Message.UNSET_STREAM_ID);
+                    throw protocolException;
                 }
                 return null;
             }

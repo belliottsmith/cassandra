@@ -158,7 +158,7 @@ public class StartupMessage extends Message.Request
                             // authentication, in this case we can just go through the traditional auth flow.
                             return authenticator.getAuthenticateMessage(clientState);
                         }
-                    }, getStreamId());
+                    });
                 }
             }
             return authenticator.getAuthenticateMessage(clientState);

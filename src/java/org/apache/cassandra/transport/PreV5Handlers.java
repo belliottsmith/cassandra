@@ -24,6 +24,7 @@ import java.util.List;
 
 import javax.net.ssl.SSLException;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -40,6 +41,7 @@ import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.ClientResourceLimits.Overload;
 import org.apache.cassandra.transport.messages.ErrorMessage;
+import org.apache.cassandra.transport.messages.EventMessage;
 import org.apache.cassandra.utils.JVMStabilityInspector;
 
 import io.netty.channel.Channel;
@@ -93,16 +95,19 @@ public class PreV5Handlers
             // The only reason we won't process this message is if checkLimits() throws an OverloadedException.
             // (i.e. Even if backpressure is applied, the current request is allowed to finish.)
             checkLimits(ctx, request);
-            dispatcher.dispatch(ctx.channel(), request, this::toFlushItem, backpressure);
+            dispatcher.dispatch(ctx.channel(), request, this::toFlushItem, ctx, backpressure);
         }
 
         // Acts as a Dispatcher.FlushItemConverter
-        private Flusher.FlushItem.Unframed toFlushItem(Channel channel, Message.Request request, Message.Response response)
+        private Flusher.FlushItem.Unframed toFlushItem(ChannelHandlerContext ctx, Channel channel, Message.Request request, Message.Response response)
         {
-            return new Flusher.FlushItem.Unframed(channel, response, request.getSource(), this::releaseItem);
+            ProtocolVersion version = getConnectionVersion(ctx);
+            Envelope requestEnvelope = request.getSource();
+            Envelope responseEnvelope = response.encode(version, requestEnvelope.header.streamId);
+            return new Flusher.FlushItem.Unframed(channel, responseEnvelope, requestEnvelope, this::releaseItem);
         }
 
-        private void releaseItem(Flusher.FlushItem<Message.Response> item)
+        private void releaseItem(Flusher.FlushItem<Envelope> item)
         {
             // Note: in contrast to the equivalent for V5 protocol, CQLMessageHandler::release(FlushItem item),
             // this does not release the FlushItem's Message.Response. In V4, the buffers for the response's body
@@ -307,14 +312,14 @@ public class PreV5Handlers
      * Simple adaptor to plug CQL message encoding into pre-V5 pipelines
      */
     @ChannelHandler.Sharable
-    public static class ProtocolEncoder extends MessageToMessageEncoder<Message>
+    public static class EventMessageEncoder extends MessageToMessageEncoder<EventMessage>
     {
-        public static final ProtocolEncoder instance = new ProtocolEncoder();
-        private ProtocolEncoder(){}
-        public void encode(ChannelHandlerContext ctx, Message source, List<Object> results)
+        public static final EventMessageEncoder instance = new EventMessageEncoder();
+        private EventMessageEncoder(){}
+        public void encode(ChannelHandlerContext ctx, EventMessage source, List<Object> results)
         {
             ProtocolVersion version = getConnectionVersion(ctx);
-            results.add(source.encode(version));
+            results.add(source.encode(version, EventMessage.EVENT_MESSAGE_STREAM_ID));
         }
     }
 
@@ -339,8 +344,9 @@ public class PreV5Handlers
                 Predicate<Throwable> handler = ExceptionHandlers.getUnexpectedExceptionHandler(ctx.channel(), false);
                 // No request in scope at the channel level; a WrappedException cause carries the frame's
                 // stream id and overrides this fallback.
-                ErrorMessage errorMessage = ErrorMessage.fromException(cause, Message.UNSET_STREAM_ID, handler);
-                if (errorMessage.getStreamId() == Message.UNSET_STREAM_ID)
+                ErrorMessage.WithStreamId withStreamId = ErrorMessage.fromException(cause, handler);
+
+                if (withStreamId.streamId == Message.UNSET_STREAM_ID)
                 {
                     // No stream id could be recovered, so we have no request to route a response to.
                     // Close the connection rather than emit an unroutable frame (CASSANDRA-21508).
@@ -348,7 +354,10 @@ public class PreV5Handlers
                 }
                 else
                 {
-                    ChannelFuture future = ctx.writeAndFlush(errorMessage.encode(getConnectionVersion(ctx)));
+                    ErrorMessage errorMessage = withStreamId.message;
+                    int streamId = withStreamId.streamId;
+
+                    ChannelFuture future = ctx.writeAndFlush(errorMessage.encode(getConnectionVersion(ctx), streamId));
                     // On protocol exception, close the channel as soon as the message have been sent.
                     // Most cases of PE are wrapped so the type check below is expected to fail more often than not.
                     // At this moment Fatal exceptions are not thrown in v4, but just as a precaustion we check for them here
@@ -404,7 +413,8 @@ public class PreV5Handlers
         }
     }
 
-    private static ProtocolVersion getConnectionVersion(ChannelHandlerContext ctx)
+    @VisibleForTesting
+    public static ProtocolVersion getConnectionVersion(ChannelHandlerContext ctx)
     {
         Connection connection = ctx.channel().attr(Connection.attributeKey).get();
         // The only case the connection can be null is when we send the initial STARTUP message
