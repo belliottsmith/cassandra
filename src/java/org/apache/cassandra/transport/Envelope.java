@@ -407,9 +407,15 @@ public class Envelope
 
             if (protocolException != null)
             {
-                // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again. 
+                // Protocol versions 1 and 2 use a shorter header with a single-byte stream id. Reading a
+                // 16-bit stream id from such a header splices the stream id byte together with the opcode
+                // byte and recovers a bogus id, routing the error to a stream the client never used
+                // (CASSANDRA-21508). A v1/v2 client that downgrades would then never see the error and time
+                // out, so recover the stream id using the attempted version's header layout.
+                int recoveredStreamId = versionNum < ProtocolVersion.V3.asInt() ? buffer.getByte(idx) : streamId;
+                // Skip the remaining useless bytes. Otherwise the channel closing logic may try to decode again.
                 buffer.skipBytes(readableBytes);
-                throw ErrorMessage.wrap(protocolException, streamId);
+                throw ErrorMessage.wrap(protocolException, recoveredStreamId);
             }
 
             validateFlags(version, flags, streamId);

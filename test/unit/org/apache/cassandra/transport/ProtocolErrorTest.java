@@ -75,7 +75,11 @@ public class ProtocolErrorTest {
             dec.decode(null, buf, results);
             Assert.fail("Expected protocol error");
         } catch (ErrorMessage.WrappedException e) {
-            Assert.assertEquals(1, e.getStreamId());
+            // The stream id is recovered using the attempted version's header layout (CASSANDRA-21508):
+            // v1/v2 use a single-byte stream id (header byte 2, which is 0x00 here), whereas v3+ use a
+            // two-byte id (0x0001). See decodeRecoversSingleByteStreamIdForOldProtocolVersions.
+            int expectedStreamId = version < ProtocolVersion.V3.asInt() ? 0x00 : 0x01;
+            Assert.assertEquals(expectedStreamId, e.getStreamId());
             Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
         }
     }
@@ -174,6 +178,42 @@ public class ProtocolErrorTest {
                             streamId, result.streamId());
         Assert.assertTrue("expected a USE_BETA protocol error, got: " + result.error().getMessage(),
                           result.error().getMessage().contains("USE_BETA flag is unset"));
+    }
+
+    @Test
+    public void decodeRecoversSingleByteStreamIdForOldProtocolVersions() throws Exception
+    {
+        // CASSANDRA-21508 (Finding 3): protocol versions 1 and 2 use a shorter header whose stream id is a
+        // single byte. When such a version is rejected, decode must recover the stream id using that layout.
+        // Reading a 16-bit value would splice the stream id byte together with the following opcode byte and
+        // recover a bogus id (e.g. stream 0 + STARTUP opcode 1 -> stream 1), routing the error to a stream the
+        // client never used. A v1/v2 client (which downgrades on such an error) would then never see it and
+        // its connection would time out - as observed in ProtocolNegotiationTest#olderVersionsAreUnsupported.
+        Envelope.Decoder dec = new Envelope.Decoder();
+
+        int streamId = 0x07;
+        List<Object> results = new ArrayList<>();
+        // A full (>= Header.LENGTH bytes) v1 frame so decode reaches the stream-id recovery, not the
+        // incomplete-header path: single-byte stream id, STARTUP opcode, and one body byte.
+        byte[] bytes = new byte[] {
+                (byte) REQUEST.addToVersion(1),  // unsupported v1
+                0x00,                            // flags
+                (byte) streamId,                 // v1/v2 single-byte stream id
+                0x01,                            // opcode = STARTUP (would be spliced in as the low byte)
+                0x00, 0x00, 0x00, 0x01,          // body length = 1
+                0x00                             // 1 body byte, so readableBytes == Header.LENGTH
+        };
+        ByteBuf buf = Unpooled.wrappedBuffer(bytes);
+        try {
+            dec.decode(null, buf, results);
+            Assert.fail("Expected protocol error");
+        } catch (ErrorMessage.WrappedException e) {
+            Assert.assertEquals("a v1/v2 stream id must be read as a single byte, not spliced with the opcode",
+                                streamId, e.getStreamId());
+            Assert.assertTrue("expected a ProtocolException cause, got: " + e.getCause(),
+                              e.getCause() instanceof ProtocolException);
+            Assert.assertTrue(e.getMessage().contains("Invalid or unsupported protocol version"));
+        }
     }
 
     @Test
