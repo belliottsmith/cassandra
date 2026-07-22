@@ -183,8 +183,8 @@ public class ProtocolErrorTest {
     @Test
     public void decodeRecoversSingleByteStreamIdForOldProtocolVersions() throws Exception
     {
-        // CASSANDRA-21508 (Finding 3): protocol versions 1 and 2 use a shorter header whose stream id is a
-        // single byte. When such a version is rejected, decode must recover the stream id using that layout.
+        // CASSANDRA-21508: protocol versions 1 and 2 use a shorter header whose stream id is a single
+        // byte. When such a version is rejected, decode must recover the stream id using that layout.
         // Reading a 16-bit value would splice the stream id byte together with the following opcode byte and
         // recover a bogus id (e.g. stream 0 + STARTUP opcode 1 -> stream 1), routing the error to a stream the
         // client never used. A v1/v2 client (which downgrades on such an error) would then never see it and
