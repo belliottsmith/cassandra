@@ -648,6 +648,8 @@ public class CommandsForKeySerializerTest
         @Override public boolean inStore() { return true; }
         @Override public AsyncChain<Void> chain(ExecutionContext context, Consumer<? super SafeCommandStore> consumer) { throw new UnsupportedOperationException();}
         @Override public <T> AsyncChain<T> chain(ExecutionContext context, Function<? super SafeCommandStore, T> apply) { throw new UnsupportedOperationException(); }
+        @Override public AsyncChain<Void> continuationChain(ExecutionContext context, Consumer<? super SafeCommandStore> consumer) { throw new UnsupportedOperationException();}
+        @Override public <T> AsyncChain<T> continuationChain(ExecutionContext context, Function<? super SafeCommandStore, T> apply) { throw new UnsupportedOperationException(); }
 
         @Override public Journal.Replayer replayer(AbstractReplayer.Mode mode) { throw new UnsupportedOperationException(); }
 
