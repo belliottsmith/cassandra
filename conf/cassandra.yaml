@@ -1598,7 +1598,7 @@ slow_query_log_timeout: 500ms
 #
 # You can use a custom Snitch by setting this to the full class name
 # of the snitch, which will be assumed to be on your classpath.
-endpoint_snitch: SimpleSnitch
+endpoint_snitch: GossipingPropertyFileSnitch
 
 # The settings in the following section are intended to supercede the use of endpoint_snitch:
 # initial_location_provider
@@ -1992,7 +1992,7 @@ internode_compression: dc
 # Disabling it will result in larger (but fewer) network packets being sent,
 # reducing overhead from the TCP protocol itself, at the cost of increasing
 # latency if you block for cross-datacenter responses.
-inter_dc_tcp_nodelay: false
+inter_dc_tcp_nodelay: true
 
 # TTL for different trace types used during logging of the repair process.
 # Min unit: s
@@ -2836,24 +2836,28 @@ max_security_label_length: 48
 #
 storage_compatibility_mode: NONE
 
-#accord:
-#  # Enables the execution of Accord (multi-key) transactions on this node.
-#  enabled: false
-#
-#  # Journal directory for Accord
-#  journal_directory:
-#
-#  # The number of Accord shards on this node; -1 means use the number of cores
-#  queue_shard_count: -1
-#
-#  # The number of Accord shards on this node; -1 means use the number of cores
-#  command_store_shard_count: -1
-#
-#  # Recover delay: the time between a transaction being initiated and a remote replica being willing to interrupt it to complete it
-#  recover_delay: 1s
-#
-#  # how quickly the fast path is reconfigured when nodes go up/down
-#  fast_path_update_delay: 5s
+accord:
+ # Enables the execution of Accord (multi-key) transactions on this node.
+ enabled: true
+
+ # Journal directory for Accord
+ journal_directory: /tmp
+
+ replica_execution: ALL
+ send_stable: TO_ALL_REPLICA_EXECUTABLE_ELSE_FOR_READS
+ send_minimal: false
+
+ # # The number of Accord shards on this node; -1 means use the number of cores
+ # queue_shard_count: -1
+
+ # # The number of Accord shards on this node; -1 means use the number of cores
+ # command_store_shard_count: -1
+
+ # # Recover delay: the time between a transaction being initiated and a remote replica being willing to interrupt it to complete it
+ # recover_delay: 1s
+
+ # # how quickly the fast path is reconfigured when nodes go up/down
+ # fast_path_update_delay: 5s
 
 # Prevents preparing a repair session or beginning a repair streaming session if pending compactions is over
 # the given value.  Defaults to disabled.
