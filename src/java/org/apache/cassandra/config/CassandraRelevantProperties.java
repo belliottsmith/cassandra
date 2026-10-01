@@ -49,6 +49,8 @@ public enum CassandraRelevantProperties
     ACCORD_DEBUG_DISTRIBUTED_EXECUTION_KEYS("accord.debug_distributed_execution_keys", "0"),
     ACCORD_DEBUG_EXECUTION("accord.debug_execution"),
     ACCORD_DEBUG_EXECUTION_REPORT("accord.debug_execution_report"),
+    /** "sampled" (default): emit a span only if the profiler sampled it; "all": emit every span. See {@link org.apache.cassandra.service.accord.debug.DebugExecution} */
+    ACCORD_DEBUG_EXECUTION_SPANS("accord.debug_execution_spans", "sampled"),
     ACCORD_PARANOIA_COSTFACTOR(Invariants.KEY_PARANOIA_COSTFACTOR),
     ACCORD_PARANOIA_CPU(Invariants.KEY_PARANOIA_CPU),
     ACCORD_PARANOIA_MEMORY(Invariants.KEY_PARANOIA_MEMORY),

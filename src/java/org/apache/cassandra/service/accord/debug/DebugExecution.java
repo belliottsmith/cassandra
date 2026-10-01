@@ -31,19 +31,48 @@ import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.metrics.LogLinearHistogram;
 import org.apache.cassandra.service.accord.execution.SafeTask;
 import org.apache.cassandra.service.accord.execution.Task;
+import org.apache.cassandra.service.accord.execution.TaskLabels;
 import org.apache.cassandra.utils.Closeable;
 import org.apache.cassandra.utils.WithResources;
 
 import one.profiler.Span;
 
 import static org.apache.cassandra.config.CassandraRelevantProperties.DTEST_ACCORD_JOURNAL_SANITY_CHECK_ENABLED;
+import static org.apache.cassandra.service.accord.execution.TaskLabels.Prefix.HEAD;
+import static org.apache.cassandra.service.accord.execution.TaskLabels.Prefix.QUEUED;
+import static org.apache.cassandra.service.accord.execution.TaskLabels.Prefix.RUN;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
+/**
+ * Instrumentation of Accord's executors, enabled with {@code -Daccord.debug_execution=true}.
+ *
+ * <p>While an async-profiler recording is running (JFR output), the following {@code profiler.Span} events are
+ * emitted; their {@code tag} identifies the work as described by {@link TaskLabels}, e.g. {@code "Accept s24"}:
+ * <ul>
+ *   <li>{@code Queued <label>}: from the task's creation until it starts running, i.e. loading, waiting for its
+ *       command store, and waiting for an executor thread</li>
+ *   <li>{@code Head <label>}: from the task becoming the next to run on its command store until it starts running,
+ *       i.e. the time to hand a runnable store to an executor thread</li>
+ *   <li>{@code <label>}: the task running</li>
+ *   <li>{@code AccordExecutorCriticalSection}: the executor lock being held</li>
+ * </ul>
+ * Spans may start on one thread and end on another (e.g. {@code Queued}); they are emitted on the ending thread.
+ *
+ * <p>By default spans are emitted only if the profiler sampled the ending thread while the span was open
+ * ({@code Span.endIfProfiled}), so the recorded spans are biased towards long ones: good for finding examples, not
+ * for counting. {@code -Daccord.debug_execution_spans=all} emits every span instead, at the cost of a much larger
+ * recording.
+ *
+ * <p>{@code -Daccord.debug_execution_report=true} additionally maintains latency histograms and logs slow tasks and
+ * lock holds; this reads the thread CPU clock around every task and lock hold, so costs noticeably more.
+ */
 public class DebugExecution
 {
     private static final Logger logger = LoggerFactory.getLogger(DebugExecution.class);
     public static final boolean DEBUG_EXECUTION = CassandraRelevantProperties.ACCORD_DEBUG_EXECUTION.getBoolean(false);
     public static final boolean REPORT_EXECUTION = CassandraRelevantProperties.ACCORD_DEBUG_EXECUTION_REPORT.getBoolean(true);
+    private static final boolean EMIT_ALL_SPANS = "all".equalsIgnoreCase(CassandraRelevantProperties.ACCORD_DEBUG_EXECUTION_SPANS.getString());
+    private static final String CRITICAL_SECTION = "AccordExecutorCriticalSection";
     private static final long REPORT_MIN_LATENCY_MICROS = 50_000;
     private static final long REPORT_CPU_RATIO = 2;
     private static final long REPORT_MAX_LATENCY_MICROS = 100_000;
@@ -120,8 +149,8 @@ public class DebugExecution
                 }
                 locked.increment(lockedForMicros);
             }
-            if (span != 0)
-                Span.endIfProfiled(span, "AccordExecutorCriticalSection");
+            endSpan(span, CRITICAL_SECTION);
+            span = 0;
         }
     }
 
@@ -146,6 +175,9 @@ public class DebugExecution
 
         public void onSetTask(Task next)
         {
+            if (next != null)
+                DebugTask.get(next).onHead();
+
             if (REPORT_EXECUTION)
             {
                 if (next == null) setTaskAt = 0;
@@ -202,7 +234,7 @@ public class DebugExecution
             this.task = task;
         }
 
-        long waitingAtSpan = Span.start(), runningAtSpan;
+        long waitingAtSpan = Span.start(), headAtSpan, runningAtSpan;
         String distributedTag; // non-null if DebugDistributedExecution traces this task's transaction
         public List<Command> sanityCheck; // for AccordTask only
         long polledAt, preRunAt, runningAt, runCompleteAt, completeAt, completedAt;
@@ -220,16 +252,31 @@ public class DebugExecution
             preRunAt = nanoTime();
         }
 
+        // invoked by the task's command store when the task becomes the next for it to run
+        void onHead()
+        {
+            headAtSpan = Span.start();
+        }
+
         public void onRunning()
         {
-            if (waitingAtSpan != 0)
-                Span.endIfProfiled(waitingAtSpan, "AccordTaskQueued");
+            // a task may run more than once (e.g. incrementally); it is queued and at the head only before the first
             if (DebugDistributedExecution.ENABLED && task instanceof SafeTask<?>)
             {
                 SafeTask<?> safeTask = (SafeTask<?>) task;
                 distributedTag = DebugDistributedExecution.taskTag(safeTask.executionContext().primaryTxnId(), safeTask.executionContext().reason(), safeTask.commandStore().id());
+            }
+            if (waitingAtSpan != 0)
+            {
+                endSpan(waitingAtSpan, TaskLabels.label(task, QUEUED));
                 if (distributedTag != null)
                     DebugDistributedExecution.end(waitingAtSpan, "Q " + distributedTag);
+                waitingAtSpan = 0;
+            }
+            if (headAtSpan != 0)
+            {
+                endSpan(headAtSpan, TaskLabels.label(task, HEAD));
+                headAtSpan = 0;
             }
             runningAtSpan = Span.start();
             if (REPORT_EXECUTION)
@@ -248,17 +295,12 @@ public class DebugExecution
                 runCompleteAt = nanoTime();
             }
             if (runningAtSpan != 0)
-                Span.endIfProfiled(runningAtSpan, spanTag());
-            if (distributedTag != null)
-                DebugDistributedExecution.end(runningAtSpan, "T " + distributedTag);
-        }
-
-        private String spanTag()
-        {
-            if (task instanceof SafeTask<?>)
-                return ((SafeTask<?>) task).commandStore().toString();
-            else
-                return task.getClass().getSimpleName();
+            {
+                endSpan(runningAtSpan, TaskLabels.label(task, RUN));
+                if (distributedTag != null)
+                    DebugDistributedExecution.end(runningAtSpan, "T " + distributedTag);
+                runningAtSpan = 0;
+            }
         }
 
         public void onReleasedRangeScanner()
@@ -325,6 +367,14 @@ public class DebugExecution
         {
             return resources.get();
         }
+    }
+
+    private static void endSpan(long start, String tag)
+    {
+        if (start == 0)
+            return;
+        if (EMIT_ALL_SPANS) Span.end(start, tag);
+        else Span.endIfProfiled(start, tag);
     }
 
     private static void report(String message, Object ... params)
