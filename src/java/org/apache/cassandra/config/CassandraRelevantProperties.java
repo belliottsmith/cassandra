@@ -44,11 +44,13 @@ public enum CassandraRelevantProperties
 {
     ACCORD_DEBUG("accord.debug"),
     /** 0 disables; otherwise trace one Accord transaction in N (by TxnId) with DebugDistributedExecution spans */
-    ACCORD_DEBUG_DISTRIBUTED_EXECUTION("accord.debug_distributed_execution", "0"),
+    ACCORD_DEBUG_DISTRIBUTED_EXECUTION("accord.debug.distributed.execution", "0"),
     /** 0 disables; otherwise also record every transaction's CommandsForKey interactions on one key in K (1 = all keys) */
-    ACCORD_DEBUG_DISTRIBUTED_EXECUTION_KEYS("accord.debug_distributed_execution_keys", "0"),
+    ACCORD_DEBUG_DISTRIBUTED_EXECUTION_KEYS("accord.debug.distributed.execution.keys", "0"),
     ACCORD_DEBUG_EXECUTION("accord.debug.execution"),
     ACCORD_DEBUG_EXECUTION_REPORT("accord.debug.execution.report"),
+    /** "sampled" (default): emit a span only if the profiler sampled it; "all": emit every span. See {@link org.apache.cassandra.service.accord.debug.DebugExecution} */
+    ACCORD_DEBUG_EXECUTION_SPANS("accord.debug.execution.spans", "sampled"),
     ACCORD_DEBUG_PROGRESS_LOG("accord.debug.progresslog"),
     ACCORD_PARANOIA_COSTFACTOR(Invariants.KEY_PARANOIA_COSTFACTOR),
     ACCORD_PARANOIA_CPU(Invariants.KEY_PARANOIA_CPU),
