@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord.debug;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,7 @@ import org.apache.cassandra.service.accord.execution.SafeTask;
 import org.apache.cassandra.service.accord.execution.Task;
 import org.apache.cassandra.service.accord.execution.TaskLabels;
 import org.apache.cassandra.utils.Closeable;
+import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.WithResources;
 
 import one.profiler.Span;
@@ -55,6 +57,9 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
  *       i.e. the time to hand a runnable store to an executor thread</li>
  *   <li>{@code <label>}: the task running</li>
  *   <li>{@code AccordExecutorCriticalSection}: the executor lock being held</li>
+ *   <li>{@code AccordExecutorParkedWithWork}: an executor thread parked while the executor had tasks waiting that
+ *       could not yet be polled (e.g. their group is saturated or stopped). Always emitted, as a parked thread is
+ *       rarely sampled. Separately, parking while a task <i>could</i> be polled is a missed wakeup, and is logged.</li>
  * </ul>
  * Spans may start on one thread and end on another (e.g. {@code Queued}); they are emitted on the ending thread.
  *
@@ -73,6 +78,8 @@ public class DebugExecution
     public static final boolean REPORT_EXECUTION = CassandraRelevantProperties.ACCORD_DEBUG_EXECUTION_REPORT.getBoolean(true);
     private static final boolean EMIT_ALL_SPANS = "all".equalsIgnoreCase(CassandraRelevantProperties.ACCORD_DEBUG_EXECUTION_SPANS.getString());
     private static final String CRITICAL_SECTION = "AccordExecutorCriticalSection";
+    private static final String PARKED_WITH_WORK = "AccordExecutorParkedWithWork";
+    private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1, TimeUnit.MINUTES);
     private static final long REPORT_MIN_LATENCY_MICROS = 50_000;
     private static final long REPORT_CPU_RATIO = 2;
     private static final long REPORT_MAX_LATENCY_MICROS = 100_000;
@@ -96,6 +103,7 @@ public class DebugExecution
         final LogLinearHistogram taskTotal = new LogLinearHistogram(REPORT_MAX_LATENCY_MICROS);
 
         long span;
+        long parkedWithRunnableWork; // guarded by the executor lock
         long lockedAt, lockedAtCpu;
         long unlockedAt, unlockedAtCpu;
         int depth;
@@ -151,6 +159,30 @@ public class DebugExecution
             }
             endSpan(span, CRITICAL_SECTION);
             span = 0;
+        }
+
+        /**
+         * Invoked under the executor lock by a loop thread that found nothing to poll and is about to park.
+         * @param waitingCount the number of tasks waiting in the executor's runnable queue
+         * @param hasWaitingToRun whether any of them could be polled; if so, nothing may wake this thread for it
+         * @return a span start to pass to {@link #onUnpark} if the thread parks with tasks waiting, else 0
+         */
+        public long onPark(int waitingCount, boolean hasWaitingToRun)
+        {
+            if (hasWaitingToRun)
+            {
+                parkedWithRunnableWork++;
+                noSpamLogger.warn("{} parking with runnable work waiting ({} tasks waiting; {} occurrences): a missed wakeup?",
+                                  Thread.currentThread(), waitingCount, parkedWithRunnableWork);
+            }
+            if (waitingCount == 0)
+                return 0;
+            return Span.start();
+        }
+
+        public void onUnpark(long parkedAtSpan)
+        {
+            Span.end(parkedAtSpan, PARKED_WITH_WORK);
         }
     }
 
