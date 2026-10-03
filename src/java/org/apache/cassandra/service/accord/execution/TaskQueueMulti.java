@@ -225,6 +225,12 @@ abstract class TaskQueueMulti<T extends Task> extends TaskQueue<T>
         return group;
     }
 
+    /** DIAGNOSTIC (Claude): for ExclusiveExecutorStats / stall reports */
+    final long unsafeSaturated()
+    {
+        return saturated();
+    }
+
     private long saturated()
     {
         return ((active | COUNTER_OVERFLOWS) - limits) & COUNTER_OVERFLOWS;

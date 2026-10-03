@@ -63,6 +63,20 @@ public final class ExclusiveExecutorStats
 
     long enqueuedAt, preparingAt;
 
+    /** times a completion found tasks queued but pollMulti() offered none, leaving the store idle until a new arrival */
+    public volatile long strandedCount;
+    public volatile long lastStrandedHasWork, lastStrandedStopped, lastStrandedSaturated;
+    public volatile int lastStrandedWaiting;
+
+    void onStranded(int waiting, long hasWork, long stopped, long saturated)
+    {
+        ++strandedCount;
+        lastStrandedWaiting = waiting;
+        lastStrandedHasWork = hasWork;
+        lastStrandedStopped = stopped;
+        lastStrandedSaturated = saturated;
+    }
+
     void onSelfEnqueued()
     {
         enqueuedAt = nanoTime();

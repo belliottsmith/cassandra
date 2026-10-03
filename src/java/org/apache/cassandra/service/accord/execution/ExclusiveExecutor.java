@@ -231,6 +231,8 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
             active = 0;
             task = super.pollMulti();
             if (DEBUG_EXECUTION) debug.onSetTask(task);
+            if (task == null && stats != null && waitingCount > 0)
+                stats.onStranded(waitingCount, hasWork, stopped, unsafeSaturated());
             if (task != null)
             {
                 setSelfTaskFor(task);

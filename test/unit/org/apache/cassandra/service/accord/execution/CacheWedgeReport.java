@@ -153,6 +153,10 @@ public final class CacheWedgeReport
         for (CommandStore commandStore : node.commandStores().all())
             if (commandStore instanceof AccordCommandStore) stores.add((AccordCommandStore) commandStore);
 
+        long[] gcBefore = gcCountAndMillis();
+        long[] strandedBefore = new long[stores.size()];
+        for (int i = 0 ; i < stores.size() ; ++i)
+            strandedBefore[i] = stores.get(i).exclusiveExecutor().stats.strandedCount;
         long[][] before = new long[stores.size()][];
         List<Map<String, long[]>> kindsBefore = new ArrayList<>();
         for (int i = 0 ; i < stores.size() ; ++i)
@@ -165,7 +169,13 @@ public final class CacheWedgeReport
         LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(windowMillis));
         long elapsed = nanoTime() - startedAt;
 
-        StringBuilder out = new StringBuilder(" over ").append(TimeUnit.NANOSECONDS.toMillis(elapsed)).append("ms (% of wall time):");
+        long[] gcAfter = gcCountAndMillis();
+        java.lang.management.MemoryUsage heap = java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        StringBuilder out = new StringBuilder(" over ").append(TimeUnit.NANOSECONDS.toMillis(elapsed)).append("ms (% of wall time):")
+                            .append("\n    jvm: gc ").append(gcAfter[0] - gcBefore[0]).append(" collections, ").append(gcAfter[1] - gcBefore[1])
+                            .append("ms in window (").append(gcAfter[1]).append("ms total over ").append(gcAfter[0]).append(" collections); heap ")
+                            .append(heap.getUsed() >> 20).append("MiB used of ").append(heap.getMax() >> 20).append("MiB")
+                            .append(gcDetail());
         for (int i = 0 ; i < stores.size() ; ++i)
         {
             AccordCommandStore store = stores.get(i);
@@ -182,6 +192,20 @@ public final class CacheWedgeReport
                .append(" idle=").append(pct(idle, elapsed))
                .append(" maxWaitForThread(ever)=").append(TimeUnit.NANOSECONDS.toMillis(after[2])).append("ms")
                .append(" queued=").append(store.exclusiveExecutor().waitingCount());
+            // a store with queued tasks but no current task is stranded: it runs again only when a new task arrives
+            ExclusiveExecutor exclusive = store.exclusiveExecutor();
+            long stranded = stats.strandedCount - strandedBefore[i];
+            if (stranded > 0 || (exclusive.task == null && exclusive.waitingCount() > 0))
+            {
+                out.append(" STRANDED(window=").append(stranded).append(", ever=").append(stats.strandedCount)
+                   .append(", now=").append(exclusive.task == null && exclusive.waitingCount() > 0)
+                   .append(", hasWork=").append(Long.toHexString(exclusive.hasWork)).append(" stopped=").append(Long.toHexString(exclusive.stopped))
+                   .append(" saturated=").append(Long.toHexString(exclusive.unsafeSaturated()))
+                   .append(" active=").append(Long.toHexString(exclusive.active)).append(" limits=").append(Long.toHexString(exclusive.limits))
+                   .append("; last: waiting=").append(stats.lastStrandedWaiting).append(" hasWork=").append(Long.toHexString(stats.lastStrandedHasWork))
+                   .append(" stopped=").append(Long.toHexString(stats.lastStrandedStopped)).append(" saturated=").append(Long.toHexString(stats.lastStrandedSaturated))
+                   .append(')');
+            }
             if (turns > 0)
                 out.append(" avgPerTurn: wait=").append(us(wait / turns)).append(" prepare=").append(us(prepare / turns))
                    .append(" run=").append(us(run / turns)).append(" complete=").append(us(complete / turns));
@@ -210,6 +234,25 @@ public final class CacheWedgeReport
             }
         }
         return out.toString();
+    }
+
+    private static long[] gcCountAndMillis()
+    {
+        long count = 0, millis = 0;
+        for (java.lang.management.GarbageCollectorMXBean gc : java.lang.management.ManagementFactory.getGarbageCollectorMXBeans())
+        {
+            count += Math.max(0, gc.getCollectionCount());
+            millis += Math.max(0, gc.getCollectionTime());
+        }
+        return new long[] { count, millis };
+    }
+
+    private static String gcDetail()
+    {
+        StringBuilder sb = new StringBuilder();
+        for (java.lang.management.GarbageCollectorMXBean gc : java.lang.management.ManagementFactory.getGarbageCollectorMXBeans())
+            sb.append(sb.length() == 0 ? " [" : ", ").append(gc.getName()).append('=').append(gc.getCollectionCount()).append('/').append(gc.getCollectionTime()).append("ms");
+        return sb.length() == 0 ? "" : sb.append(']').toString();
     }
 
     private static long[] snapshot(ExclusiveExecutorStats stats)
