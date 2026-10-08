@@ -31,6 +31,7 @@ import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.NoSpamLogger;
@@ -64,6 +65,8 @@ class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
         }
 
         logger.trace("Receiving {} from {}", message.payload, message.from());
+        if (DebugDistributedExecution.ENABLED)
+            DebugDistributedExecution.onResponse(from, message.id(), message.payload, message.isFailureResponse() || !(message.payload instanceof Reply) || ((Reply) message.payload).isFinal());
         if (message.isFailureResponse())
         {
             Tracing.trace("Processing failure response from {}", message.from());
