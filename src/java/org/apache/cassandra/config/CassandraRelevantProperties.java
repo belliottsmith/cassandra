@@ -385,6 +385,12 @@ public enum CassandraRelevantProperties
     JAVA_VERSION("java.version"),
     /** Java Virtual Machine implementation name */
     JAVA_VM_NAME("java.vm.name"),
+    /**
+     * Register JFR diagnostic events (internode connections with TCP_INFO, send backpressure, TCP counters, Accord
+     * executor queues; see {@link org.apache.cassandra.utils.JfrDiagnostics}). They cost nothing unless a JFR recording
+     * enables them, e.g. async-profiler's jfrsync with a .jfc that turns on the cassandra.* events.
+     */
+    JFR_DIAGNOSTIC_EVENTS("cassandra.jfr.diagnostic_events", "false"),
     JOIN_RING("cassandra.join_ring", "true"),
 
     /**

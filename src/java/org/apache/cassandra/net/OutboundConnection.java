@@ -757,6 +757,7 @@ public class OutboundConnection
     {
         private int flushingBytes;
         private boolean isWritable = true;
+        private MessagingJfrEvents.Backpressure backpressure; // non-null while unwritable, if the JFR event is recorded
 
         EventLoopDelivery()
         {
@@ -873,6 +874,8 @@ public class OutboundConnection
                     if (hasOverflowed)
                     {
                         isWritable = false;
+                        if (MessagingJfrEvents.ENABLED)
+                            backpressure = MessagingJfrEvents.beginBackpressure(OutboundConnection.this, flushingBytes, established.channel);
                         promiseToExecuteLater();
                     }
 
@@ -889,6 +892,11 @@ public class OutboundConnection
                         if (!isWritable && flushingBytes <= settings.flushLowWaterMark)
                         {
                             isWritable = true;
+                            if (backpressure != null)
+                            {
+                                MessagingJfrEvents.endBackpressure(backpressure, OutboundConnection.this);
+                                backpressure = null;
+                            }
                             executeAgain();
                         }
 
@@ -1735,6 +1743,25 @@ public class OutboundConnection
     public ConnectionType type()
     {
         return type;
+    }
+
+    /** for {@link MessagingJfrEvents}: the channel if established, else null */
+    Channel unsafeChannel()
+    {
+        State state = this.state;
+        return state.isEstablished() ? state.established().channel : null;
+    }
+
+    /** for {@link MessagingJfrEvents}: bytes written to Netty but not yet flushed (small/urgent messages), else -1; racy */
+    long unsafeFlushingBytes()
+    {
+        return delivery instanceof EventLoopDelivery ? ((EventLoopDelivery) delivery).flushingBytes : -1;
+    }
+
+    /** for {@link MessagingJfrEvents}: false while delivery waits for the socket to drain; racy */
+    boolean unsafeIsWritable()
+    {
+        return !(delivery instanceof EventLoopDelivery) || ((EventLoopDelivery) delivery).isWritable;
     }
 
     @VisibleForTesting

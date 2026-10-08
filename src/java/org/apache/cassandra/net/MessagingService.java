@@ -47,6 +47,7 @@ import org.apache.cassandra.service.AbstractWriteResponseHandler;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.utils.ExecutorUtils;
 import org.apache.cassandra.utils.FBUtilities;
+import org.apache.cassandra.utils.JfrDiagnostics;
 import org.apache.cassandra.utils.concurrent.AsyncPromise;
 import org.apache.cassandra.utils.concurrent.FutureCombiner;
 import org.apache.cassandra.utils.concurrent.Promise;
@@ -346,6 +347,9 @@ public class MessagingService extends MessagingServiceMBeanImpl implements Messa
 
     private volatile boolean isShuttingDown;
 
+    // JFR diagnostic events (-Dcassandra.jfr.diagnostic_events=true), or null
+    private final JfrDiagnostics jfrDiagnostics;
+
     @VisibleForTesting
     MessagingService(boolean testOnly)
     {
@@ -357,6 +361,13 @@ public class MessagingService extends MessagingServiceMBeanImpl implements Messa
     {
         super(testOnly, versions, metrics);
         OutboundConnections.scheduleUnusedConnectionMonitoring(this, ScheduledExecutors.scheduledTasks, 1L, TimeUnit.HOURS);
+        jfrDiagnostics = testOnly ? null : JfrDiagnostics.register(this);
+    }
+
+    private void closeJfrDiagnostics()
+    {
+        if (jfrDiagnostics != null)
+            jfrDiagnostics.close();
     }
 
     @Override
@@ -652,6 +663,7 @@ public class MessagingService extends MessagingServiceMBeanImpl implements Messa
         }
 
         isShuttingDown = true;
+        closeJfrDiagnostics();
         logger.info("Waiting for messaging service to quiesce");
         // We may need to schedule hints on the mutation stage, so it's erroneous to shut down the mutation stage first
         assert !MUTATION.executor().isShutdown();
@@ -710,6 +722,7 @@ public class MessagingService extends MessagingServiceMBeanImpl implements Messa
         }
 
         isShuttingDown = true;
+        closeJfrDiagnostics();
         logger.info("Waiting for messaging service to quiesce");
         // We may need to schedule hints on the mutation stage, so it's erroneous to shut down the mutation stage first
         assert !MUTATION.executor().isShutdown();
