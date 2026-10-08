@@ -134,6 +134,7 @@ import org.apache.cassandra.service.accord.api.AccordTopologySorter;
 import org.apache.cassandra.service.accord.api.AccordViolationHandler;
 import org.apache.cassandra.service.accord.api.CompositeTopologySorter;
 import org.apache.cassandra.service.accord.api.TokenKey.KeyspaceSplitter;
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.execution.AccordExecutor;
 import org.apache.cassandra.service.accord.execution.SafeTask;
 import org.apache.cassandra.service.accord.execution.TaskRunner;
@@ -1273,7 +1274,7 @@ public class AccordService implements IAccordService, Shutdownable
         ClientRequestBookkeeping bookkeeping = txn.isWrite() ? accordWriteBookkeeping : accordReadBookkeeping;
         bookkeeping.metrics.keySize.update(txn.keys().size());
         long deadlineNanos = requestTime.computeDeadline(timeout);
-        Tracing tracing = agent().tracing().trace(txnId, txn.keys(), Client);
+        Tracing tracing = DebugDistributedExecution.phase(txnId, Client, agent().tracing().trace(txnId, txn.keys(), Client));
         AccordResult<TxnResult> result = new AccordResult<>(txnId, txn.keys(), bookkeeping, requestTime.startedAtNanos(), deadlineNanos, true, tracing);
         node.coordinate(txnId, txn, minEpoch, deadlineNanos).begin((BiConsumer) result);
         return result;

@@ -76,6 +76,7 @@ import org.apache.cassandra.metrics.AccordSystemMetrics;
 import org.apache.cassandra.service.RetryStrategy;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.debug.AccordTracing;
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.execution.InconsistentEntryException;
 import org.apache.cassandra.service.accord.serializers.TableMetadatasAndKeys;
 import org.apache.cassandra.service.accord.txn.TxnQuery;
@@ -117,7 +118,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
     private static final NoSpamLogger noSpamLogger = NoSpamLogger.getLogger(logger, 1L, MINUTES);
     // TODO (desired): track how many of each kind of message was discarded and report once per interval
     private static final NoDuplicateSpamLogStatement noSpamException = new NoDuplicateSpamLogStatement(logger, "", 1L, MINUTES);
-    private static final ReplicaEventListener replicaEventListener = new AccordReplicaMetrics.Listener();
+    private static final ReplicaEventListener replicaEventListener = DebugDistributedExecution.wrap(new AccordReplicaMetrics.Listener());
 
     private static BiConsumer<TxnId, Throwable> onFailedBarrier;
     public static void setOnFailedBarrier(BiConsumer<TxnId, Throwable> newOnFailedBarrier) { onFailedBarrier = newOnFailedBarrier; }
@@ -128,6 +129,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
     }
 
     private final AccordTracing tracing = new AccordTracing();
+    private final CoordinatorEventListener coordinatorEvents = DebugDistributedExecution.wrap(tracing);
     private final RandomSource random = new DefaultRandom();
     protected Node.Id self;
     protected AccordConfig config;
@@ -144,7 +146,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
     @Override
     public @Nullable Tracing trace(TxnId txnId, Participants<?> participants, Coordination.CoordinationKind eventType)
     {
-        return tracing.trace(txnId, participants, eventType);
+        return DebugDistributedExecution.phase(txnId, eventType, tracing.trace(txnId, participants, eventType));
     }
 
     @Override
@@ -315,7 +317,7 @@ public class AccordAgent implements Agent, OwnershipEventListener
     @Override
     public CoordinatorEventListener coordinatorEvents()
     {
-        return tracing;
+        return coordinatorEvents;
     }
 
     @Override

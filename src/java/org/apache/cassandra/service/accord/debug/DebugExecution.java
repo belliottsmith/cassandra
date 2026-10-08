@@ -203,6 +203,7 @@ public class DebugExecution
         }
 
         long waitingAtSpan = Span.start(), runningAtSpan;
+        String distributedTag; // non-null if DebugDistributedExecution traces this task's transaction
         public List<Command> sanityCheck; // for AccordTask only
         long polledAt, preRunAt, runningAt, runCompleteAt, completeAt, completedAt;
         long releasedRangeScannerAt, releasedStateAt;
@@ -223,6 +224,13 @@ public class DebugExecution
         {
             if (waitingAtSpan != 0)
                 Span.endIfProfiled(waitingAtSpan, "AccordTaskQueued");
+            if (DebugDistributedExecution.ENABLED && task instanceof SafeTask<?>)
+            {
+                SafeTask<?> safeTask = (SafeTask<?>) task;
+                distributedTag = DebugDistributedExecution.taskTag(safeTask.executionContext().primaryTxnId(), safeTask.executionContext().reason(), safeTask.commandStore().id());
+                if (distributedTag != null)
+                    DebugDistributedExecution.end(waitingAtSpan, "Q " + distributedTag);
+            }
             runningAtSpan = Span.start();
             if (REPORT_EXECUTION)
             {
@@ -241,6 +249,8 @@ public class DebugExecution
             }
             if (runningAtSpan != 0)
                 Span.endIfProfiled(runningAtSpan, spanTag());
+            if (distributedTag != null)
+                DebugDistributedExecution.end(runningAtSpan, "T " + distributedTag);
         }
 
         private String spanTag()

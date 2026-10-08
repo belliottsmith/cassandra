@@ -43,6 +43,10 @@ import static org.apache.cassandra.utils.LocalizeString.toUpperCaseLocalized;
 public enum CassandraRelevantProperties
 {
     ACCORD_DEBUG("accord.debug"),
+    /** 0 disables; otherwise trace one Accord transaction in N (by TxnId) with DebugDistributedExecution spans */
+    ACCORD_DEBUG_DISTRIBUTED_EXECUTION("accord.debug_distributed_execution", "0"),
+    /** 0 disables; otherwise also record every transaction's CommandsForKey interactions on one key in K (1 = all keys) */
+    ACCORD_DEBUG_DISTRIBUTED_EXECUTION_KEYS("accord.debug_distributed_execution_keys", "0"),
     ACCORD_DEBUG_EXECUTION("accord.debug_execution"),
     ACCORD_DEBUG_EXECUTION_REPORT("accord.debug_execution_report"),
     ACCORD_PARANOIA_COSTFACTOR(Invariants.KEY_PARANOIA_COSTFACTOR),

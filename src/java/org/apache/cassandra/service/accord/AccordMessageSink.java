@@ -50,6 +50,7 @@ import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.net.ResponseContext;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.TimeoutStrategy;
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 
 import static accord.messages.MessageType.StandardMessage.ACCEPT_REQ;
@@ -221,6 +222,7 @@ public class AccordMessageSink implements MessageSink
         if (endpoint == null)
             return;
 
+        if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onSend(to, request, message.id(), false);
         messaging.send(message, endpoint);
     }
 
@@ -289,6 +291,7 @@ public class AccordMessageSink implements MessageSink
         }
 
         Cancellable cancellable = callbacks.registerAt(message.id(), executor, callback, to, nowNanos, slowAtNanos, expiresAtNanos, NANOSECONDS);
+        if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onSend(to, request, message.id(), true);
         messaging.send(message, endpoint);
         return cancellable;
     }
@@ -315,6 +318,7 @@ public class AccordMessageSink implements MessageSink
         if (endpoint == null)
             return;
 
+        if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onReply(replyingTo, respondTo.from(), respondTo.id(), reply, reply == null || reply.isFinal());
         messaging.send(message, endpoint);
     }
 

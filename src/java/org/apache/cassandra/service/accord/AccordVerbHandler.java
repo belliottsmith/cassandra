@@ -33,6 +33,7 @@ import accord.utils.Invariants;
 import org.apache.cassandra.net.IVerbHandler;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.service.accord.debug.AccordRemoteTracing;
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 import org.apache.cassandra.utils.NoSpamLogger;
 
@@ -75,6 +76,8 @@ public class AccordVerbHandler<T extends Request> implements IVerbHandler<T>
             dropping.debug(message.verb(), message.from());
             return;
         }
+
+        if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onReceive(fromNodeId, message.from(), request, message.id());
 
         long waitForEpoch = request.waitForEpoch();
         if (node.topology().active().hasAtLeastEpoch(waitForEpoch))

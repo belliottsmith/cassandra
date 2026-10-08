@@ -21,10 +21,16 @@ package org.apache.cassandra.service.accord.execution;
 import java.util.Objects;
 
 import accord.api.RoutingKey;
+import accord.local.Command;
+import accord.local.SafeCommand;
+import accord.local.SafeCommandStore;
 import accord.local.cfk.CommandsForKey;
 import accord.local.cfk.NotifySink;
 import accord.local.cfk.SafeCommandsForKey;
+import accord.local.cfk.UpdateUnmanagedMode;
+import accord.primitives.TxnId;
 
+import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode;
 
 public final class SaferCommandsForKey extends SafeCommandsForKey implements SaferState<RoutingKey, CommandsForKey, SaferCommandsForKey>
@@ -92,7 +98,36 @@ public final class SaferCommandsForKey extends SafeCommandsForKey implements Saf
     @Override
     public NotifySink overrideSink()
     {
-        return ((CommandsForKeyCacheEntry)global).overrideSink;
+        NotifySink sink = ((CommandsForKeyCacheEntry)global).overrideSink;
+        return DebugDistributedExecution.ENABLED ? DebugDistributedExecution.sink(sink) : sink;
+    }
+
+    @Override
+    public void callback(SafeCommandStore safeStore, Command nextCommand, NotifySink notifySink, boolean forceNotify)
+    {
+        if (!DebugDistributedExecution.ENABLED)
+        {
+            super.callback(safeStore, nextCommand, notifySink, forceNotify);
+            return;
+        }
+
+        TxnId prev = DebugDistributedExecution.beginKeyUpdate(safeStore, key, nextCommand.saveStatus().name(), nextCommand.txnId());
+        try { super.callback(safeStore, nextCommand, notifySink, forceNotify); }
+        finally { DebugDistributedExecution.endKeyUpdate(prev); }
+    }
+
+    @Override
+    public void registerUnmanaged(SafeCommandStore safeStore, SafeCommand unmanaged, UpdateUnmanagedMode mode)
+    {
+        if (!DebugDistributedExecution.ENABLED)
+        {
+            super.registerUnmanaged(safeStore, unmanaged, mode);
+            return;
+        }
+
+        TxnId prev = DebugDistributedExecution.beginKeyUpdate(safeStore, key, "Unmanaged" + mode, unmanaged.txnId());
+        try { super.registerUnmanaged(safeStore, unmanaged, mode); }
+        finally { DebugDistributedExecution.endKeyUpdate(prev); }
     }
 
     public void preExecute(SafeTask<?> owner, LockMode lockMode)
