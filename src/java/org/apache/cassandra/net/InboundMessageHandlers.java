@@ -177,6 +177,12 @@ public final class InboundMessageHandlers
         return handlers.size();
     }
 
+    /** for {@link MessagingJfrEvents}: the live connections' handlers */
+    Iterable<InboundMessageHandler> unsafeHandlers()
+    {
+        return handlers;
+    }
+
     /*
      * Message callbacks
      */
