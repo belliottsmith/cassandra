@@ -624,7 +624,10 @@ public class ClusterMetadataService
     public void revertToEpoch(Epoch epoch)
     {
         logger.warn("Reverting to epoch {}", epoch);
-        forceSnapshotAtNextEpoch(transformSnapshot(LogState.getForRecovery(epoch)));
+        ClusterMetadata metadata = ClusterMetadata.current();
+        ClusterMetadata toApply = transformSnapshot(LogState.getForRecovery(epoch))
+                                  .forceEpoch(metadata.epoch.nextEpoch());
+        forceSnapshot(toApply);
     }
 
     /**
@@ -653,35 +656,10 @@ public class ClusterMetadataService
     public void loadClusterMetadata(String file) throws IOException
     {
         logger.warn("Loading cluster metadata from {}", file);
-        forceSnapshotAtNextEpoch(deserializeClusterMetadata(file));
-    }
-
-    private static final int FORCE_SNAPSHOT_MAX_ATTEMPTS = 10;
-
-    /**
-     * Force the given state to be the next entry in the log. The epoch of a ForceSnapshot is fixed when it is
-     * constructed, so if another transformation (e.g. an automatic TriggerSnapshot) is committed between reading the
-     * current epoch and the CMS processing our commit, the CMS rejects it. In that case the rejection will have
-     * caught us up with the log, so re-pin the snapshot to the new next epoch and resubmit.
-     */
-    private void forceSnapshotAtNextEpoch(ClusterMetadata snapshot)
-    {
-        for (int attempt = 1; ; attempt++)
-        {
-            Epoch pinnedTo = log.waitForHighestConsecutive().epoch.nextEpoch();
-            int attemptNo = attempt;
-            boolean committed = commit(new ForceSnapshot(snapshot.forceEpoch(pinnedTo)),
-                                       m -> true,
-                                       (code, message) -> {
-                                           Epoch latest = log.waitForHighestConsecutive().epoch;
-                                           if (attemptNo >= FORCE_SNAPSHOT_MAX_ATTEMPTS || !latest.isEqualOrAfter(pinnedTo))
-                                               throw new IllegalStateException(String.format("Can not commit transformation: \"%s\"(%s).", code, message));
-                                           logger.info("Could not force snapshot at epoch {} as the log has moved on to {}, retrying", pinnedTo, latest);
-                                           return false;
-                                       });
-            if (committed)
-                return;
-        }
+        ClusterMetadata metadata = ClusterMetadata.current();
+        ClusterMetadata toApply = deserializeClusterMetadata(file)
+                                  .forceEpoch(metadata.epoch.nextEpoch());
+        forceSnapshot(toApply);
     }
 
     public static ClusterMetadata deserializeClusterMetadata(String file) throws IOException

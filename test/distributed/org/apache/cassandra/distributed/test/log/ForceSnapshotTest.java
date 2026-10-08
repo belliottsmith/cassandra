@@ -45,11 +45,36 @@ import org.apache.cassandra.tcm.membership.NodeVersion;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 
 public class ForceSnapshotTest extends TestBaseImpl
 {
+    private static final String REJECTED_EPOCH = "would produce epoch";
+
+    /**
+     * revertToEpoch / loadClusterMetadata pin the forced snapshot to the next epoch as seen by the invoking node. If
+     * anything else is committed first (e.g. an automatic TriggerSnapshot, see metadata_snapshot_frequency), the CMS
+     * rejects the commit and, as with an operator, the test should retry.
+     */
+    private static void retryIfRejected(Runnable op)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                op.run();
+                return;
+            }
+            catch (IllegalStateException e)
+            {
+                if (attempt >= 3 || e.getMessage() == null || !e.getMessage().contains(REJECTED_EPOCH))
+                    throw e;
+            }
+        }
+    }
+
     @Test
     public void testForceSnapshot() throws IOException
     {
@@ -93,7 +118,7 @@ public class ForceSnapshotTest extends TestBaseImpl
             for (int i = 0; i < 10; i++)
             {
                 long revertTo = tblToEpoch.get(startReverting - i);
-                cluster.get(2).runOnInstance(() -> ClusterMetadataService.instance().revertToEpoch(Epoch.create(revertTo)));
+                cluster.get(2).runOnInstance(() -> retryIfRejected(() -> ClusterMetadataService.instance().revertToEpoch(Epoch.create(revertTo))));
                 for (int j = 0; j < startReverting - i; j++)
                     cluster.coordinator(1).execute(withKeyspace("insert into %s.x" + j + " (id) values (1)"), ConsistencyLevel.ALL);
                 try
@@ -127,6 +152,23 @@ public class ForceSnapshotTest extends TestBaseImpl
             cluster.get(1).runOnInstance(() -> ClusterMetadataService.instance().triggerSnapshot());
             assertEquals(staleEpoch, (long) cluster.get(2).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch()));
 
+            // The CMS must reject the stale snapshot outright, rather than retrying a commit that can never succeed
+            String rejection = cluster.get(2).callOnInstance(() -> {
+                try
+                {
+                    ClusterMetadataService.instance().revertToEpoch(Epoch.create(revertTo));
+                    return null;
+                }
+                catch (IllegalStateException e)
+                {
+                    return e.getMessage();
+                }
+            });
+            assertNotNull("Revert from a stale view of the log should have been rejected", rejection);
+            assertTrue(rejection, rejection.contains(REJECTED_EPOCH));
+
+            // The rejection response catches node2 up, so the operator retrying the revert succeeds
+            assertEquals(staleEpoch + 1, (long) cluster.get(2).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch()));
             cluster.get(2).runOnInstance(() -> ClusterMetadataService.instance().revertToEpoch(Epoch.create(revertTo)));
             cluster.filters().reset();
 
@@ -169,7 +211,7 @@ public class ForceSnapshotTest extends TestBaseImpl
                 cluster.coordinator(1).execute(withKeyspace("insert into %s.x"+i+" (id) values (1)"), ConsistencyLevel.ALL);
             String loadFilename = filename;
             cluster.forEach(() -> assertEquals(20, Keyspace.open(KEYSPACE).getColumnFamilyStores().size()));
-            cluster.get(1).runOnInstance(() -> {
+            cluster.get(1).runOnInstance(() -> retryIfRejected(() -> {
                 try
                 {
                     ClusterMetadataService.instance().loadClusterMetadata(loadFilename);
@@ -178,7 +220,7 @@ public class ForceSnapshotTest extends TestBaseImpl
                 {
                     throw new RuntimeException(e);
                 }
-            });
+            }));
             ClusterUtils.waitForCMSToQuiesce(cluster, 1);
             cluster.forEach(() -> assertEquals(10, Keyspace.open(KEYSPACE).getColumnFamilyStores().size()));
 
