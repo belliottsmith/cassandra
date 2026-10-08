@@ -39,6 +39,7 @@ import jdk.jfr.Label;
 import jdk.jfr.Name;
 import jdk.jfr.Period;
 import jdk.jfr.StackTrace;
+import jdk.jfr.Timespan;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingJfrEvents;
@@ -54,6 +55,9 @@ import org.apache.cassandra.service.accord.execution.AccordExecutor;
  *       {@code cassandra.net.Backpressure}: see {@link MessagingJfrEvents}</li>
  *   <li>{@code cassandra.os.Tcp}: this node's (network namespace's) TCP counters from /proc/net/snmp and
  *       /proc/net/netstat: segments, retransmits, RTOs, loss recovery, drops</li>
+ *   <li>{@code cassandra.os.Pressure}: the container's (cgroup v2) CPU, memory and I/O pressure stall times, memory
+ *       use and events, and the host's major page faults and swapping (/proc/vmstat): whether threads were stalled
+ *       by the kernel rather than by Cassandra</li>
  *   <li>{@code cassandra.accord.Executor}: each Accord executor's queues and cache</li>
  * </ul>
  * The periodic events default to a 1 s period; a recording's settings may change it (e.g. 100 ms). Registering
@@ -104,6 +108,38 @@ public final class JfrDiagnostics
         @Label("Want Zero Window Advertised") public long tcpWantZeroWindowAdv = -1;
     }
 
+    @Name("cassandra.os.Pressure")
+    @Label("Pressure Stalls")
+    @Category({ "Cassandra", "Operating System" })
+    @Description("Cumulative pressure stall times of this container's cgroup (/sys/fs/cgroup/*.pressure: 'some' = at least "
+                 + "one task stalled, 'full' = all non-idle tasks stalled), its memory use and events, and the host's major "
+                 + "faults and swap traffic (/proc/vmstat); -1 if absent")
+    @Period("1 s")
+    @StackTrace(false)
+    public static class Pressure extends Event
+    {
+        @Label("Local") public String local;
+        @Label("Local Accord Id") public int localAccordId = -1;
+        @Label("CPU Some") @Timespan(Timespan.MICROSECONDS) public long cpuSome = -1;
+        @Label("CPU Full") @Timespan(Timespan.MICROSECONDS) public long cpuFull = -1;
+        @Label("Memory Some") @Timespan(Timespan.MICROSECONDS) public long memorySome = -1;
+        @Label("Memory Full") @Timespan(Timespan.MICROSECONDS) public long memoryFull = -1;
+        @Label("IO Some") @Timespan(Timespan.MICROSECONDS) public long ioSome = -1;
+        @Label("IO Full") @Timespan(Timespan.MICROSECONDS) public long ioFull = -1;
+        @Label("Memory Current") @DataAmount public long memoryCurrent = -1;
+        @Label("Swap Current") @DataAmount public long swapCurrent = -1;
+        @Label("Memory Events High") public long memoryHigh = -1;
+        @Label("Memory Events Max") public long memoryMax = -1;
+        @Label("Memory Events OOM") public long memoryOom = -1;
+        @Label("Cgroup Major Faults") public long cgroupMajorFaults = -1;
+        @Label("Cgroup File Dirty") @DataAmount public long cgroupFileDirty = -1;
+        @Label("Cgroup File Writeback") @DataAmount public long cgroupFileWriteback = -1;
+        @Label("Host Major Faults") public long hostMajorFaults = -1;
+        @Label("Host Pages Swapped In") public long hostSwapIn = -1;
+        @Label("Host Pages Swapped Out") public long hostSwapOut = -1;
+        @Label("Host Direct Reclaim Scans") public long hostDirectScan = -1;
+    }
+
     @Name("cassandra.accord.Executor")
     @Label("Accord Executor")
     @Category({ "Cassandra", "Accord" })
@@ -140,8 +176,9 @@ public final class JfrDiagnostics
             d.add(MessagingJfrEvents.Inbound.class, () -> MessagingJfrEvents.emitInbound(messaging, context()));
             d.add(MessagingJfrEvents.InboundPeer.class, () -> MessagingJfrEvents.emitInboundPeers(messaging, context()));
             d.add(Tcp.class, JfrDiagnostics::emitTcp);
+            d.add(Pressure.class, JfrDiagnostics::emitPressure);
             d.add(Executor.class, JfrDiagnostics::emitExecutors);
-            logger.info("Registered JFR diagnostic events (cassandra.net.*, cassandra.os.Tcp, cassandra.accord.Executor)");
+            logger.info("Registered JFR diagnostic events (cassandra.net.*, cassandra.os.Tcp, cassandra.os.Pressure, cassandra.accord.Executor)");
             return d;
         }
         catch (Throwable t)
@@ -248,6 +285,102 @@ public final class JfrDiagnostics
         e.tcpToZeroWindowAdv = v.getOrDefault("TcpExt.TCPToZeroWindowAdv", -1L);
         e.tcpWantZeroWindowAdv = v.getOrDefault("TcpExt.TCPWantZeroWindowAdv", -1L);
         e.commit();
+    }
+
+    private static final Path CGROUP = Path.of("/sys/fs/cgroup");
+
+    private static void emitPressure()
+    {
+        Pressure e = new Pressure();
+        e.local = localName();
+        e.localAccordId = localAccordId();
+        long[] v = readPressure(CGROUP.resolve("cpu.pressure"));
+        e.cpuSome = v[0]; e.cpuFull = v[1];
+        v = readPressure(CGROUP.resolve("memory.pressure"));
+        e.memorySome = v[0]; e.memoryFull = v[1];
+        v = readPressure(CGROUP.resolve("io.pressure"));
+        e.ioSome = v[0]; e.ioFull = v[1];
+        e.memoryCurrent = readLong(CGROUP.resolve("memory.current"));
+        e.swapCurrent = readLong(CGROUP.resolve("memory.swap.current"));
+        Map<String, Long> events = readKeyValues(CGROUP.resolve("memory.events"));
+        e.memoryHigh = events.getOrDefault("high", -1L);
+        e.memoryMax = events.getOrDefault("max", -1L);
+        e.memoryOom = events.getOrDefault("oom", -1L);
+        Map<String, Long> stat = readKeyValues(CGROUP.resolve("memory.stat"));
+        e.cgroupMajorFaults = stat.getOrDefault("pgmajfault", -1L);
+        e.cgroupFileDirty = stat.getOrDefault("file_dirty", -1L);
+        e.cgroupFileWriteback = stat.getOrDefault("file_writeback", -1L);
+        Map<String, Long> vmstat = readKeyValues(Path.of("/proc/vmstat"));
+        e.hostMajorFaults = vmstat.getOrDefault("pgmajfault", -1L);
+        e.hostSwapIn = vmstat.getOrDefault("pswpin", -1L);
+        e.hostSwapOut = vmstat.getOrDefault("pswpout", -1L);
+        e.hostDirectScan = vmstat.getOrDefault("pgscan_direct", -1L);
+        e.commit();
+    }
+
+    /** {some, full} total= of a PSI file ("some avg10=0.00 avg60=0.00 avg300=0.00 total=123"), -1 if absent */
+    static long[] readPressure(Path file)
+    {
+        long[] v = { -1, -1 };
+        for (String line : readLines(file))
+        {
+            int i = line.indexOf("total=");
+            if (i < 0) continue;
+            try
+            {
+                long total = Long.parseLong(line.substring(i + 6).trim());
+                if (line.startsWith("some")) v[0] = total;
+                else if (line.startsWith("full")) v[1] = total;
+            }
+            catch (NumberFormatException ignore)
+            {
+            }
+        }
+        return v;
+    }
+
+    /** "key value" lines (memory.events, memory.stat, /proc/vmstat) */
+    static Map<String, Long> readKeyValues(Path file)
+    {
+        Map<String, Long> map = new HashMap<>();
+        for (String line : readLines(file))
+        {
+            int i = line.indexOf(' ');
+            if (i <= 0) continue;
+            try
+            {
+                map.put(line.substring(0, i), Long.parseLong(line.substring(i + 1).trim()));
+            }
+            catch (NumberFormatException ignore)
+            {
+            }
+        }
+        return map;
+    }
+
+    private static long readLong(Path file)
+    {
+        List<String> lines = readLines(file);
+        try
+        {
+            return lines.isEmpty() ? -1 : Long.parseLong(lines.get(0).trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return -1; // e.g. "max"
+        }
+    }
+
+    private static List<String> readLines(Path file)
+    {
+        try
+        {
+            return Files.isReadable(file) ? Files.readAllLines(file) : List.of();
+        }
+        catch (IOException e)
+        {
+            return List.of();
+        }
     }
 
     /** /proc/net/{snmp,netstat}: pairs of "<Proto>: <names...>" / "<Proto>: <values...>" lines */
