@@ -31,6 +31,8 @@ import org.apache.cassandra.distributed.api.ConsistencyLevel;
 import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.tcm.ClusterMetadataService;
 import org.apache.cassandra.tcm.Epoch;
@@ -42,6 +44,7 @@ import org.apache.cassandra.tcm.membership.NodeVersion;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 
@@ -104,6 +107,34 @@ public class ForceSnapshotTest extends TestBaseImpl
                     //ignore
                 }
             }
+        }
+    }
+
+    @Test
+    public void testRevertToEpochFromStaleView() throws IOException
+    {
+        try (Cluster cluster = init(builder().withNodes(3)
+                                             .withConfig(c -> c.set("unsafe_tcm_mode", "true"))
+                                             .start()))
+        {
+            long revertTo = cluster.get(1).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch());
+            cluster.schemaChange(withKeyspace("create table %s.gone (id int primary key)"));
+
+            // Stop node2 learning about new epochs, then move the log on (as an automatic snapshot would), so that
+            // node2 pins the reverted snapshot to an epoch which has already been taken by the time the CMS sees it.
+            cluster.filters().verbs(Verb.TCM_REPLICATION.id, Verb.TCM_NOTIFY_REQ.id).to(2).drop();
+            long staleEpoch = cluster.get(2).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch());
+            cluster.get(1).runOnInstance(() -> ClusterMetadataService.instance().triggerSnapshot());
+            assertEquals(staleEpoch, (long) cluster.get(2).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch()));
+
+            cluster.get(2).runOnInstance(() -> ClusterMetadataService.instance().revertToEpoch(Epoch.create(revertTo)));
+            cluster.filters().reset();
+
+            // the reverted snapshot was committed after the TriggerSnapshot, not in its place
+            long reverted = cluster.get(1).callOnInstance(() -> ClusterMetadata.current().epoch.getEpoch());
+            assertEquals(staleEpoch + 2, reverted);
+            ClusterUtils.waitForCMSToQuiesce(cluster, 1);
+            cluster.forEach(() -> assertNull(Schema.instance.getTableMetadata(KEYSPACE, "gone")));
         }
     }
 

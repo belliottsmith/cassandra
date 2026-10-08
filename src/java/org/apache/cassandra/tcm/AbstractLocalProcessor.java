@@ -82,6 +82,17 @@ public abstract class AbstractLocalProcessor implements Processor
             else
             {
                 result = executeStrictly(previous, transform);
+                // Every entry is committed to the distributed log at exactly previous.epoch + 1 (see tryCommitOne).
+                // A transformation which produces any other epoch (e.g. a ForceSnapshot whose epoch was pinned by
+                // the submitter against a now-stale view of the log) can never be committed: retrying the CAS would
+                // just spin until the deadline. Treat it as a rejection instead, so the caller learns of the newer
+                // epochs and can decide whether to resubmit.
+                if (result.isSuccess() && !result.success().metadata.epoch.isDirectlyAfter(previous.epoch))
+                {
+                    result = new Transformation.Rejected(INVALID, String.format("Transformation %s would produce epoch %s, but the next epoch after %s must be %s",
+                                                                              transformStr, result.success().metadata.epoch,
+                                                                              previous.epoch, previous.epoch.nextEpoch()));
+                }
             }
             Version previousVersion = previous.directory.commonSerializationVersion;
             if (result.isSuccess())
