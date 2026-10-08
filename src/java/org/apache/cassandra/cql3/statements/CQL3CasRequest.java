@@ -563,10 +563,8 @@ public class CQL3CasRequest implements CASRequest
         int idx = 0;
         for (RowUpdate update : updates)
         {
-            // Some operations may need to migrate to run in the transaction, so need to call forTxn to make sure this
-            // happens.
-            // see CASSANDRA-18337
-            ModificationStatement modification = update.stmt.forTxn();
+            // Some operations may need to be modified to run safely in a transaction, see CASSANDRA-18337
+            ModificationStatement modification = update.stmt.asTxnCompatible();
             QueryOptions options = update.options;
             fragments.addAll(modification.getTxnWriteFragment(idx++, state, options, partitionKey));
         }

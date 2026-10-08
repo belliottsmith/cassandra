@@ -100,6 +100,7 @@ import org.apache.cassandra.db.partitions.Partition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionIterators;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.db.rows.RowIterator;
 import org.apache.cassandra.db.view.View;
@@ -177,10 +178,6 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
     private final RegularAndStaticColumns conditionColumns;
 
     private final RegularAndStaticColumns requiresRead;
-    /**
-     * Used by {@link #forTxn()} to only compute a migrated copy of this statement for transactions
-     */
-    private ModificationStatement txnStmt;
 
     private final List<Function> functions;
 
@@ -228,7 +225,7 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
                 requiresReadBuilder.add(operation.column);
             }
         }
-        for (ReferenceOperation operation : operations.allSubstitutions())
+        for (ReferenceOperation operation : operations.allRefOps())
         {
             ColumnMetadata receiver = operation.getReceiver();
             updatedColumnsBuilder.add(receiver);
@@ -558,7 +555,12 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
 
     public boolean anyReferenceOperationMatches(Predicate<ReferenceOperation> test)
     {
-        return operations.anySubstitutionMatches(test);
+        return operations.anyRefOpMatches(test);
+    }
+
+    public boolean hasReferenceOperations()
+    {
+        return operations.hasRefOps();
     }
 
     public Iterable<ColumnMetadata> getColumnsWithConditions()
@@ -980,6 +982,7 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
 
     public List<PartitionUpdate> getTxnUpdate(ClientState state, QueryOptions options)
     {
+        // timestamp and nowInSeconds are defined at transaction execution time to ensure deterministic execution
         List<? extends IMutation> mutations = getMutations(state, options, false, 0, 0, new Dispatcher.RequestTime(0, 0));
         if (mutations.isEmpty())
             return Collections.emptyList();
@@ -1002,8 +1005,8 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
 
     public TxnReferenceOperations getTxnReferenceOps(QueryOptions options, ClientState state)
     {
-        List<TxnReferenceOperation> regularOps = getTxnReferenceOps(operations.regularSubstitutions(), options);
-        List<TxnReferenceOperation> staticOps = getTxnReferenceOps(operations.staticSubstitutions(), options);
+        List<TxnReferenceOperation> regularOps = getTxnReferenceOps(operations.regularRefOps(), options);
+        List<TxnReferenceOperation> staticOps = getTxnReferenceOps(operations.staticRefOps(), options);
         List<Clustering<?>> clusterings = txnClusterings(options, state);
         return new TxnReferenceOperations(metadata, clusterings, regularOps, staticOps);
     }
@@ -1016,28 +1019,24 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
         return Collections.emptyList();
     }
 
-    public ModificationStatement forTxn()
+    /**
+     * Returns a copy that can be submitted to a transaction for execution.
+     * It is expected to be called only once
+     */
+    public ModificationStatement asTxnCompatible()
     {
-        if (requiresRead.isEmpty()) return this;
-        ModificationStatement migrated = txnStmt;
-        if (migrated == null)
-        {
-            synchronized (requiresRead)
-            {
-                migrated = txnStmt;
-                if (migrated == null)
-                    txnStmt = migrated = withOperations(operations.forTxn(metadata));
-            }
-        }
-        return migrated;
+        Operations newOperations = operations.asTxnCompatible(metadata);
+        if (newOperations == operations)
+            return this;
+        return withOperations(newOperations);
     }
 
     protected abstract ModificationStatement withOperations(Operations operations);
 
     @VisibleForTesting
-    public List<ReferenceOperation> getSubstitutions()
+    public Collection<ReferenceOperation> getRefOps()
     {
-        return operations.allSubstitutions();
+        return operations.allRefOps();
     }
 
     public List<TxnWrite.Fragment> getTxnWriteFragment(int index, ClientState state, QueryOptions options, PartitionKey partitionKey)
@@ -1058,14 +1057,16 @@ public abstract class ModificationStatement implements CQLStatement.SingleKeyspa
         List<PartitionUpdate> baseUpdates = getTxnUpdate(state, options);
         TxnReferenceOperations referenceOps = getTxnReferenceOps(options, state);
         long timestamp = attrs.isTimestampSet() ? attrs.getTimestamp(TxnWrite.NO_TIMESTAMP, options) : TxnWrite.NO_TIMESTAMP;
+        // late bind operations need the ttl to be available at execution
+        int ttl = attrs.isTimeToLiveSet() && !referenceOps.isEmpty() ? getTimeToLive(options) : Cell.NO_TTL;
         if (baseUpdates.size() == 1)
         {
             PartitionUpdate baseUpdate = baseUpdates.get(0);
-            return Collections.singletonList(new TxnWrite.Fragment(keyCollector.apply(baseUpdate), index, baseUpdate, referenceOps, timestamp));
+            return Collections.singletonList(new TxnWrite.Fragment(keyCollector.apply(baseUpdate), index, baseUpdate, referenceOps, timestamp, ttl));
         }
         List<TxnWrite.Fragment> fragments = new ArrayList<>(baseUpdates.size());
         for (PartitionUpdate baseUpdate : baseUpdates)
-            fragments.add(new TxnWrite.Fragment(keyCollector.apply(baseUpdate), index, baseUpdate, referenceOps, timestamp));
+            fragments.add(new TxnWrite.Fragment(keyCollector.apply(baseUpdate), index, baseUpdate, referenceOps, timestamp, ttl));
         return fragments;
     }
 

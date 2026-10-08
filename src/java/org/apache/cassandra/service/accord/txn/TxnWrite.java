@@ -41,11 +41,13 @@ import accord.primitives.Seekable;
 import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
 import accord.utils.SimpleBitSet;
 import accord.utils.SimpleBitSets;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.RowUpdateBuilder;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.Columns;
@@ -62,6 +64,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.execution.AccordExecutor;
@@ -73,6 +76,7 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SimpleBitSetSerializers;
 
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
 import static org.apache.cassandra.db.rows.DeserializationHelper.Flag.FROM_REMOTE;
 import static org.apache.cassandra.utils.ArraySerializers.deserializeArray;
 import static org.apache.cassandra.utils.ArraySerializers.serializeArray;
@@ -82,6 +86,7 @@ import static org.apache.cassandra.utils.ArraySerializers.skipArray;
 public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Write
 {
     public static final long NO_TIMESTAMP = 0;
+    public static final int USE_DEFAULT_TTL = -1;
 
     @SuppressWarnings("unused")
     private static final Logger logger = LoggerFactory.getLogger(TxnWrite.class);
@@ -238,15 +243,64 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         public final int index;
         public final PartitionUpdate baseUpdate;
         public final TxnReferenceOperations referenceOps;
-        public final long timestamp;
+
+        /**
+         * If positive, a timestamp; if negative, a TTL; if zero, neither.
+         */
+        private final long timestampOrTtl;
 
         public Fragment(PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps, long timestamp)
+        {
+            this(encode(timestamp, USE_DEFAULT_TTL), key, index, baseUpdate, referenceOps);
+        }
+
+        public Fragment(PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps, long timestamp, int ttl)
+        {
+            this(encode(timestamp, ttl), key, index, baseUpdate, referenceOps);
+        }
+
+        private Fragment(long timestampOrTtl, PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps)
         {
             this.key = key;
             this.index = index;
             this.baseUpdate = baseUpdate;
             this.referenceOps = referenceOps;
-            this.timestamp = timestamp;
+            this.timestampOrTtl = timestampOrTtl;
+        }
+
+        private static final long MIN_ENCODED_TTL = -1L - Attributes.MAX_TTL;
+
+        private static long encode(long timestamp, int ttl)
+        {
+            if (ttl == USE_DEFAULT_TTL)
+            {
+                Invariants.requireArgument(timestamp >= 0, "Negative timestamp %d cannot be encoded", timestamp);
+                return timestamp;
+            }
+
+            Invariants.requireArgument(timestamp == NO_TIMESTAMP, "Cannot encode both a custom timestamp (%d) and TTL (%d)", timestamp, ttl);
+            Invariants.requireArgument(ttl >= 0 && ttl <= Attributes.MAX_TTL, "Invalid TTL %d", ttl);
+            return -1L - ttl;
+        }
+
+        public long timestampOrTtl()
+        {
+            return timestampOrTtl;
+        }
+
+        public long timestamp()
+        {
+            return Math.max(NO_TIMESTAMP, timestampOrTtl);
+        }
+
+        public int ttl(TableMetadata metadata)
+        {
+            return timestampOrTtl >= 0 ? metadata.params.defaultTimeToLive : (int) (-1L - timestampOrTtl);
+        }
+
+        public int ttlOrUseDefault()
+        {
+            return timestampOrTtl >= 0 ? USE_DEFAULT_TTL : (int) (-1L - timestampOrTtl);
         }
 
         public static int compareKeys(Fragment left, Fragment right)
@@ -260,19 +314,20 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Fragment fragment = (Fragment) o;
-            return index == fragment.index && key.equals(fragment.key) && baseUpdate.equals(fragment.baseUpdate) && referenceOps.equals(fragment.referenceOps);
+            return index == fragment.index && timestampOrTtl == fragment.timestampOrTtl && key.equals(fragment.key) && baseUpdate.equals(fragment.baseUpdate) && referenceOps.equals(fragment.referenceOps);
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hash(key, index, baseUpdate, referenceOps);
+            return Objects.hash(key, index, baseUpdate, referenceOps, timestampOrTtl);
         }
 
         @Override
         public String toString()
         {
-            return "Fragment{key=" + key + ", index=" + index + ", baseUpdate=" + baseUpdate + ", referenceOps=" + referenceOps + '}';
+            return "Fragment{key=" + key + ", index=" + index + ", baseUpdate=" + baseUpdate + ", referenceOps=" + referenceOps +
+                   (timestampOrTtl > 0 ? ", timestamp=" + timestampOrTtl : timestampOrTtl < 0 ? ", ttl=" + timestampOrTtl : "") + '}';
         }
 
         public boolean isComplete()
@@ -286,13 +341,14 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 return baseUpdate;
 
             DecoratedKey key = baseUpdate.partitionKey();
-            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(baseUpdate.metadata(),
+            TableMetadata metadata = baseUpdate.metadata();
+            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(metadata,
                                                                                 key,
                                                                                 columns(baseUpdate, referenceOps),
                                                                                 baseUpdate.rowCount(),
                                                                                 baseUpdate.canHaveShadowedData());
 
-            RowUpdateBuilder up = parameters.updateBuilder(baseUpdate.metadata(), key, index, timestamp);
+            RowUpdateBuilder up = parameters.updateBuilder(metadata, key, index, timestamp(), ttl(metadata));
             TxnData data = parameters.getData();
             Row staticRow = applyUpdates(baseUpdate.staticRow(), referenceOps.statics, key, Clustering.STATIC_CLUSTERING, up, data);
 
@@ -369,7 +425,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 out.writeUnsignedVInt32(fragment.index);
                 PartitionUpdate.serializer.serializeWithoutKey(fragment.baseUpdate, tables, out, version.messageVersion());
                 TxnReferenceOperations.serializer.serialize(fragment.referenceOps, tables, out, version);
-                out.writeUnsignedVInt(fragment.timestamp);
+                out.writeUnsignedVInt(fragment.timestampOrTtl);
             }
 
             public Fragment deserialize(PartitionKey key, TableMetadatas tables, DataInputPlus in, Version version) throws IOException
@@ -378,8 +434,10 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 // TODO (required): why FROM_REMOTE?
                 PartitionUpdate baseUpdate = PartitionUpdate.serializer.deserialize(key, tables, in, version.messageVersion(), FROM_REMOTE);
                 TxnReferenceOperations referenceOps = TxnReferenceOperations.serializer.deserialize(tables, in, version);
-                long timestamp = in.readUnsignedVInt();
-                return new Fragment(key, idx, baseUpdate, referenceOps, timestamp);
+                long timestampOrTtl = in.readUnsignedVInt();
+                if (timestampOrTtl < MIN_ENCODED_TTL)
+                    throw new IOException("Invalid encoded timestamp or TTL " + timestampOrTtl);
+                return new Fragment(timestampOrTtl, key, idx, baseUpdate, referenceOps);
             }
 
             public long serializedSize(Fragment fragment, TableMetadatas tables, Version version)
@@ -388,7 +446,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 size += TypeSizes.sizeofUnsignedVInt(fragment.index);
                 size += PartitionUpdate.serializer.serializedSizeWithoutKey(fragment.baseUpdate, tables, version.messageVersion());
                 size += TxnReferenceOperations.serializer.serializedSize(fragment.referenceOps, tables, version);
-                size += TypeSizes.sizeofUnsignedVInt(fragment.timestamp);
+                size += TypeSizes.sizeofUnsignedVInt(fragment.timestampOrTtl);
                 return size;
             }
 
@@ -481,6 +539,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             return AsyncChains.success(null);
 
         long timestamp = executeAt.uniqueHlc();
+        long nowInSec = MICROSECONDS.toSeconds(timestamp);
 
         // TODO (expected): optimise for the common single update case; lots of lists allocated
         List<PartitionUpdate> updates = new ArrayList<>(1);
@@ -503,7 +562,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             boolean preserveTimestamps = txnUpdate.preserveTimestamps().preserve;
             PartitionUpdate tmp = updates.size() == 1 ? updates.get(0) : PartitionUpdate.merge(updates);
             if (!preserveTimestamps)
-                tmp = new PartitionUpdate.Builder(tmp, 0).updateAllTimestamp(timestamp).build();
+                tmp = new PartitionUpdate.Builder(tmp, 0).updateTimesForAccord(timestamp, nowInSec).build();
             update = tmp;
         }
 

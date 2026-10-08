@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord.txn;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,6 +38,7 @@ import org.junit.Test;
 import accord.api.Key;
 import accord.primitives.Keys;
 import accord.primitives.Ranges;
+import accord.utils.DefaultRandom;
 import accord.utils.Gen;
 import accord.utils.Gens;
 import accord.utils.RandomSource;
@@ -44,7 +46,9 @@ import accord.utils.SimpleBitSet;
 import accord.utils.SortedArrays;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.marshal.BytesType;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -66,12 +70,14 @@ import org.apache.cassandra.service.accord.txn.TxnUpdate.BlockFragment;
 import org.apache.cassandra.service.accord.txn.TxnUpdate.ConditionalBlock;
 import org.apache.cassandra.service.accord.txn.TxnWrite.Fragment;
 import org.apache.cassandra.utils.AccordGenerators;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CassandraGenerators;
 import org.apache.cassandra.utils.Generators;
 
 import static accord.utils.Property.qt;
 import static accord.utils.SortedArrays.Search.FAST;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TxnUpdateTest
 {
@@ -371,6 +377,71 @@ public class TxnUpdateTest
     }
 
     @Test
+    public void fragmentSerde()
+    {
+        qt().check(rs -> {
+            List<TableMetadata> tables = tablesGen.next(rs);
+            TableMetadatas metadatas = TableMetadatas.of(tables);
+            Fragment expected = fragment(tables).next(rs);
+            try (DataOutputBuffer out = new DataOutputBuffer())
+            {
+                Fragment.serializer.serialize(expected, metadatas, out, Version.LATEST);
+                assertThat((long) out.getLength()).isEqualTo(Fragment.serializer.serializedSize(expected, metadatas, Version.LATEST));
+                try (DataInputBuffer in = new DataInputBuffer(out.buffer(), false))
+                {
+                    Fragment actual = Fragment.serializer.deserialize(expected.key, metadatas, in, Version.LATEST);
+                    assertThat(actual).isEqualTo(expected);
+                    assertThat(actual.timestampOrTtl()).isEqualTo(expected.timestampOrTtl());
+                }
+            }
+        });
+    }
+
+    /**
+     * A fragment's custom timestamp and TTL share a single serialized field; see {@link Fragment#timestamp()}
+     */
+    @Test
+    public void fragmentTimestampOrTtl() throws IOException
+    {
+        TableMetadata metadata = tablesGen.next(new DefaultRandom(0)).get(0);
+
+        assertTimestampAndTtl(fragment(metadata, TxnWrite.NO_TIMESTAMP, TxnWrite.USE_DEFAULT_TTL), TxnWrite.NO_TIMESTAMP, TxnWrite.USE_DEFAULT_TTL);
+        assertTimestampAndTtl(fragment(metadata, 1, TxnWrite.USE_DEFAULT_TTL), 1, TxnWrite.USE_DEFAULT_TTL);
+        assertTimestampAndTtl(fragment(metadata, Long.MAX_VALUE, TxnWrite.USE_DEFAULT_TTL), Long.MAX_VALUE, TxnWrite.USE_DEFAULT_TTL);
+        // USING TTL 0 must be distinguishable from no TTL, as it overrides any default_time_to_live
+        assertTimestampAndTtl(fragment(metadata, TxnWrite.NO_TIMESTAMP, LivenessInfo.NO_TTL), TxnWrite.NO_TIMESTAMP, LivenessInfo.NO_TTL);
+        assertTimestampAndTtl(fragment(metadata, TxnWrite.NO_TIMESTAMP, 1), TxnWrite.NO_TIMESTAMP, 1);
+        assertTimestampAndTtl(fragment(metadata, TxnWrite.NO_TIMESTAMP, Attributes.MAX_TTL), TxnWrite.NO_TIMESTAMP, Attributes.MAX_TTL);
+
+        // cannot encode both, nor values outside of the representable ranges
+        assertThatThrownBy(() -> fragment(metadata, 1, 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fragment(metadata, -1, TxnWrite.USE_DEFAULT_TTL)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fragment(metadata, TxnWrite.NO_TIMESTAMP, -2)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fragment(metadata, TxnWrite.NO_TIMESTAMP, Attributes.MAX_TTL + 1)).isInstanceOf(IllegalArgumentException.class);
+
+        // and we refuse to deserialize such values
+        TableMetadatas metadatas = TableMetadatas.of(Collections.singletonList(metadata));
+        Fragment fragment = fragment(metadata, TxnWrite.NO_TIMESTAMP, TxnWrite.USE_DEFAULT_TTL);
+        try (DataOutputBuffer out = new DataOutputBuffer())
+        {
+            out.writeUnsignedVInt32(fragment.index);
+            PartitionUpdate.serializer.serializeWithoutKey(fragment.baseUpdate, metadatas, out, Version.LATEST.messageVersion());
+            TxnReferenceOperations.serializer.serialize(fragment.referenceOps, metadatas, out, Version.LATEST);
+            out.writeUnsignedVInt(-2L - Attributes.MAX_TTL);
+            try (DataInputBuffer in = new DataInputBuffer(out.buffer(), false))
+            {
+                assertThatThrownBy(() -> Fragment.serializer.deserialize(fragment.key, metadatas, in, Version.LATEST)).isInstanceOf(IOException.class);
+            }
+        }
+    }
+
+    private static void assertTimestampAndTtl(Fragment fragment, long timestamp, int ttl)
+    {
+        assertThat(fragment.timestampOrTtl()).isEqualTo(timestamp);
+        assertThat(fragment.ttlOrUseDefault()).isEqualTo(ttl);
+    }
+
+    @Test
     public void slice()
     {
         qt().check(rs -> {
@@ -600,8 +671,21 @@ public class TxnUpdateTest
 
             PartitionUpdate update = PartitionUpdate.emptyUpdate(metadata, key);
 
-            return new Fragment(new PartitionKey(metadata.id, key), rs.nextInt(0, Integer.MAX_VALUE), update, TxnReferenceOperations.empty(), rs.nextLong(1, Long.MAX_VALUE));
+            PartitionKey partitionKey = new PartitionKey(metadata.id, key);
+            int index = rs.nextInt(0, Integer.MAX_VALUE);
+            switch (rs.nextInt(3))
+            {
+                case 0: return new Fragment(partitionKey, index, update, TxnReferenceOperations.empty(), TxnWrite.NO_TIMESTAMP);
+                case 1: return new Fragment(partitionKey, index, update, TxnReferenceOperations.empty(), rs.nextLong(1, Long.MAX_VALUE));
+                default: return new Fragment(partitionKey, index, update, TxnReferenceOperations.empty(), TxnWrite.NO_TIMESTAMP, rs.nextInt(0, Attributes.MAX_TTL + 1));
+            }
         };
+    }
+
+    private static Fragment fragment(TableMetadata metadata, long timestamp, int ttl)
+    {
+        DecoratedKey key = metadata.partitioner.decorateKey(ByteBufferUtil.bytes(1));
+        return new Fragment(new PartitionKey(metadata.id, key), 0, PartitionUpdate.emptyUpdate(metadata, key), TxnReferenceOperations.empty(), timestamp, ttl);
     }
 
     private static Gen<ConditionalBlock> conditionalBlock()

@@ -19,10 +19,6 @@ package org.apache.cassandra.db.rows;
 
 import java.util.Comparator;
 
-import javax.annotation.Nonnull;
-
-import com.google.common.base.Function;
-
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.DeletionPurger;
 import org.apache.cassandra.db.DeletionTime;
@@ -322,17 +318,10 @@ public abstract class ColumnData implements IMeasurableMemory
     public abstract ColumnData updateAllTimestamp(long newTimestamp);
 
     /**
-     * @param cellToMaybeNewListPath If the cell is a list append cell a new cell path is returned generated based on the Accord executeAt timestamp
+     * Return a copy with all time data updated to the provided newTimestamp and nowInSec.
+     * This method must only be invoked on a suitably zero-initialised object, as the ttl() is already offset from zero
      */
-    public abstract ColumnData updateTimesAndPathsForAccord(@Nonnull Function<Cell, CellPath> cellToMaybeNewListPath, long newTimestamp, long newLocalDeletionTime);
-
-    /**
-     * List paths are time UUIDs that increment for each item in the list and for Accord and Paxos
-     * should be based on the transaction's ballot/timestamp.
-     *
-     * @param maybeNewPath If this cell is a list append for a non-frozen list (multi-cell) then it will be new path generated using the executeAt timestamp, otherwise it will be the existing path
-     */
-    public abstract ColumnData updateAllTimesWithNewCellPathForComplexColumnData(@Nonnull CellPath maybeNewPath, long newTimestamp, long newLocalDeletionTime);
+    public abstract ColumnData updateTimesForAccord(long newTimestamp, long nowInSec);
 
     public abstract ColumnData markCounterLocalToBeCleared();
 
