@@ -41,11 +41,13 @@ import accord.primitives.Seekable;
 import accord.primitives.Seekables;
 import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
+import accord.utils.Invariants;
 import accord.utils.SimpleBitSet;
 import accord.utils.SimpleBitSets;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
 
+import org.apache.cassandra.cql3.Attributes;
 import org.apache.cassandra.cql3.RowUpdateBuilder;
 import org.apache.cassandra.db.Clustering;
 import org.apache.cassandra.db.Columns;
@@ -53,8 +55,10 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Mutation;
 import org.apache.cassandra.db.ReadCommand.PotentialTxnConflicts;
 import org.apache.cassandra.db.RegularAndStaticColumns;
+import org.apache.cassandra.db.SerializationHeader;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
+import org.apache.cassandra.db.rows.EncodingStats;
 import org.apache.cassandra.db.rows.Row;
 import org.apache.cassandra.io.ParameterisedVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputBuffer;
@@ -62,6 +66,7 @@ import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.schema.ColumnMetadata;
+import org.apache.cassandra.schema.TableMetadata;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.execution.AccordExecutor;
@@ -73,33 +78,36 @@ import org.apache.cassandra.utils.ObjectSizes;
 import org.apache.cassandra.utils.SimpleBitSetSerializers;
 
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static org.apache.cassandra.db.SerializationHeader.StableHeaderSerializer.STABLE;
 import static org.apache.cassandra.db.rows.DeserializationHelper.Flag.FROM_REMOTE;
 import static org.apache.cassandra.utils.ArraySerializers.deserializeArray;
 import static org.apache.cassandra.utils.ArraySerializers.serializeArray;
 import static org.apache.cassandra.utils.ArraySerializers.serializedArraySize;
 import static org.apache.cassandra.utils.ArraySerializers.skipArray;
 
-public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Write
+public class TxnWrite extends AbstractKeySorted<TxnWrite.LateBindWrite> implements Write
 {
     public static final long NO_TIMESTAMP = 0;
+    public static final int USE_DEFAULT_TTL = -1;
 
     @SuppressWarnings("unused")
     private static final Logger logger = LoggerFactory.getLogger(TxnWrite.class);
 
     private static final long EMPTY_SIZE = ObjectSizes.measure(new TxnWrite(TableMetadatas.none(), Collections.emptyList(), SimpleBitSets.allUnset(1)));
 
-    public static class Update extends AbstractParameterisedVersionedSerialized<PartitionUpdate, TableMetadatas>
+    public static class LateBindWrite extends AbstractParameterisedVersionedSerialized<PartitionUpdate, TableMetadatas>
     {
-        private static final long EMPTY_SIZE = ObjectSizes.measure(new Update(null, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER));
+        private static final long EMPTY_SIZE = ObjectSizes.measure(new LateBindWrite(null, 0, ByteBufferUtil.EMPTY_BYTE_BUFFER));
         public final PartitionKey key;
         public final int index;
 
-        public Update(PartitionKey key, int index, PartitionUpdate update, TableMetadatas tables)
+        public LateBindWrite(PartitionKey key, int index, PartitionUpdate update, TableMetadatas tables)
         {
             this(key, index, serializeInternal(update, tables, Version.LATEST));
         }
 
-        private Update(PartitionKey key, int index, ByteBuffer latestVersionBytes)
+        private LateBindWrite(PartitionKey key, int index, ByteBuffer latestVersionBytes)
         {
             super(latestVersionBytes);
             this.key = key;
@@ -121,8 +129,8 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             if (!super.equals(o)) return false;
-            Update update = (Update) o;
-            return index == update.index && key.equals(update.key);
+            LateBindWrite write = (LateBindWrite) o;
+            return index == write.index && key.equals(write.key);
         }
 
         @Override
@@ -152,10 +160,39 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             return bytes;
         }
 
+        public static class TimeOffsetHeaderDeserializer extends SerializationHeader.AbstractStableHeaderSerializer
+        {
+            final long timestampOffset;
+            final long nowInSecOffset;
+
+            TimeOffsetHeaderDeserializer(long timestampOffset, long nowInSecOffset)
+            {
+                this.timestampOffset = timestampOffset;
+                this.nowInSecOffset = nowInSecOffset;
+            }
+
+            @Override
+            protected SerializationHeader construct(TableMetadata metadata, RegularAndStaticColumns columns, EncodingStats stats)
+            {
+                EncodingStats offsetStats = new EncodingStats(stats.minTimestamp + timestampOffset, stats.minLocalDeletionTime + nowInSecOffset, stats.minTTL);
+                return super.construct(metadata, columns, offsetStats);
+            }
+        }
+
+        PartitionUpdate deserialize(TableMetadatas tables, TimeOffsetHeaderDeserializer timeOffset)
+        {
+            return deserialize(key, tables, latestVersionBytes, Version.LATEST, timeOffset, null);
+        }
+
         @Override
         protected PartitionUpdate deserialize(TableMetadatas tables, ByteBuffer bytes, Version version)
         {
-            return deserialize(key, tables, bytes, version);
+            return deserialize(key, tables, bytes, version, STABLE, null);
+        }
+
+        protected <P> PartitionUpdate deserialize(TableMetadatas tables, ByteBuffer bytes, Version version, SerializationHeader.ParameterizedSerializer<P> headerSerializer, P param)
+        {
+            return deserialize(key, tables, bytes, version, headerSerializer, param);
         }
 
         private static ByteBuffer serializeInternal(PartitionUpdate value, TableMetadatas tables, Version version)
@@ -171,11 +208,11 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             }
         }
 
-        private static PartitionUpdate deserialize(PartitionKey key, TableMetadatas tables, ByteBuffer bytes, Version version)
+        private static <P> PartitionUpdate deserialize(PartitionKey key, TableMetadatas tables, ByteBuffer bytes, Version version, SerializationHeader.ParameterizedSerializer<P> headerSerializer, P param)
         {
             try (DataInputBuffer in = new DataInputBuffer(bytes, true))
             {
-                return PartitionUpdate.serializer.deserialize(key, tables, in, version.messageVersion(), FROM_REMOTE);
+                return PartitionUpdate.serializer.deserialize(key, tables, in, version.messageVersion(), FROM_REMOTE, headerSerializer, param);
             }
             catch (IOException e)
             {
@@ -183,10 +220,10 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             }
         }
 
-        public static final ParameterisedVersionedSerializer<Update, TableMetadatasAndKeys, Version> serializer = new ParameterisedVersionedSerializer<Update, TableMetadatasAndKeys, Version>()
+        public static final ParameterisedVersionedSerializer<LateBindWrite, TableMetadatasAndKeys, Version> serializer = new ParameterisedVersionedSerializer<LateBindWrite, TableMetadatasAndKeys, Version>()
         {
             @Override
-            public void serialize(Update write, TableMetadatasAndKeys tablesAndKeys, DataOutputPlus out, Version version) throws IOException
+            public void serialize(LateBindWrite write, TableMetadatasAndKeys tablesAndKeys, DataOutputPlus out, Version version) throws IOException
             {
                 tablesAndKeys.serializeKey(write.key, out);
                 out.writeInt(write.index);
@@ -199,26 +236,26 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             }
 
             @Override
-            public Update deserialize(TableMetadatasAndKeys tablesAndKeys, DataInputPlus in, Version version) throws IOException
+            public LateBindWrite deserialize(TableMetadatasAndKeys tablesAndKeys, DataInputPlus in, Version version) throws IOException
             {
                 PartitionKey key = tablesAndKeys.deserializeKey(in);
                 int index = in.readInt();
                 ByteBuffer bytes = ByteBufferUtil.readWithVIntLength(in);
                 if (version != Version.LATEST)
                     bytes = reserialize(bytes, tablesAndKeys, version, Version.LATEST);
-                return new Update(key, index, bytes);
+                return new LateBindWrite(key, index, bytes);
             }
 
             @Override
             public void skip(TableMetadatasAndKeys tablesAndKeys, DataInputPlus in, Version version) throws IOException
             {
-                PartitionKey key = tablesAndKeys.deserializeKey(in);
-                int index = in.readInt();
+                tablesAndKeys.deserializeKey(in);
+                in.readInt();
                 ByteBufferUtil.skipWithVIntLength(in);
             }
 
             @Override
-            public long serializedSize(Update write, TableMetadatasAndKeys tablesAndKeys, Version version)
+            public long serializedSize(LateBindWrite write, TableMetadatasAndKeys tablesAndKeys, Version version)
             {
                 long size = 0;
                 size += tablesAndKeys.serializedKeySize(write.key);
@@ -238,15 +275,62 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         public final int index;
         public final PartitionUpdate baseUpdate;
         public final TxnReferenceOperations referenceOps;
-        public final long timestamp;
+
+        /** If positive, a timestamp; if negative, a TTL; if zero, neither. */
+        private final long timestampOrTtl;
 
         public Fragment(PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps, long timestamp)
+        {
+            this(encode(timestamp, USE_DEFAULT_TTL), key, index, baseUpdate, referenceOps);
+        }
+
+        public Fragment(PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps, long timestamp, int ttl)
+        {
+            this(encode(timestamp, ttl), key, index, baseUpdate, referenceOps);
+        }
+
+        private Fragment(long timestampOrTtl, PartitionKey key, int index, PartitionUpdate baseUpdate, TxnReferenceOperations referenceOps)
         {
             this.key = key;
             this.index = index;
             this.baseUpdate = baseUpdate;
             this.referenceOps = referenceOps;
-            this.timestamp = timestamp;
+            this.timestampOrTtl = timestampOrTtl;
+        }
+
+        private static final long MIN_ENCODED_TTL = -1L - Attributes.MAX_TTL;
+
+        private static long encode(long timestamp, int ttl)
+        {
+            if (ttl == USE_DEFAULT_TTL)
+            {
+                Invariants.requireArgument(timestamp >= 0, "Negative timestamp %d cannot be encoded", timestamp);
+                return timestamp;
+            }
+
+            Invariants.requireArgument(timestamp == NO_TIMESTAMP, "Cannot encode both a custom timestamp (%d) and TTL (%d)", timestamp, ttl);
+            Invariants.requireArgument(ttl >= 0 && ttl <= Attributes.MAX_TTL, "Invalid TTL %d", ttl);
+            return -1L - ttl;
+        }
+
+        public long timestampOrTtl()
+        {
+            return timestampOrTtl;
+        }
+
+        public long timestamp()
+        {
+            return Math.max(NO_TIMESTAMP, timestampOrTtl);
+        }
+
+        public int ttl(TableMetadata metadata)
+        {
+            return timestampOrTtl >= 0 ? metadata.params.defaultTimeToLive : (int) (-1L - timestampOrTtl);
+        }
+
+        public int ttlOrUseDefault()
+        {
+            return timestampOrTtl >= 0 ? USE_DEFAULT_TTL : (int) (-1L - timestampOrTtl);
         }
 
         public static int compareKeys(Fragment left, Fragment right)
@@ -260,19 +344,20 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Fragment fragment = (Fragment) o;
-            return index == fragment.index && key.equals(fragment.key) && baseUpdate.equals(fragment.baseUpdate) && referenceOps.equals(fragment.referenceOps);
+            return index == fragment.index && timestampOrTtl == fragment.timestampOrTtl && key.equals(fragment.key) && baseUpdate.equals(fragment.baseUpdate) && referenceOps.equals(fragment.referenceOps);
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hash(key, index, baseUpdate, referenceOps);
+            return Objects.hash(key, index, baseUpdate, referenceOps, timestampOrTtl);
         }
 
         @Override
         public String toString()
         {
-            return "Fragment{key=" + key + ", index=" + index + ", baseUpdate=" + baseUpdate + ", referenceOps=" + referenceOps + '}';
+            return "Fragment{key=" + key + ", index=" + index + ", baseUpdate=" + baseUpdate + ", referenceOps=" + referenceOps +
+                   (timestampOrTtl > 0 ? ", timestamp=" + timestampOrTtl : timestampOrTtl < 0 ? ", ttl=" + timestampOrTtl : "") + '}';
         }
 
         public boolean isComplete()
@@ -286,13 +371,14 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 return baseUpdate;
 
             DecoratedKey key = baseUpdate.partitionKey();
-            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(baseUpdate.metadata(),
+            TableMetadata metadata = baseUpdate.metadata();
+            PartitionUpdate.Builder updateBuilder = new PartitionUpdate.Builder(metadata,
                                                                                 key,
                                                                                 columns(baseUpdate, referenceOps),
                                                                                 baseUpdate.rowCount(),
                                                                                 baseUpdate.canHaveShadowedData());
 
-            RowUpdateBuilder up = parameters.updateBuilder(baseUpdate.metadata(), key, index, timestamp);
+            RowUpdateBuilder up = parameters.updateBuilder(metadata, key, index, timestamp(), ttl(metadata));
             TxnData data = parameters.getData();
             Row staticRow = applyUpdates(baseUpdate.staticRow(), referenceOps.statics, key, Clustering.STATIC_CLUSTERING, up, data);
 
@@ -310,9 +396,9 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             return updateBuilder.build();
         }
 
-        public Update completeSerialized(AccordUpdateParameters parameters, TableMetadatas tables)
+        public LateBindWrite completeSerialized(AccordUpdateParameters parameters, TableMetadatas tables)
         {
-            return new Update(key, index, complete(parameters), tables);
+            return new LateBindWrite(key, index, complete(parameters), tables);
         }
 
         private static Columns columns(Columns current, List<TxnReferenceOperation> referenceOps)
@@ -369,7 +455,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 out.writeUnsignedVInt32(fragment.index);
                 PartitionUpdate.serializer.serializeWithoutKey(fragment.baseUpdate, tables, out, version.messageVersion());
                 TxnReferenceOperations.serializer.serialize(fragment.referenceOps, tables, out, version);
-                out.writeUnsignedVInt(fragment.timestamp);
+                out.writeUnsignedVInt(fragment.timestampOrTtl);
             }
 
             public Fragment deserialize(PartitionKey key, TableMetadatas tables, DataInputPlus in, Version version) throws IOException
@@ -378,8 +464,10 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 // TODO (required): why FROM_REMOTE?
                 PartitionUpdate baseUpdate = PartitionUpdate.serializer.deserialize(key, tables, in, version.messageVersion(), FROM_REMOTE);
                 TxnReferenceOperations referenceOps = TxnReferenceOperations.serializer.deserialize(tables, in, version);
-                long timestamp = in.readUnsignedVInt();
-                return new Fragment(key, idx, baseUpdate, referenceOps, timestamp);
+                long timestampOrTtl = in.readUnsignedVInt();
+                if (timestampOrTtl < MIN_ENCODED_TTL)
+                    throw new IOException("Invalid encoded timestamp or TTL " + timestampOrTtl);
+                return new Fragment(timestampOrTtl, key, idx, baseUpdate, referenceOps);
             }
 
             public long serializedSize(Fragment fragment, TableMetadatas tables, Version version)
@@ -388,7 +476,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
                 size += TypeSizes.sizeofUnsignedVInt(fragment.index);
                 size += PartitionUpdate.serializer.serializedSizeWithoutKey(fragment.baseUpdate, tables, version.messageVersion());
                 size += TxnReferenceOperations.serializer.serializedSize(fragment.referenceOps, tables, version);
-                size += TypeSizes.sizeofUnsignedVInt(fragment.timestamp);
+                size += TypeSizes.sizeofUnsignedVInt(fragment.timestampOrTtl);
                 return size;
             }
 
@@ -427,14 +515,14 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
     public final TableMetadatas tables;
     private final SimpleBitSet conditionalBlockBitSet;
 
-    private TxnWrite(TableMetadatas tables, Update[] items, SimpleBitSet conditionalBlockBitSet)
+    private TxnWrite(TableMetadatas tables, LateBindWrite[] items, SimpleBitSet conditionalBlockBitSet)
     {
         super(items, Domain.Key);
         this.tables = tables;
         this.conditionalBlockBitSet = conditionalBlockBitSet;
     }
 
-    public TxnWrite(TableMetadatas tables, List<Update> items, SimpleBitSet conditionalBlockBitSet)
+    public TxnWrite(TableMetadatas tables, List<LateBindWrite> items, SimpleBitSet conditionalBlockBitSet)
     {
         super(items, Domain.Key);
         this.tables = tables;
@@ -442,21 +530,21 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
     }
 
     @Override
-    int compareNonKeyFields(Update left, Update right)
+    int compareNonKeyFields(LateBindWrite left, LateBindWrite right)
     {
         return Integer.compare(left.index, right.index);
     }
 
     @Override
-    Seekable getKey(Update item)
+    Seekable getKey(LateBindWrite item)
     {
         return item.key;
     }
 
     @Override
-    Update[] newArray(int size)
+    LateBindWrite[] newArray(int size)
     {
-        return new Update[size];
+        return new LateBindWrite[size];
     }
 
     public void unmemoize()
@@ -481,6 +569,8 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             return AsyncChains.success(null);
 
         long timestamp = executeAt.uniqueHlc();
+        long nowInSec = MICROSECONDS.toSeconds(timestamp);
+        LateBindWrite.TimeOffsetHeaderDeserializer offsetHeaderDeserializer = new LateBindWrite.TimeOffsetHeaderDeserializer(timestamp, nowInSec);
 
         // TODO (expected): optimise for the common single update case; lots of lists allocated
         List<PartitionUpdate> updates = new ArrayList<>(1);
@@ -488,11 +578,12 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             // Apply updates not specified fully by the client but built from fragments completed by data from reads.
             // This occurs, for example, when an UPDATE statement uses a value assigned by a LET statement.
-            forEachWithKey(key, write -> updates.add(write.deserialize(tables)));
+            // These are constructed in TxnUpdate.apply()
+            forEachWithKey(key, write -> updates.add(write.deserialize(tables, offsetHeaderDeserializer)));
             // Apply updates that are fully specified by the client and not reliant on data from reads.
             // ex. INSERT INTO tbl (a, b, c) VALUES (1, 2, 3)
             // These updates are persisted only in TxnUpdate and not in TxnWrite to avoid duplication.
-            txnUpdate.completeUpdatesForKey(updates, conditionalBlockBitSet, (RoutableKey) key, tables);
+            txnUpdate.completeWritesForKey(updates, conditionalBlockBitSet, (RoutableKey) key, tables);
         }
 
         if (updates.isEmpty())
@@ -503,7 +594,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
             boolean preserveTimestamps = txnUpdate.preserveTimestamps();
             PartitionUpdate tmp = updates.size() == 1 ? updates.get(0) : PartitionUpdate.merge(updates);
             if (!preserveTimestamps)
-                tmp = new PartitionUpdate.Builder(tmp, 0).updateAllTimestamp(timestamp).build();
+                tmp = new PartitionUpdate.Builder(tmp, 0).updateTimesForAccord(timestamp, nowInSec).build();
             update = tmp;
         }
 
@@ -526,7 +617,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             write.tables.serializeSelf(out);
             SimpleBitSetSerializers.any.serialize(write.conditionalBlockBitSet, out);
-            serializeArray(write.items, new TableMetadatasAndKeys(write.tables, keys), out, version, Update.serializer);
+            serializeArray(write.items, new TableMetadatasAndKeys(write.tables, keys), out, version, LateBindWrite.serializer);
         }
 
         @Override
@@ -534,7 +625,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             TableMetadatas tables = TableMetadatas.deserializeSelf(in);
             SimpleBitSet conditionalBlockBitSet = SimpleBitSetSerializers.any.deserialize(in);
-            return new TxnWrite(tables, deserializeArray(new TableMetadatasAndKeys(tables, keys), in, version, Update.serializer, Update[]::new), conditionalBlockBitSet);
+            return new TxnWrite(tables, deserializeArray(new TableMetadatasAndKeys(tables, keys), in, version, LateBindWrite.serializer, LateBindWrite[]::new), conditionalBlockBitSet);
         }
 
         @Override
@@ -542,7 +633,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             TableMetadatas tables = TableMetadatas.deserializeSelf(in);
             SimpleBitSetSerializers.any.deserialize(in);
-            skipArray(new TableMetadatasAndKeys(tables, keys), in, version, Update.serializer);
+            skipArray(new TableMetadatasAndKeys(tables, keys), in, version, LateBindWrite.serializer);
         }
 
         @Override
@@ -550,7 +641,7 @@ public class TxnWrite extends AbstractKeySorted<TxnWrite.Update> implements Writ
         {
             return write.tables.serializedSelfSize()
                    + SimpleBitSetSerializers.any.serializedSize(write.conditionalBlockBitSet)
-                   + serializedArraySize(write.items, new TableMetadatasAndKeys(write.tables, keys), version, Update.serializer);
+                   + serializedArraySize(write.items, new TableMetadatasAndKeys(write.tables, keys), version, LateBindWrite.serializer);
         }
     };
 }

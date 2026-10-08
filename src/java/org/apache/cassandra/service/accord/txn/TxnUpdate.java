@@ -67,6 +67,7 @@ import org.apache.cassandra.service.accord.serializers.TableMetadatasAndKeys;
 import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.accord.txn.TxnCondition.SerializedTxnCondition;
 import org.apache.cassandra.service.accord.txn.TxnWrite.Fragment;
+import org.apache.cassandra.service.accord.txn.TxnWrite.LateBindWrite;
 import org.apache.cassandra.tcm.ClusterMetadata;
 import org.apache.cassandra.transport.ProtocolVersion;
 import org.apache.cassandra.utils.ArraySerializers;
@@ -942,7 +943,7 @@ public final class TxnUpdate extends AccordUpdate
         ClusterMetadata cm = ClusterMetadata.current();
         checkState(cm.epoch.getEpoch() >= executeAt.epoch(), "TCM epoch %d is < executeAt epoch %d", cm.epoch.getEpoch(), executeAt.epoch());
 
-        Pair<List<TxnWrite.Update>, SimpleBitSet> pair = null;
+        Pair<List<LateBindWrite>, SimpleBitSet> pair = null;
         try
         {
             validationException = null;
@@ -957,12 +958,12 @@ public final class TxnUpdate extends AccordUpdate
         if (pair == null)
             return new TxnWrite(TableMetadatas.none(), Collections.emptyList(), SimpleBitSets.allUnset(numConditionalBlocks()));
 
-        List<TxnWrite.Update> allUpdates = pair.left;
+        List<LateBindWrite> allWrites = pair.left;
         SimpleBitSet conditionalBlockBitSet = pair.right;
         if (keys.isEmpty())
             return new TxnWrite(TableMetadatas.none(), Collections.emptyList(), SimpleBitSets.allUnset(numConditionalBlocks()));
 
-        return new TxnWrite(tables, allUpdates, conditionalBlockBitSet);
+        return new TxnWrite(tables, allWrites, conditionalBlockBitSet);
     }
     
     private boolean checkCondition(Data data, SerializedTxnCondition condition)
@@ -973,7 +974,7 @@ public final class TxnUpdate extends AccordUpdate
         return deserializedCondition.applies((TxnData) data);
     }
 
-    public void completeUpdatesForKey(List<PartitionUpdate> updates, SimpleBitSet conditionalBlockBitSet, RoutableKey key, TableMetadatas tables)
+    public void completeWritesForKey(List<PartitionUpdate> writes, SimpleBitSet conditionalBlockBitSet, RoutableKey key, TableMetadatas tables)
     {
         // each block is a separate IF/ELSE/END
         for (Block block : blocks)
@@ -995,7 +996,7 @@ public final class TxnUpdate extends AccordUpdate
                     List<Fragment> fragments = deserialize(tables, block, conditionalBlock.fragmentIds);
                     for (Fragment fragment : fragments)
                         if (fragment.isComplete() && fragment.key.equals(key))
-                            updates.add(fragment.baseUpdate);
+                            writes.add(fragment.baseUpdate);
                 }
             }
         }
@@ -1102,7 +1103,7 @@ public final class TxnUpdate extends AccordUpdate
     }
 
     @Nullable
-    private Pair<List<TxnWrite.Update>, SimpleBitSet> processCondition(Timestamp executeAt, Data data)
+    private Pair<List<LateBindWrite>, SimpleBitSet> processCondition(Timestamp executeAt, Data data)
     {
         int numConditionalBlocks = numConditionalBlocks();
         SimpleBitSet conditionalBlocksMatched = SimpleBitSet.allocate(numConditionalBlocks);
@@ -1126,14 +1127,14 @@ public final class TxnUpdate extends AccordUpdate
 
         if (fragments == null) return null;
 
-        List<TxnWrite.Update> allUpdates = new ArrayList<>(fragments.size());
+        List<LateBindWrite> allWrites = new ArrayList<>(fragments.size());
         QueryOptions options = QueryOptions.forProtocolVersion(ProtocolVersion.CURRENT);
         AccordUpdateParameters parameters = new AccordUpdateParameters((TxnData) data, options, executeAt.uniqueHlc());
 
         for (Fragment fragment : fragments)
             if (!fragment.isComplete())
-                allUpdates.add(fragment.completeSerialized(parameters, tables));
-        return Pair.create(allUpdates, conditionalBlocksMatched);
+                allWrites.add(fragment.completeSerialized(parameters, tables));
+        return Pair.create(allWrites, conditionalBlocksMatched);
     }
 
     private int numConditionalBlocks()

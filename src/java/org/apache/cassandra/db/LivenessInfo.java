@@ -19,6 +19,8 @@ package org.apache.cassandra.db;
 
 import java.util.Objects;
 
+import accord.utils.Invariants;
+
 import org.apache.cassandra.cache.IMeasurableMemory;
 import org.apache.cassandra.db.rows.Cell;
 import org.apache.cassandra.serializers.MarshalException;
@@ -234,6 +236,22 @@ public interface LivenessInfo extends IMeasurableMemory
     default LivenessInfo withUpdatedTimestampAndLocalDeletionTime(long newTimestamp, long newLocalDeletionTime, boolean applyOverflowPolicy)
     {
         return LivenessInfo.create(newTimestamp, ttl(), newLocalDeletionTime, applyOverflowPolicy);
+    }
+
+    /**
+     * Return a copy with all time data updated to the provided newTimestamp and nowInSec.
+     * This method must only be invoked on a suitably zero-initialised object, as the ttl() is already offset from zero
+     */
+    default LivenessInfo withUpdatedTimesForAccord(long newTimestamp, long nowInSec)
+    {
+        if (isEmpty())
+            return this;
+        Invariants.require(timestamp() == 0, "Only a zero-initialised LivenessInfo may invoke withUpdatedTimesForAccord, to ensure ttls are not corrupted");
+        if (!isExpiring())
+            return create(newTimestamp);
+        if (ttl() == EXPIRED_LIVENESS_TTL)
+            return withExpirationTime(newTimestamp, EXPIRED_LIVENESS_TTL, nowInSec);
+        return expiring(newTimestamp, ttl(), nowInSec);
     }
 
     @Override
