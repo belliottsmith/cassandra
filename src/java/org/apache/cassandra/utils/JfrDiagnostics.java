@@ -58,8 +58,14 @@ import org.apache.cassandra.service.accord.execution.AccordExecutor;
  *   <li>{@code cassandra.os.Pressure}: the container's (cgroup v2) CPU, memory and I/O pressure stall times, memory
  *       use and events, and the host's major page faults and swapping (/proc/vmstat): whether threads were stalled
  *       by the kernel rather than by Cassandra</li>
+ *   <li>{@code cassandra.os.Threads}: this JVM's threads in uninterruptible sleep (D) or running (R), from
+ *       /proc/self/task, with the kernel wait channel of each D thread: threads the profiler cannot sample because
+ *       they are blocked in the kernel (page faults on unlocked mappings, mmap_lock contention, ...)</li>
  *   <li>{@code cassandra.accord.Executor}: each Accord executor's queues and cache</li>
  * </ul>
+ * {@code cassandra.os.Pressure} also records the host's CPU steal time (/proc/stat): time the hypervisor did not run
+ * this (virtual) machine's CPUs. A stalled thread with no CPU time, no samples and no pressure stall time, while
+ * other threads keep running, is what a descheduled vCPU looks like from inside the guest.
  * The periodic events default to a 1 s period; a recording's settings may change it (e.g. 100 ms). Registering
  * costs nothing while no recording enables the events: JFR only invokes the hooks for enabled periodic events.
  * The hooks are registered by {@link MessagingService} on construction and removed on its shutdown, so in-JVM dtest
@@ -138,6 +144,28 @@ public final class JfrDiagnostics
         @Label("Host Pages Swapped In") public long hostSwapIn = -1;
         @Label("Host Pages Swapped Out") public long hostSwapOut = -1;
         @Label("Host Direct Reclaim Scans") public long hostDirectScan = -1;
+        @Label("Host Steal") @Timespan(Timespan.MILLISECONDS) @Description("cumulative CPU steal time, all CPUs (/proc/stat)")
+        public long hostSteal = -1;
+        @Label("Host Max CPU Steal") @Timespan(Timespan.MILLISECONDS) @Description("the most steal time of any one CPU since the previous event")
+        public long hostMaxCpuSteal = -1;
+    }
+
+    @Name("cassandra.os.Threads")
+    @Label("Kernel Thread States")
+    @Category({ "Cassandra", "Operating System" })
+    @Description("This JVM's threads in uninterruptible sleep (D) and running (R) states (/proc/self/task/*/stat), with the "
+                 + "kernel wait channel (wchan) of each D thread")
+    @Period("1 s")
+    @StackTrace(false)
+    public static class Threads extends Event
+    {
+        @Label("Local") public String local;
+        @Label("Local Accord Id") public int localAccordId = -1;
+        @Label("Threads") public int threads;
+        @Label("Running") public int running;
+        @Label("Uninterruptible") public int uninterruptible;
+        @Label("Uninterruptible Threads") @Description("name(tid):wchan of each D thread, at most 32")
+        public String uninterruptibleThreads;
     }
 
     @Name("cassandra.accord.Executor")
@@ -177,8 +205,9 @@ public final class JfrDiagnostics
             d.add(MessagingJfrEvents.InboundPeer.class, () -> MessagingJfrEvents.emitInboundPeers(messaging, context()));
             d.add(Tcp.class, JfrDiagnostics::emitTcp);
             d.add(Pressure.class, JfrDiagnostics::emitPressure);
+            d.add(Threads.class, JfrDiagnostics::emitThreads);
             d.add(Executor.class, JfrDiagnostics::emitExecutors);
-            logger.info("Registered JFR diagnostic events (cassandra.net.*, cassandra.os.Tcp, cassandra.os.Pressure, cassandra.accord.Executor)");
+            logger.info("Registered JFR diagnostic events (cassandra.net.*, cassandra.os.Tcp, cassandra.os.Pressure, cassandra.os.Threads, cassandra.accord.Executor)");
             return d;
         }
         catch (Throwable t)
@@ -315,6 +344,81 @@ public final class JfrDiagnostics
         e.hostSwapIn = vmstat.getOrDefault("pswpin", -1L);
         e.hostSwapOut = vmstat.getOrDefault("pswpout", -1L);
         e.hostDirectScan = vmstat.getOrDefault("pgscan_direct", -1L);
+        readSteal(e);
+        e.commit();
+    }
+
+    private static final int USER_HZ_MS = 10; // /proc/stat is in USER_HZ (100/s) on Linux
+    private static long[] previousCpuSteal; // guarded by the JFR periodic thread
+
+    /** /proc/stat: "cpu  user nice system idle iowait irq softirq steal ..." and the same per "cpuN" */
+    private static void readSteal(Pressure e)
+    {
+        List<String> lines = readLines(Path.of("/proc/stat"));
+        List<Long> perCpu = new ArrayList<>();
+        for (String line : lines)
+        {
+            if (!line.startsWith("cpu")) continue;
+            String[] f = line.trim().split("\\s+");
+            if (f.length < 9) continue;
+            long steal;
+            try { steal = Long.parseLong(f[8]); } catch (NumberFormatException ex) { continue; }
+            if (f[0].equals("cpu")) e.hostSteal = steal * USER_HZ_MS;
+            else perCpu.add(steal);
+        }
+        long[] now = perCpu.stream().mapToLong(Long::longValue).toArray();
+        long[] previous = previousCpuSteal;
+        if (previous != null && previous.length == now.length)
+        {
+            long max = 0;
+            for (int i = 0; i < now.length; i++) max = Math.max(max, now[i] - previous[i]);
+            e.hostMaxCpuSteal = max * USER_HZ_MS;
+        }
+        previousCpuSteal = now;
+    }
+
+    private static final Path SELF_TASKS = Path.of("/proc/self/task");
+
+    private static void emitThreads()
+    {
+        if (!Files.isDirectory(SELF_TASKS))
+            return;
+        Threads e = new Threads();
+        e.local = localName();
+        e.localAccordId = localAccordId();
+        StringBuilder blocked = new StringBuilder();
+        int listed = 0;
+        try (java.nio.file.DirectoryStream<Path> tasks = Files.newDirectoryStream(SELF_TASKS))
+        {
+            for (Path task : tasks)
+            {
+                List<String> stat = readLines(task.resolve("stat"));
+                if (stat.isEmpty()) continue;
+                // "<tid> (<comm>) <state> ...": comm may contain spaces and parentheses
+                String line = stat.get(0);
+                int open = line.indexOf('('), close = line.lastIndexOf(')');
+                if (open < 0 || close < 0 || close + 2 >= line.length()) continue;
+                e.threads++;
+                char state = line.charAt(close + 2);
+                if (state == 'R') e.running++;
+                else if (state == 'D')
+                {
+                    e.uninterruptible++;
+                    if (listed++ < 32)
+                    {
+                        List<String> wchan = readLines(task.resolve("wchan"));
+                        if (blocked.length() > 0) blocked.append(", ");
+                        blocked.append(line, open + 1, close).append('(').append(task.getFileName()).append("):")
+                               .append(wchan.isEmpty() ? "?" : wchan.get(0));
+                    }
+                }
+            }
+        }
+        catch (IOException | RuntimeException ex)
+        {
+            return;
+        }
+        e.uninterruptibleThreads = blocked.toString();
         e.commit();
     }
 
