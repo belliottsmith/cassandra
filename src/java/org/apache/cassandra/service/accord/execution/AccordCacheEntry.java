@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 import javax.annotation.Nullable;
 
@@ -248,6 +249,18 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
                            "%s cannot move to fifo on %s: queue is %s", task, key, queue == null ? "null" : queue.getClass().getSimpleName() + " " + queue);
         AccordCacheEntryQueue q = (AccordCacheEntryQueue) queue;
         return q.moveToFifo(this, task);
+    }
+
+    /**
+     * See {@link AccordCacheEntryQueue#collectOvertakenByFifo}. Only a loaded entry maintains a priority order, and only
+     * a full queue can have more than one claim waiting, so otherwise there is nothing to collect.
+     */
+    final void collectOvertakenByFifo(SafeTask<?> overtaker, int limit, Predicate<SafeTask<?>> filter, List<SafeTask<?>> into)
+    {
+        if (limit <= 0 || !isLoaded() || isUnsafeToRead() || !(queue instanceof AccordCacheEntryQueue))
+            return;
+
+        ((AccordCacheEntryQueue) queue).collectOvertakenByFifo(overtaker, limit, filter, into);
     }
 
     // drains ONLY those queued with addWaitingToLoad; addFifo are included in the result but are not removed from the collection

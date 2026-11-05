@@ -269,10 +269,16 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     private static final int SEQUENCED_MASK = 0x3 << SEQUENCED_SHIFT;
     private static final int SEQUENCED_PRIORITY = 0x1 << SEQUENCED_SHIFT;
     private static final int SEQUENCED_ATOMIC = 0x2 << SEQUENCED_SHIFT;
-    private static final int SEQUENCED_ATOMIC_AND_QUEUED = 0x3 << SEQUENCED_SHIFT;
 
-    private static final int TRANCHE_SHIFT = 22;
-    static final int MAX_TRANCHE = 0x3ff;
+    /**
+     * We hold fifo positions in our cache entry queues. Independent of the declared sequence: ATOMIC tasks take fifo
+     * positions at setup (or first run, if INCR), INCR tasks that hold their txnId locks between runs on first run, and any
+     * waiting task may be promoted to fifo when overtaken by another fifo claim (see SafeTask.promoteOvertakenExclusive).
+     */
+    private static final int CACHE_QUEUED_FIFO_BIT = 1 << 22;
+
+    private static final int TRANCHE_SHIFT = 23;
+    static final int MAX_TRANCHE = 0x1ff;
     private static final int TRANCHE_MASK = MAX_TRANCHE << TRANCHE_SHIFT;
 
     static
@@ -280,6 +286,9 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         Invariants.require(SEQUENCED_PRIORITY == BY_PRIORITY.ordinal() << SEQUENCED_SHIFT);
         Invariants.require(SEQUENCED_ATOMIC == ATOMIC.ordinal() << SEQUENCED_SHIFT);
         Invariants.require(ExecutionContext.ExecutionSequence.values().length <= 3);
+        Invariants.require((CACHE_QUEUED_FIFO_BIT & (SEQUENCED_MASK | TRANCHE_MASK)) == 0);
+        Invariants.require((SEQUENCED_MASK & TRANCHE_MASK) == 0);
+        Invariants.require(TRANCHE_MASK >>> TRANCHE_SHIFT == MAX_TRANCHE); // i.e. the tranche occupies the top bits
     }
 
     // TODO (desired): quite heavy to pass-through tracing session state we mostly don't use
@@ -922,23 +931,21 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         return (info & SEQUENCED_MASK) == SEQUENCED_PRIORITY;
     }
 
-    /** the sequence we were set up with, ignoring the fifo-claim upgrade that shares the same field */
+    /** the sequence we were set up with */
     final boolean isSequencedBy(ExecutionContext.ExecutionSequence sequence)
     {
-        int sequenced = info & SEQUENCED_MASK;
-        if (sequenced == SEQUENCED_ATOMIC_AND_QUEUED)
-            sequenced = SEQUENCED_ATOMIC;
-        return sequenced == sequence.ordinal() << SEQUENCED_SHIFT;
+        return (info & SEQUENCED_MASK) == sequence.ordinal() << SEQUENCED_SHIFT;
     }
 
+    /** the declared sequence is ATOMIC; NOT implied by {@link #isCacheQueuedFifo()} */
     final boolean isAtomic()
     {
-        return (info & SEQUENCED_MASK) >= SEQUENCED_ATOMIC;
+        return (info & SEQUENCED_MASK) == SEQUENCED_ATOMIC;
     }
 
     final boolean isCacheQueuedFifo()
     {
-        return (info & SEQUENCED_MASK) == SEQUENCED_ATOMIC_AND_QUEUED;
+        return 0 != (info & CACHE_QUEUED_FIFO_BIT);
     }
 
     final boolean isCacheQueued()
@@ -968,11 +975,11 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         info |= queue.ordinal() << EXECUTOR_QUEUE_SHIFT;
     }
 
-    // supersedes priority, in whichever order they're called
+    // supersedes the declared sequence for cache queue placement, in whichever order they're called; but does not
+    // otherwise modify it, so e.g. isAtomic() and isUnsequenced() continue to report the declared sequence
     final void setCacheQueuedFifoExclusive()
     {
-        Invariants.require(isAtomic() || isIncremental());
-        info |= SEQUENCED_ATOMIC_AND_QUEUED | VALIDATE_CACHE_QUEUED_BIT;
+        info |= CACHE_QUEUED_FIFO_BIT | VALIDATE_CACHE_QUEUED_BIT;
     }
 
     final void setCacheQueuedExclusive()

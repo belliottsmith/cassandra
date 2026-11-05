@@ -453,9 +453,9 @@ public class AccordCacheEntryTest
      * to hold - a fresh stamp would sort behind everything that queued after it, and so would block nothing - so
      * {@code reclaimFifoHead} requires the stamp rather than degrading to a claim that blocks nobody.
      *
-     * <p>Production never asks: {@code NonSyncState.postRunExclusive} retains only for {@code isAtomic()}, which is
-     * exactly the set of non-sync tasks that hold a fifo claim (ATOMIC, or INCR with a txnId, which
-     * {@code prepareExclusiveMayThrow} upgrades on its first run). A failed round of any other fan-out releases
+     * <p>Production never asks: {@code NonSyncState.postRunExclusive} retains only for {@code isAtomic()}, and an ATOMIC
+     * non-sync task holds a fifo claim once started (ATOMIC consequences take one at setup, and
+     * {@code prepareExclusiveMayThrow} upgrades any other on its first run). A failed round of any other fan-out releases
      * everything instead, which is
      * {@code AccordFailedKeyTest#bodyFailureThatNeedNotBeWitnessedReleasesEverything}.
      */

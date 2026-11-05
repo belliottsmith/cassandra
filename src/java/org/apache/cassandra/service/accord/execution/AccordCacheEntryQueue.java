@@ -19,6 +19,8 @@
 package org.apache.cassandra.service.accord.execution;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.function.Predicate;
 
 import accord.utils.ArrayBuffers.BufferList;
 import accord.utils.Invariants;
@@ -820,6 +822,27 @@ class AccordCacheEntryQueue
                 return i;
         }
         return -1;
+    }
+
+    /**
+     * Collect, in queue order (i.e. ascending {@link #compare} order), up to {@code limit} tasks from the priority region
+     * that sort strictly ahead of {@code overtaker} and satisfy {@code filter}. These are the claims that {@code overtaker}
+     * has overtaken by taking a fifo position. The unsequenced region never sorts ahead of the priority tail, so need not
+     * be consulted.
+     *
+     * Read-only: the caller may act on the result only once this has returned, so that any changes it makes to this queue
+     * (or reentrantly via notifications) cannot disturb this iteration.
+     */
+    void collectOvertakenByFifo(SafeTask<?> overtaker, int limit, Predicate<SafeTask<?>> filter, List<SafeTask<?>> into)
+    {
+        for (int i = priorityHead; i < priorityTail && into.size() < limit; ++i)
+        {
+            SafeTask<?> next = tasks[i];
+            if (compare(next, overtaker) >= 0)
+                break;
+            if (filter.test(next))
+                into.add(next);
+        }
     }
 
     RunnableStatus moveToFifo(AccordCacheEntry<?, ?, ?> owner, SafeTask<?> task)

@@ -280,6 +280,15 @@ public class AccordConfig
      * If the HLC is older than this, queue by next position instead
      */
     public DurationSpec.IntMillisecondsBound queue_priority_age_limit = new DurationSpec.IntMillisecondsBound(500);
+
+    /**
+     * Fifo claims on cache entries always run ahead of priority claims, so a task that becomes fifo (on its first run, at
+     * setup, or by this mechanism) overtakes any claims queued ahead of it by priority, and a stream of such tasks on a
+     * hot key could otherwise starve them. So on each key a task becomes fifo on, up to this many of the waiting tasks it
+     * overtook (those with the lowest positions) are also made fifo, behind it, and transitively for the tasks so
+     * promoted. One per key suffices to bound how often any waiter may be overtaken. Zero disables.
+     */
+    public Integer queue_fifo_promote_per_key;
     /**
      * The target number of command stores to create per topology shard.
      * This determines the amount of execution parallelism possible for a given table/shard on the host.

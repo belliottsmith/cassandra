@@ -112,6 +112,7 @@ import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.Run
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus.STILL_RUNNABLE;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus.STILL_RUNNABLE_NEWLY_BLOCKING;
 import static org.apache.cassandra.service.accord.execution.AccordExecutor.CACHE_QUEUES_ENABLED;
+import static org.apache.cassandra.service.accord.execution.AccordExecutor.FIFO_PROMOTE_PER_KEY;
 import static org.apache.cassandra.service.accord.execution.AccordExecutor.NONSYNC_BLOCKED_LIMIT;
 import static org.apache.cassandra.service.accord.execution.AccordExecutor.NONSYNC_ENABLED;
 import static org.apache.cassandra.service.accord.execution.AccordExecutor.NONSYNC_MIN_BATCH_SIZE;
@@ -1129,6 +1130,11 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             setStateExclusive(WAITING_ON_TXN);
             executor().waiting.enqueue(this);
         }
+
+        // a fifo claim taken at setup (by an ATOMIC task, perhaps inheriting its parent's fifoAt) has overtaken any claims
+        // queued ahead of it by priority; this is the first point at which all of our claims are placed
+        if (isCacheQueuedFifo())
+            promoteOvertakenExclusive();
     }
 
     private void queueOnKeysExclusive()
@@ -1509,11 +1515,18 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     fifoAt = executor().uniqueCreatedAt.incrementAndGet();
                     setCacheQueuedFifoExclusive();
                     refs.forEach((key, safeState) -> {
+                        // an abandoned ref is not ours to place or move: it holds either no claim, which we must not
+                        // invent, or one retained only to block others, which we never wait on
+                        if (safeState.isAbandoned())
+                            return;
                         AccordCacheEntry<?, ?, ?> entry = global(safeState);
                         RunnableStatus status = entry.moveToFifo(this);
                         if (entry.isLoaded() && entry.isCommandsForKey())
                             onKeyMovedToFifo(entry, status);
                     });
+                    // we have jumped ahead of any claims queued in front of us by priority; give (some of) them fifo
+                    // positions behind us, so that they cannot be overtaken indefinitely by later fifo claims
+                    promoteOvertakenExclusive();
                 }
 
                 if (!nonSync().prepareExclusive(this))
@@ -1562,6 +1575,179 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 nonSync().onNewBlockingHead(entry);
                 break;
         }
+    }
+
+    /*
+     * Fifo promotion of overtaken waiters.
+     *
+     * Fifo claims always run ahead of priority claims, so a task that becomes fifo on an entry (by upgrading on its first
+     * run, by being placed fifo at setup, or by being promoted here) overtakes every claim queued ahead of it there by
+     * priority. Unchecked, a stream of these on a hot entry can starve the claims they overtake indefinitely. So each time a
+     * task becomes fifo, on every entry it holds a position on we promote up to FIFO_PROMOTE_PER_KEY (by default one) of
+     * the waiting tasks it overtook, choosing those with the lowest positions, to fifo positions behind it (they take a
+     * fresh fifoAt). A promoted task becomes fifo on all of its entries, so we apply the same step to it, and so on, without
+     * any limit on depth.
+     *
+     * Guarantee: let W be a promotable waiter on entry E. Every fifo claim that overtakes W on E promotes the lowest
+     * promotable waiter ahead of it on E, so either W or another promotable waiter ahead of W on E. So W can be overtaken
+     * at most once more than the number of promotable waiters ever queued ahead of it on E, which is bounded, since once W
+     * is older than AGE_LIMIT new arrivals take FIFO positions behind it (modulo ORIG_HLC_FIFO's RECOVER exemption). This
+     * is why the cascade must not stop early: the last task promoted before stopping would overtake waiters on its other
+     * entries without promoting any of them. Not covered:
+     *  - non-promotable waiters (see isPromotableToFifo);
+     *  - fifo claims overtaking other fifo claims, i.e. ATOMIC consequences inheriting an older parent fifoAt (bounded by
+     *    the parent's chain of consequences);
+     *  - entries still loading: waiters there are unordered, and on load are placed behind any fifo claims, as though they
+     *    had arrived after them, so are protected only from later fifo claims (of which there are a bounded number ahead).
+     *
+     * Termination: promotion is one-way, so each task is promoted (and added to the worklist) at most once.
+     *
+     * Reentrancy: we never modify a queue while iterating it. Each entry's candidates are collected before any is acted
+     * on, promoting a candidate moves only that candidate, and its own cascade is deferred to the worklist. So there is no
+     * reentry into the cache entry queues, and no recursion.
+     *
+     * Deadlock freedom: a promoted task is moved to fifo on all of its entries at once, with a single fifoAt, before
+     * anything else happens, so on every entry the order remains (fifo by fifoAt) < (priority by position) < unsequenced,
+     * a single total order across entries. Since a promoted task takes the newest fifoAt it joins the fifo tail on each
+     * entry, so it cannot lose runnability by moving, and never overtakes a fifo claim (including the task whose cascade
+     * promoted it, and any HOLD_QUEUE lock holder). It may overtake priority claims ahead of it on its other entries
+     * (revoking their runnability, which is permitted for waiting tasks), but those are exactly the claims it considers
+     * for promotion when it is taken from the worklist.
+     */
+
+    /**
+     * We have just become fifo on all of our entries: promote (some of) the waiting tasks we overtook, and transitively
+     * those that they overtake. See above.
+     */
+    void promoteOvertakenExclusive()
+    {
+        if (FIFO_PROMOTE_PER_KEY <= 0)
+            return;
+
+        Invariants.require(CACHE_QUEUES_ENABLED && isCacheQueuedFifo());
+        ArrayList<SafeTask<?>> worklist = promoteOvertakenOnEntriesExclusive(null);
+        while (worklist != null && !worklist.isEmpty())
+            worklist = worklist.remove(worklist.size() - 1).promoteOvertakenOnEntriesExclusive(worklist);
+    }
+
+    /**
+     * On each of our entries, promote up to {@link AccordExecutor#FIFO_PROMOTE_PER_KEY} of the waiting tasks we have
+     * overtaken, adding them to {@code worklist} (which we allocate if null and required) to have the same done for them.
+     */
+    private ArrayList<SafeTask<?>> promoteOvertakenOnEntriesExclusive(@Nullable ArrayList<SafeTask<?>> worklist)
+    {
+        try (BufferList<AccordCacheEntry<?, ?, ?>> entries = new BufferList<>())
+        {
+            collectQueuedEntries(entries);
+            for (int i = 0 ; i < entries.size() ; ++i)
+            {
+                AccordCacheEntry<?, ?, ?> entry = entries.get(i);
+                try (BufferList<SafeTask<?>> overtaken = new BufferList<>())
+                {
+                    // collect the candidates before acting on any of them
+                    entry.collectOvertakenByFifo(this, FIFO_PROMOTE_PER_KEY, SafeTask::isPromotableToFifo, overtaken);
+                    for (int j = 0 ; j < overtaken.size() ; ++j)
+                    {
+                        SafeTask<?> promote = overtaken.get(j);
+                        // promoting a candidate moves only that candidate, so this should be impossible; but stay safe
+                        if (!Invariants.expect(promote.isPromotableToFifo(), "%s is no longer promotable, having been collected from %s", promote, entry.key()))
+                            continue;
+
+                        promote.promoteToFifoExclusive();
+                        if (worklist == null)
+                            worklist = new ArrayList<>();
+                        worklist.add(promote);
+                    }
+                }
+            }
+        }
+        return worklist;
+    }
+
+    /**
+     * Upgrade a waiting task to fifo on all of its entries at once, behind every existing fifo claim. The caller is
+     * responsible for then promoting the tasks this overtakes.
+     */
+    private void promoteToFifoExclusive()
+    {
+        Invariants.require(isPromotableToFifo());
+        try (BufferList<AccordCacheEntry<?, ?, ?>> entries = new BufferList<>())
+        {
+            // collect first: moving may notify us, and we should not be iterating refs if it does
+            collectQueuedEntries(entries);
+
+            fifoAt = executor().uniqueCreatedAt.incrementAndGet();
+            setCacheQueuedFifoExclusive();
+            // move on every entry before anything else, so that we are never fifo on some entries and not others
+            for (int i = 0 ; i < entries.size() ; ++i)
+            {
+                AccordCacheEntry<?, ?, ?> entry = entries.get(i);
+                RunnableStatus status = entry.moveToFifo(this);
+                if (entry.isLoaded())
+                    onPromotedToFifo(entry, status);
+            }
+        }
+    }
+
+    /**
+     * The entries whose claims we may move. Once we have placed our claims (waitOnTxnsExclusive), every ref that is not
+     * abandoned holds one. An abandoned ref is not ours to place or move: it holds either no claim (e.g. a continuation
+     * that found a presetup key unsafe to read never placed one), or one we retain only to block others from witnessing
+     * a partial update (onFailingKeyExclusive), which we never wait on. Leaving the latter where it is cannot introduce a
+     * wait cycle: a task queued behind it would have to also be ahead of us on one of our fifo entries, but it is either
+     * fifo, so ahead of any priority claim of ours here, or not, so behind all of our fifo claims.
+     *
+     * TODO (expected): if we introduce retries of failed keys, "never wait on" no longer holds; a retry should then
+     *  re-insert itself as fifo on the entries it retries
+     */
+    private void collectQueuedEntries(BufferList<AccordCacheEntry<?, ?, ?>> into)
+    {
+        refs.forEach((key, safeState) -> {
+            if (safeState.isAbandoned())
+                return;
+            AccordCacheEntry<?, ?, ?> entry = global(safeState);
+            Invariants.paranoidLinearCost(entry.contains(this));
+            into.add(entry);
+        });
+    }
+
+    /**
+     * Taking the fifo tail cannot cost us runnability on an entry, so a NOT_RUNNABLE (or STILL_RUNNABLE) response means
+     * no change, but we may have gained runnability (if there was no fifo claim, and we were not the priority head).
+     */
+    private void onPromotedToFifo(AccordCacheEntry<?, ?, ?> entry, RunnableStatus status)
+    {
+        switch (status)
+        {
+            default: throw UnhandledEnum.unknown(status);
+            case NOT_RUNNABLE:
+            case STILL_RUNNABLE:
+                break;
+            case STILL_RUNNABLE_NEWLY_BLOCKING:
+            case NEWLY_RUNNABLE:
+            case NEWLY_BLOCKING_RUNNABLE:
+                onChangeRunnableStatus(entry, status);
+                break;
+        }
+    }
+
+    /**
+     * Whether we may be upgraded to fifo while waiting, on behalf of a task that has overtaken us. Becoming fifo affects
+     * only our cache queue placement (see setCacheQueuedFifoExclusive; isAtomic is unaffected), so this is a question only of
+     * whether our claims may safely be reordered.
+     */
+    boolean isPromotableToFifo()
+    {
+        // only while waiting: a task that is preparing or running may hold locks, and must not have its claims reordered;
+        // and until WAITING_ON_TXN we have not taken our priority claims
+        if (!isState(WAITING) || isCacheQueuedFifo())
+            return false;
+
+        // a range scan may still adopt keys while we wait, which a fifo claim must not do (see addCachedKeyExclusive):
+        // the late claim would be placed by our fifoAt, ahead of later fifo claims that may already wait on us elsewhere
+        // TODO (expected): permit adopting keys while fifo by giving up on the adoption (or the promotion) if we would
+        //  overtake another fifo claim, so that waiting range scans may also be promoted
+        return !(ranges instanceof SafeTask<?>.RangeTxnScanner);
     }
 
     @Override
@@ -1853,6 +2039,9 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     entry.setInconsistent();
             }
 
+            // we will never wait on this entry again, but any claim we hold on it is retained until we complete (for an
+            // ATOMIC task, with the poison above, this blocks others from witnessing a partial update: see AccordFailedKeyTest
+            // R6); it is no longer ours to place or move (see collectQueuedEntries)
             safeState.setAbandoned();
 
             OptionalState optional = ensureOptional();

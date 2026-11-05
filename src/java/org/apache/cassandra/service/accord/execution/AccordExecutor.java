@@ -111,6 +111,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     static final boolean BALANCE_BY_POSITION;
     static final long GLOBAL_QUEUE_LIMITS, EXCLUSIVE_QUEUE_LIMITS;
     static final int NONSYNC_MIN_BATCH_SIZE, NONSYNC_MAX_BATCH_SIZE, NONSYNC_BLOCKED_LIMIT;
+    static final int FIFO_PROMOTE_PER_KEY;
     static final boolean NONSYNC_ENABLED, CACHE_QUEUES_ENABLED;
     private static final long LOADING_GROUPS = overflowBit(LOAD) | overflowBit(RANGE_LOAD) | overflowBit(RANGE_SCAN);
 
@@ -127,6 +128,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         if (!CACHE_QUEUES_ENABLED && config.queue_nonsync_enabled)
             logger.info("config.queue_key_ordering_enabled is false; accord.queue_nonsync_enabled forced to false as well");
         NONSYNC_BLOCKED_LIMIT = config.queue_nonsync_blocked_limit == null ? 8 : config.queue_nonsync_blocked_limit;
+        FIFO_PROMOTE_PER_KEY = config.queue_fifo_promote_per_key == null ? 1 : Math.max(0, config.queue_fifo_promote_per_key);
         switch (BALANCING_MODEL)
         {
             default: throw new UnhandledEnum(BALANCING_MODEL);

@@ -336,10 +336,9 @@ public class AccordFailedKeyBatchTest
     }
 
     /**
-     * The same fan-out without a fifo claim to keep - BY_PRIORITY and, crucially, no txnId - which is what decides
-     * whether a failed round retains anything ({@code NonSyncState.postRunExclusive} gates on {@code isAtomic()}, which a
-     * txnId-declaring INCR task acquires when {@code prepareExclusiveMayThrow} upgrades it to a fifo claim on its first
-     * run).
+     * The same fan-out but BY_PRIORITY, which is what decides whether a failed round retains anything
+     * ({@code NonSyncState.postRunExclusive} gates on {@code isAtomic()}: a non-ATOMIC task offers no isolation, so retains
+     * nothing, even if, declaring a txnId, it holds a fifo claim once started).
      */
     private static ExecutionContext nonAtomicFanOut(@javax.annotation.Nullable TxnId txnId, RoutingKey... keys)
     {

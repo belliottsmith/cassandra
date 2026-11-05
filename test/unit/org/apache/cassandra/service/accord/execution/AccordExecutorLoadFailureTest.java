@@ -155,9 +155,19 @@ public class AccordExecutorLoadFailureTest
     @Test
     public void loadFailureWhileBatchedTaskHoldsEntryTest() throws InterruptedException
     {
-        // an INCR task that declares a txnId is upgraded to a fifo claim on its first run, so it has a claim it can keep
-        // on a key it failed to reach, and the update it is part-way through must be witnessed: it marks and retains
-        test(LoadKeys.INCR, true, true);
+        // an ATOMIC INCR task must not let others witness the partial update it is part-way through: it marks (poisons)
+        // the key it failed to reach, and retains its claim and reference there
+        test(LoadKeys.INCR, ExecutionContext.ExecutionSequence.ATOMIC, true, true);
+    }
+
+    /**
+     * As above, but BY_PRIORITY: a non-ATOMIC task offers no isolation, so its failure does not prevent others from
+     * interacting with the key. This holds even though, declaring a txnId, it holds a fifo claim once it starts.
+     */
+    @Test
+    public void loadFailureWhileNonAtomicBatchedTaskHoldsEntryTest() throws InterruptedException
+    {
+        test(LoadKeys.INCR, ExecutionContext.ExecutionSequence.BY_PRIORITY, true, false);
     }
 
     /**
@@ -165,16 +175,16 @@ public class AccordExecutorLoadFailureTest
      * must not be told that every key it declared was processed - but nothing is marked and nothing retained: an ASYNC
      * task is never upgraded to a fifo claim, so it holds nothing it could keep to block later work on the key with, and
      * a mark it cannot block on only refuses arriving operations and stalls the durability bound for a key that whoever
-     * needs it next may simply re-load. Marking belongs to the fan-outs that can block: see
+     * needs it next may simply re-load. Marking belongs to ATOMIC fan-outs: see
      * {@code SafeTask.onFailingKeyExclusive}'s {@code isAtomic()} gate.
      */
     @Test
     public void loadFailureWhileAsyncTaskHoldsEntryTest() throws InterruptedException
     {
-        test(LoadKeys.ASYNC, true, false);
+        test(LoadKeys.ASYNC, ExecutionContext.ExecutionSequence.BY_PRIORITY, true, false);
     }
 
-    private void test(LoadKeys loadKeys, boolean expectFailure, boolean expectMarked) throws InterruptedException
+    private void test(LoadKeys loadKeys, ExecutionContext.ExecutionSequence sequence, boolean expectFailure, boolean expectMarked) throws InterruptedException
     {
         TableId tableId = TableId.fromUUID(new java.util.UUID(0, 1));
         IPartitioner partitioner = DatabaseDescriptor.getPartitioner();
@@ -208,9 +218,14 @@ public class AccordExecutorLoadFailureTest
         AtomicReference<Integer> references = new AtomicReference<>(0);
         try
         {
-            ExecutionContext context = AccordExecutionTestUtils.idempotent(
+            ExecutionContext batched = AccordExecutionTestUtils.idempotent(
                 ExecutionContext.contextFor(TxnId.fromValues(1, 1, 0, new Id(1)), null, RoutingKeys.of(ready, failing),
                                             loadKeys, FindKeys.CONFLICTS, "batched"));
+            ExecutionContext context = new ExecutionContext.Wrapped()
+            {
+                @Override public ExecutionContext.ExecutionSequence executionSequence() { return sequence; }
+                @Override public ExecutionContext wrapped() { return batched; }
+            };
             store.execute(context, (Consumer<? super SafeCommandStore>) safeStore -> {
                 running.signal();
                 // hold the reference to the failing key until its load has failed
