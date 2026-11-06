@@ -315,15 +315,8 @@ public class AccordExecutorLoopFailureTest
             if (!SignalLock.isLockOwned(state))
                 return false; // nobody holds it, whatever a stale read of `owner` might say
 
-            int thread = SignalLock.lockThread(state);
-            if (thread >= 0)
-            {
-                ownerOut[0] = lock.registeredThread(thread); // the state names the registered (i.e. loop) thread
-                return true;
-            }
-
-            // an anonymous acquisition (e.g. one a task made while running without the lock): only `owner` says who,
-            // and the volatile read above orders this read after the acquisition that set it
+            // the state records only that the lock is owned, not by whom: only `owner` says who, and the volatile read
+            // above orders this read after the acquisition that set it
             Thread owner = lock.unsafeOwner();
             for (int i = 0 ; owner != null && i < THREADS ; ++i)
             {

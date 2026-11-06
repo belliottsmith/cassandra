@@ -77,7 +77,7 @@ abstract class TaskQueueMulti<T extends Task> extends TaskQueue<T>
         if (groupShift == 0)
             return -1;
 
-        return (task.info >>> groupShift) & Task.GROUP_MASK;
+        return (int) (task.info >>> groupShift) & Task.GROUP_MASK;
     }
 
     void stop(long groupOverflowBits)

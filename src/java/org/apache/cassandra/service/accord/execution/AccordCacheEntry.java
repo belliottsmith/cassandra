@@ -450,6 +450,29 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
         else ensureQueue().addWaitingToLoad(task);
     }
 
+    /**
+     * Whether any task other than {@code exclude} occupies (or holds the lock on) this entry's queue and matches {@code test}.
+     * Valid whether loading or loaded.
+     */
+    final boolean anyQueuedMatching(SafeTask<?> exclude, Predicate<SafeTask<?>> test)
+    {
+        Object queue = this.queue;
+        if (queue == null)
+            return false;
+
+        if (queue instanceof SafeTask<?>)
+            return queue != exclude && test.test((SafeTask<?>) queue);
+
+        if (queue instanceof AccordCacheEntryMiniQueue)
+        {
+            AccordCacheEntryMiniQueue q = (AccordCacheEntryMiniQueue) queue;
+            return (q.lockedBy != null && q.lockedBy != exclude && test.test(q.lockedBy))
+                   || (q.next != null && q.next != exclude && test.test(q.next));
+        }
+
+        return ((AccordCacheEntryQueue) queue).anyMatching(exclude, test);
+    }
+
     final int waitingCount()
     {
         Invariants.require(isLoading());

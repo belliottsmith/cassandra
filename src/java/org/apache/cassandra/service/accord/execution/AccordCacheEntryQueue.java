@@ -205,6 +205,28 @@ class AccordCacheEntryQueue
         return tasks[LOCKED_INDEX];
     }
 
+    boolean anyMatching(SafeTask<?> exclude, Predicate<SafeTask<?>> test)
+    {
+        SafeTask<?> locked = tasks[LOCKED_INDEX];
+        if (locked != null && locked != exclude && test.test(locked))
+            return true;
+
+        for (int i = fifoHead ; i > fifoTail ; --i)
+        {
+            SafeTask<?> task = tasks[i];
+            if (task != exclude && test.test(task))
+                return true;
+        }
+
+        for (int i = priorityHead, end = priorityTail + unsequencedSize ; i < end ; ++i)
+        {
+            SafeTask<?> task = tasks[i];
+            if (task != exclude && test.test(task))
+                return true;
+        }
+        return false;
+    }
+
     void removePriorityHeadNoNotify(SafeTask<?> task)
     {
         Invariants.require(hasPriority() && task == tasks[priorityHead]);

@@ -51,31 +51,53 @@ public final class SignalLock implements Lock
     private static final AtomicLongFieldUpdater<SignalLock> stateUpdater = AtomicLongFieldUpdater.newUpdater(SignalLock.class, "state");
 
     private static final long HAS_LOCK_WORK = 0x8000000000000000L;
-    // if there is a LOCK_SIGNAL, to avoid unnecessary wakeups we pick a waiting thread to unpark and store it in LOCK_SIGNALLED_MASK bits
+    /*
+     * LOCK_THREAD holds the nominee (if any): the thread (+2, so that ANONYMOUS_OWNER is 1 and none is 0) that is
+     * nominated to take the lock. LOCK_TIMED indicates the kind of nomination:
+     *  - active (LOCK_TIMED unset): the nominee should take the lock now, to perform lock work. To avoid unnecessary
+     *    wakeups we pick one waiting thread to unpark. Exists only while the lock is not owned, and is consumed by
+     *    any acquisition of the lock (including a steal).
+     *  - timed (LOCK_TIMED set): a registered nominee that should take the lock at lockWorkAt (see
+     *    signalLockWorkAtExclusive). May persist while the lock is owned, so that it survives other threads
+     *    acquiring and releasing the lock; the nominee relinquishes its nomination (in the same step) before doing
+     *    anything else. If lock work arises while there is a timed nominee, it is upgraded to an active nominee.
+     * The owner of the lock is not recorded in the state; only that it is owned.
+     */
     private static final int LOCK_THREAD_SHIFT = 64 - 7;
     private static final int LOCK_OWNED_SHIFT = LOCK_THREAD_SHIFT - 1;
     private static final int ASYNC_SIGNAL_COUNT_SHIFT = LOCK_OWNED_SHIFT - 6;
     private static final int ENABLED_THREAD_COUNT_SHIFT = ASYNC_SIGNAL_COUNT_SHIFT - 6;
-    public static final int MAX_THREADS = ENABLED_THREAD_COUNT_SHIFT;
+    private static final int LOCK_TIMED_SHIFT = ENABLED_THREAD_COUNT_SHIFT - 1;
+    public static final int MAX_THREADS = LOCK_TIMED_SHIFT;
     public static final int THREAD_ID_MASK = 0x3f;
     public static final int MAX_SIGNAL_COUNT = THREAD_ID_MASK;
     private static final long LOCK_THREAD_MASK = (long) THREAD_ID_MASK << LOCK_THREAD_SHIFT;
     private static final long LOCK_OWNED = 1L << LOCK_OWNED_SHIFT;
-    private static final long LOCK_SIGNALLED = 0L;
+    private static final long LOCK_TIMED = 1L << LOCK_TIMED_SHIFT;
     private static final long ASYNC_SIGNAL_INCREMENT = 1L << ASYNC_SIGNAL_COUNT_SHIFT;
     private static final long ENABLED_THREAD_COUNT_INCREMENT = 1L << ENABLED_THREAD_COUNT_SHIFT;
     private static final long ENABLED_THREAD_COUNT_MASK = (long)THREAD_ID_MASK << ENABLED_THREAD_COUNT_SHIFT;
+    public static final long NO_LOCK_WORK_AT = Long.MIN_VALUE;
     private static final long WAITING_THREADS_MASK = -1L >>> (64 - MAX_THREADS);
 
     private final boolean allowStealing;
     private final Thread[] registered;
     @Nemesis private volatile long state;
     private Thread owner;
+    /** the registered index of the owner, or ANONYMOUS_OWNER; written only by the owner */
+    private int ownerIndex = ANONYMOUS_OWNER;
     private final ConcurrentLinkedQueue<Thread> locking = new ConcurrentLinkedQueue<>();
     private final AtomicLongArray stopLog;
     private final AtomicLong stopCheck;
     private final long stopCheckIntervalNanos;
     private final long spinIntervalNanos;
+    /**
+     * The nanoTime at which there will be work for the lock, or NO_LOCK_WORK_AT. Written only by the lock owner.
+     * See {@link #signalLockWorkAtExclusive}.
+     */
+    private volatile long lockWorkAt = NO_LOCK_WORK_AT;
+    /** written only by the lock owner: lockWorkAt has moved earlier, so we must wake any timed nominee to re-arm */
+    private boolean kickTimed;
     private boolean preferRegistered;
     private boolean autoPreferRegistered = true;
 
@@ -135,7 +157,7 @@ public final class SignalLock implements Lock
             long cur = state;
             if (isLockAvailable(cur, ANONYMOUS_OWNER, self))
             {
-                long upd = setLockThread(clearLockThread(cur), ANONYMOUS_OWNER, LOCK_OWNED);
+                long upd = acquire(cur, ANONYMOUS_OWNER);
                 if (!stateUpdater.compareAndSet(this, cur, upd))
                     continue;
 
@@ -143,6 +165,7 @@ public final class SignalLock implements Lock
                 Invariants.require(owner == null);
                 depth = 1;
                 owner = self;
+                ownerIndex = ANONYMOUS_OWNER;
 
                 Invariants.require(locking.peek() == self);
                 locking.poll();
@@ -182,13 +205,14 @@ public final class SignalLock implements Lock
                 if (!isLockAvailable(cur, threadOrAnonymous, null))
                     return false;
 
-                long upd = setLockThread(clearLockThread(cur), threadOrAnonymous, LOCK_OWNED);
+                long upd = acquire(cur, threadOrAnonymous);
                 if (!stateUpdater.compareAndSet(this, cur, upd))
                     continue;
 
                 Invariants.require(depth == 0);
                 Invariants.require(owner == null);
                 owner = self;
+                ownerIndex = threadOrAnonymous;
                 break;
             }
         }
@@ -222,6 +246,15 @@ public final class SignalLock implements Lock
             while (true)
             {
                 long cur = state;
+                // spinning threads are not registered as waiting, so cannot be nominated as the timed thread; so we
+                // must each check for any timed lock work that has fallen due
+                long at = lockWorkAt;
+                if (at != NO_LOCK_WORK_AT && !hasLockWork(cur) && at - nanoTime() <= 0)
+                {
+                    setHasLockWork();
+                    continue;
+                }
+
                 if (hasLockWork(cur) && isLockAvailable(cur, thread, null))
                 {
                     if (tryTakeLockInAwaitLoop(cur, thread, 0L, self, hasPaused)) return true;
@@ -243,7 +276,7 @@ public final class SignalLock implements Lock
             }
         }
 
-        long cur = stateUpdater.addAndGet(this, threadBit);
+        long cur = registerWaiting(thread, threadBit);
         while (true)
         {
             do   // dummy do-while-false loop, to ensure we refresh cur
@@ -251,23 +284,53 @@ public final class SignalLock implements Lock
                 boolean isSignalled = (cur & threadBit) == 0;
                 if (isSignalled)
                 {
-                    Invariants.require(lockThread(cur) != thread);
+                    // only signalAllRegistered can signal us directly without also clearing any nomination of ours
+                    cur = relinquishNomination(thread);
                     unpause(thread, hasPaused);
                     propagateAsyncWorkSignals(cur, burstSignalOnAcquire);
                     return false;
                 }
-                else if (hasLockWork(cur) && isLockAvailable(cur, thread, null))
+
+                boolean isNominee = lockThread(cur) == thread;
+                boolean isTimedNominee = isNominee && isTimed(cur);
+                if ((hasLockWork(cur) || (isNominee && !isTimedNominee)) && isLockAvailable(cur, thread, null))
                 {
                     if (tryTakeLockInAwaitLoop(cur, thread, threadBit, self, hasPaused)) return true;
                     else continue;
                 }
-                else if (tryAcquireAsyncInAwaitLoop(cur, thread, threadBit, hasPaused, burstSignalOnAcquire))
+
+                long remaining = 0;
+                if (isTimedNominee)
                 {
-                    return false;
+                    long at = lockWorkAt;
+                    if (at == NO_LOCK_WORK_AT)
+                    {
+                        // nothing to wait for any more; if this fails, we will retry with the latest state
+                        stateUpdater.compareAndSet(this, cur, clearNominee(cur));
+                        continue;
+                    }
+
+                    remaining = at - nanoTime();
+                    if (remaining <= 0)
+                    {
+                        // the deadline has passed: take the lock if we can (consuming our nomination); otherwise
+                        // relinquish our nomination as lock work, which the owner will see
+                        if (isLockAvailable(cur, thread, null))
+                        {
+                            if (tryTakeLockInAwaitLoop(cur, thread, threadBit, self, hasPaused)) return true;
+                        }
+                        else stateUpdater.compareAndSet(this, cur, clearNominee(cur) | HAS_LOCK_WORK);
+                        continue;
+                    }
                 }
 
+                // while we are the timed nominee, we leave async work to any other waiting thread
+                if ((!isTimedNominee || !hasOtherWaiter(cur, thread)) && tryAcquireAsyncInAwaitLoop(cur, thread, threadBit, hasPaused, burstSignalOnAcquire))
+                    return false;
+
                 hasPaused = pause(thread, hasPaused);
-                LockSupport.park();
+                if (isTimedNominee) LockSupport.parkNanos(remaining);
+                else LockSupport.park();
             }
             while (false);
 
@@ -275,17 +338,45 @@ public final class SignalLock implements Lock
         }
     }
 
+    /**
+     * Register ourselves as waiting. If there will be lock work at some future time and no nominee, we nominate
+     * ourselves (timed) in the same step, so that there is a timed nominee whenever any registered thread is waiting.
+     */
+    private long registerWaiting(int thread, long threadBit)
+    {
+        while (true)
+        {
+            long cur = state;
+            long upd = cur | threadBit;
+            if (lockThread(cur) == NO_NOMINEE && lockWorkAt != NO_LOCK_WORK_AT && thread < enabledThreadCount(cur))
+                upd = setNominee(upd, thread, true);
+            if (stateUpdater.compareAndSet(this, cur, upd))
+                return upd;
+        }
+    }
+
+    private long relinquishNomination(int thread)
+    {
+        while (true)
+        {
+            long cur = state;
+            if (lockThread(cur) != thread || stateUpdater.compareAndSet(this, cur, clearNominee(cur)))
+                return state;
+        }
+    }
+
     private boolean tryTakeLockInAwaitLoop(long cur, int thread, long threadBitIfWaiting, Thread self, boolean hasPaused)
     {
         // expects caller to have already checked for direct signal, so that the xor below can only clear our bit
         Invariants.require((cur & threadBitIfWaiting) == threadBitIfWaiting);
-        long upd = setLockThread(clearLockThread(cur), thread, LOCK_OWNED) ^ threadBitIfWaiting;
+        long upd = acquire(cur, thread) ^ threadBitIfWaiting;
         if (!stateUpdater.compareAndSet(this, cur, upd))
             return false;
 
         Invariants.require(depth == 0);
         Invariants.require(owner == null);
         owner = self;
+        ownerIndex = thread;
         depth = 1;
         unpause(thread, hasPaused);
         return true;
@@ -362,39 +453,80 @@ public final class SignalLock implements Lock
     private boolean releaseAndSignalExclusive(int burstSignal, boolean acquire)
     {
         boolean acquired = acquire && tryAcquireAsyncWork();
+        // a registered thread releasing with unlockAndAcquireAsyncWork that has not acquired any async work will next
+        // await work (see unlockAndAcquireAsyncWork), so may nominate itself for any timed lock work
+        int nominateSelf = acquire && !acquired ? ownerIndex : ANONYMOUS_OWNER;
         owner = null;
+        ownerIndex = ANONYMOUS_OWNER;
         Thread next = locking.peek();
         boolean preferRegistered = this.preferRegistered;
+        boolean hasLockWorkAt = lockWorkAt != NO_LOCK_WORK_AT;
         while (true)
         {
             long cur = state;
+            int nominee = lockThread(cur);
+            // while owned, there may only be a timed nominee
+            Invariants.require(nominee == NO_NOMINEE || isTimed(cur));
+            long upd = cur & ~LOCK_OWNED;
+            int unpark = NO_THREAD;
+            boolean unparkNext = false;
+
             boolean wakeupLockWork = hasLockWork(cur) && hasMoreWaitersThanSignals(cur);
-            if (next == null && !wakeupLockWork)
+            if (wakeupLockWork && (preferRegistered || next == null))
             {
-                if (stateUpdater.compareAndSet(this, cur, clearLockThread(cur)))
+                // signal a registered thread to take the lock: if there is a timed nominee, we upgrade it
+                if (nominee >= 0) upd &= ~LOCK_TIMED;
+                else upd = setNominee(upd, nominee = pickThreadToSignalForLock(cur), false);
+                unpark = nominee;
+                if (next != null && autoPreferRegistered)
+                    this.preferRegistered = !preferRegistered;
+            }
+            else if (next != null)
+            {
+                // a timed nominee does not prevent anonymous waiters from taking the lock, so it may remain
+                if (nominee == NO_NOMINEE) upd = setNominee(upd, ANONYMOUS_OWNER, false);
+                unparkNext = true;
+                if (wakeupLockWork && autoPreferRegistered)
+                    this.preferRegistered = !preferRegistered;
+            }
+            else if (!hasLockWorkAt)
+            {
+                if (nominee != NO_NOMINEE)
+                    upd = clearNominee(upd);
+            }
+            else if (nominee == NO_NOMINEE)
+            {
+                // there will be lock work later: nominate (preferably) ourselves, or a waiting thread that won't be
+                // consumed by async work
+                if (nominateSelf >= 0 && nominateSelf < enabledThreadCount(cur))
+                {
+                    upd = setNominee(upd, nominateSelf, true);
+                }
+                else if (hasMoreWaitersThanSignals(cur))
+                {
+                    unpark = pickThreadToSignalForLock(cur);
+                    upd = setNominee(upd, unpark, true);
+                }
+            }
+            else if (kickTimed)
+            {
+                unpark = nominee;
+            }
+
+            if (stateUpdater.compareAndSet(this, cur, upd))
+            {
+                kickTimed = false;
+                if (unpark >= 0 && unpark != NO_THREAD) unpark(unpark);
+                if (unparkNext)
+                {
+                    LockSupport.unpark(next);
+                }
+                else if (!wakeupLockWork)
                 {
                     next = locking.peek();
                     if (next != null)
                         LockSupport.unpark(next);
-                    break;
                 }
-                continue;
-            }
-
-            int thread = ANONYMOUS_OWNER;
-            if (wakeupLockWork)
-            {
-                if (preferRegistered || next == null)
-                    thread = pickThreadToSignalForLock(cur);
-                if (next != null && autoPreferRegistered)
-                    this.preferRegistered = !preferRegistered;
-            }
-
-            long upd = setLockThread(clearLockThread(cur), thread, LOCK_SIGNALLED);
-            if (stateUpdater.compareAndSet(this, cur, upd))
-            {
-                if (thread >= 0) unpark(thread);
-                else LockSupport.unpark(next);
                 break;
             }
 
@@ -406,15 +538,53 @@ public final class SignalLock implements Lock
         return acquired;
     }
 
+    /**
+     * Must be invoked by the lock owner. Declares that there will be work for the lock at {@code atNanos} (by nanoTime),
+     * or no such work if {@code NO_LOCK_WORK_AT}, replacing any earlier declaration.
+     *
+     * At most one registered thread is nominated (timed) to acquire the lock at (or soon after) this time: on release of
+     * the lock (preferring the releasing thread, if it will next await work), or as it begins waiting. It remains
+     * nominated across other threads acquiring and releasing the lock, so that it is not disturbed by them, and it
+     * relinquishes its nomination (in the same step) before doing anything else. If the time moves later the nominee
+     * will simply wake early and wait again, but if it moves earlier we wake it on release to re-arm.
+     *
+     * If no registered thread is waiting, then all are busy and will next acquire the lock (or nominate themselves) when
+     * they have no other work.
+     */
+    public void signalLockWorkAtExclusive(long atNanos)
+    {
+        Invariants.require(owner == Thread.currentThread());
+        long prev = lockWorkAt;
+        if (prev == atNanos)
+            return;
+
+        lockWorkAt = atNanos;
+        if (atNanos != NO_LOCK_WORK_AT && (prev == NO_LOCK_WORK_AT || atNanos - prev < 0))
+            kickTimed = true;
+    }
+
+    public long lockWorkAt()
+    {
+        return lockWorkAt;
+    }
+
+    /** the timed nominee, or -1 if none */
+    public int timedThread()
+    {
+        return timedThread(state);
+    }
+
     private boolean isLockAvailable(long cur, int thread, Thread waiting)
     {
         if (isLockOwned(cur))
-            return thread >= 0 && lockThread(cur) == thread;
+            return false;
 
+        // only an active nominee may prevent another thread taking the lock
+        boolean hasActiveNominee = hasActiveNominee(cur);
         if (thread >= 0 || waiting == null)
-            return allowStealing || !isLockOwnedOrSignalled(cur);
+            return allowStealing || !hasActiveNominee || lockThread(cur) == thread;
 
-        return locking.peek() == waiting && lockThread(cur) < 0;
+        return locking.peek() == waiting && (!hasActiveNominee || lockThread(cur) == ANONYMOUS_OWNER);
     }
 
     private boolean tryAcquireAsyncInAwaitLoop(long cur, int thread, long threadBitIfWaiting, boolean hasPaused, int burstSignalOnAcquire)
@@ -428,7 +598,7 @@ public final class SignalLock implements Lock
                 return false;
 
             // iff we have a waiting bit, it is known to be set, so the xor clears it: we are no longer waiting, we own a permit
-            long upd = (cur - ASYNC_SIGNAL_INCREMENT) ^ threadBitIfWaiting;
+            long upd = clearTimedNomineeIf((cur - ASYNC_SIGNAL_INCREMENT) ^ threadBitIfWaiting, thread);
             if (!stateUpdater.compareAndSet(this, cur, upd))
             {
                 cur = upd = state;
@@ -460,7 +630,7 @@ public final class SignalLock implements Lock
                 int thread = pickThreadToSignalAsync(cur);
                 if (thread != NO_THREAD)
                 {
-                    long upd = cur ^ threadBit(thread);
+                    long upd = clearTimedNomineeIf(cur ^ threadBit(thread), thread);
                     if (stateUpdater.compareAndSet(this, cur, upd))
                         return unpark(thread);
                     continue;
@@ -513,7 +683,7 @@ public final class SignalLock implements Lock
 
             long threadBit = threadBit(thread);
             Invariants.require((threadBit & cur) != 0);
-            long upd = (cur - ASYNC_SIGNAL_INCREMENT) ^ threadBit;
+            long upd = clearTimedNomineeIf((cur - ASYNC_SIGNAL_INCREMENT) ^ threadBit, thread);
             if (!stateUpdater.compareAndSet(this, cur, upd)) cur = state;
             else
             {
@@ -534,16 +704,24 @@ public final class SignalLock implements Lock
         {
             long cur = state;
 
-            if (!hasLockWork(cur) || isLockOwnedOrSignalled(cur))
+            if (!hasLockWork(cur) || isLockOwned(cur) || hasActiveNominee(cur))
                 return;
 
-            // signal lock owners from end backwards, and async work from front forwards
-            int thread = pickThreadToSignalForLock(cur);
-            if (thread < 0)
-                return;
+            // signal lock owners from end backwards, and async work from front forwards; but upgrade any timed nominee
+            int thread = lockThread(cur);
+            long upd;
+            if (thread >= 0)
+            {
+                upd = cur & ~LOCK_TIMED;
+            }
+            else
+            {
+                thread = pickThreadToSignalForLock(cur);
+                if (thread < 0)
+                    return;
+                upd = setNominee(cur, thread, false);
+            }
 
-            Invariants.require(!isLockOwned(cur));
-            long upd = setLockThread(cur, thread, LOCK_SIGNALLED);
             if (stateUpdater.compareAndSet(this, cur, upd))
             {
                 unpark(thread);
@@ -679,7 +857,7 @@ public final class SignalLock implements Lock
         long cur = state;
         int active = registered.length - waitingThreadCount(cur);
         int lockThread = lockThread(cur);
-        if (lockThread >= 0 && (cur & threadBit(lockThread)) != 0)
+        if (lockThread >= 0 && !isTimed(cur) && (cur & threadBit(lockThread)) != 0)
             ++active;
         return active;
     }
@@ -717,17 +895,79 @@ public final class SignalLock implements Lock
 
     private static final int NO_THREAD = 64;
     private static final int ANONYMOUS_OWNER = -1;
+    private static final int NO_NOMINEE = -2;
     private static int pickThreadToSignalAsync(long state)
     {
-        int lockThread = lockThread(state);
-        if (lockThread >= 0)
-            state &= ~threadBit(lockThread);
-        return Long.numberOfTrailingZeros(state & threadMask(enabledThreadCount(state)));
+        long candidates = state & threadMask(enabledThreadCount(state));
+        int nominee = lockThread(state);
+        if (nominee >= 0)
+        {
+            // prefer not to disturb a timed nominee, but if it is the only candidate it must relinquish its nomination
+            long without = candidates & ~threadBit(nominee);
+            if (!isTimed(state) || without != 0)
+                candidates = without;
+        }
+        return Long.numberOfTrailingZeros(candidates);
     }
 
+    // invoked only when there is no nominee; returns -1 (i.e. ANONYMOUS_OWNER) if there are no candidates
     private static int pickThreadToSignalForLock(long state)
     {
         return 63 - Long.numberOfLeadingZeros(state & threadMask(enabledThreadCount(state)));
+    }
+
+    private static boolean hasOtherWaiter(long state, int thread)
+    {
+        return 0 != (state & threadMask(enabledThreadCount(state)) & ~threadBit(thread));
+    }
+
+    /**
+     * The state after {@code thread} (or ANONYMOUS_OWNER) acquires the lock: any active nomination is consumed (or
+     * stolen), as is our own timed nomination; another thread's timed nomination survives.
+     */
+    private static long acquire(long state, int thread)
+    {
+        Invariants.require(!isLockOwned(state));
+        long upd = state | LOCK_OWNED;
+        int nominee = lockThread(state);
+        if (nominee != NO_NOMINEE && (!isTimed(state) || nominee == thread))
+            upd = clearNominee(upd);
+        return upd;
+    }
+
+    public static boolean isTimed(long state)
+    {
+        return 0 != (state & LOCK_TIMED);
+    }
+
+    private static boolean hasActiveNominee(long state)
+    {
+        return lockThread(state) != NO_NOMINEE && !isTimed(state);
+    }
+
+    /** the timed nominee, or -1 if none */
+    public static int timedThread(long state)
+    {
+        return isTimed(state) ? lockThread(state) : -1;
+    }
+
+    private static long setNominee(long state, int thread, boolean timed)
+    {
+        Invariants.require(lockThread(state) == NO_NOMINEE);
+        Invariants.require(!timed || thread >= 0);
+        Invariants.require(timed || !isLockOwned(state));
+        state |= (long) (thread + 2) << LOCK_THREAD_SHIFT;
+        return timed ? state | LOCK_TIMED : state;
+    }
+
+    private static long clearNominee(long state)
+    {
+        return state & ~(LOCK_THREAD_MASK | LOCK_TIMED);
+    }
+
+    private static long clearTimedNomineeIf(long state, int thread)
+    {
+        return timedThread(state) == thread ? clearNominee(state) : state;
     }
 
     public static boolean isLockOwned(long state)
@@ -735,6 +975,7 @@ public final class SignalLock implements Lock
         return 0 != (state & LOCK_OWNED);
     }
 
+    /** the nominee (registered thread or ANONYMOUS_OWNER), or NO_NOMINEE; NOT the owner, which is not recorded in the state */
     public static int lockThread(long state)
     {
         return (int) ((state & LOCK_THREAD_MASK) >>> LOCK_THREAD_SHIFT) - 2;
@@ -742,8 +983,8 @@ public final class SignalLock implements Lock
 
     public static String toString(long state)
     {
-        return String.format("%016x[owned=%s,lockedBy=%d,hasLockWork=%s,asyncSignals=%d,enabled=%d,waiting=%d]",
-                             state, isLockOwned(state), lockThread(state), hasLockWork(state),
+        return String.format("%016x[owned=%s,nominee=%d,timed=%s,hasLockWork=%s,asyncSignals=%d,enabled=%d,waiting=%d]",
+                             state, isLockOwned(state), lockThread(state), isTimed(state), hasLockWork(state),
                              asyncSignalCount(state), enabledThreadCount(state), waitingThreadCount(state));
     }
 
@@ -751,24 +992,6 @@ public final class SignalLock implements Lock
     public String toString()
     {
         return "SignalLock" + toString(state);
-    }
-
-    private static boolean isLockOwnedOrSignalled(long state)
-    {
-        return 0 != (state & LOCK_THREAD_MASK);
-    }
-
-    private static long setLockThread(long state, int thread, long owned)
-    {
-        Invariants.require(!isLockOwnedOrSignalled(state));
-        state |= (long) (thread + 2) << LOCK_THREAD_SHIFT;
-        return state | owned;
-    }
-
-    private static long clearLockThread(long state)
-    {
-        state &= ~(LOCK_THREAD_MASK | LOCK_OWNED);
-        return state;
     }
 
     public static int asyncSignalCount(long state)

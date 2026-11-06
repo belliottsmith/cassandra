@@ -71,6 +71,7 @@ import org.apache.cassandra.service.accord.execution.AccordCacheEntry.SaveExecut
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.UniqueSave;
 import org.apache.cassandra.service.accord.execution.ExclusiveExecutor.ExclusiveExecutorTask;
 import org.apache.cassandra.service.accord.execution.IOTaskWrapper.WrappableIOTask;
+import org.apache.cassandra.service.accord.execution.deadline.PreAcceptDeadlines;
 import org.apache.cassandra.service.accord.execution.Task.ExclusiveGroup;
 import org.apache.cassandra.service.accord.execution.Task.ExecutorQueue;
 import org.apache.cassandra.service.accord.execution.Task.GlobalGroup;
@@ -96,6 +97,7 @@ import static org.apache.cassandra.service.accord.execution.TaskQueueMulti.COUNT
 import static org.apache.cassandra.service.accord.execution.TaskQueueMulti.overflowBit;
 import static org.apache.cassandra.service.accord.execution.TaskQueueMulti.selectByOverflowBits;
 import static org.apache.cassandra.service.accord.execution.TaskQueueMulti.setOverflowWhenLessEqual;
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 /**
  * NOTE: We assume that NO BLOCKING TASKS are submitted to this executor AND WAITED ON by another task executing on this executor.
@@ -232,6 +234,11 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     final TaskQueueRunnable<Task> runnable = new TaskQueueRunnable<>();
 
     private final Tranches tranches = new Tranches(this);
+
+    /** PreAccepts postponed until their deadline (see {@link SafeTask#tryDeferExclusive}); ordered by txnId */
+    final TaskQueueStandalone<SafeTask<?>> deferred = new TaskQueueStandalone<>(ExecutorQueue.DEFERRED);
+    // TODO (expected): replace with proper metrics (count, and time deferred)
+    private volatile long deferredCount;
 
     long nextPosition = 1;
     int tasks;
@@ -464,6 +471,100 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         ExclusiveExecutor result = new ExclusiveExecutor(this, commandStoreId);
         storeExecutors.add(result);
         return result;
+    }
+
+    /**
+     * Whether this executor supports postponing tasks until a deadline (see {@link #setDeferredWakeupExclusive}).
+     */
+    boolean supportsDeferral()
+    {
+        return false;
+    }
+
+    /**
+     * Arrange for {@link #releaseDueDeferredExclusive} to be invoked (with the lock held) at or soon after {@code atNanos},
+     * replacing any prior arrangement; or cancel any arrangement if {@code atNanos == NO_WAKEUP}.
+     * Invoked only while holding the lock.
+     */
+    void setDeferredWakeupExclusive(long atNanos)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    static final long NO_WAKEUP = Long.MIN_VALUE;
+
+    final void deferExclusive(SafeTask<?> task)
+    {
+        Invariants.require(supportsDeferral());
+        //noinspection NonAtomicOperationOnVolatileField
+        ++deferredCount; // only modified with the lock held
+        deferred.enqueue(task);
+        if (deferred.peek() == task)
+            updateDeferredWakeupExclusive(task, task.commandStore.node().now());
+    }
+
+    public long unsafeDeferredCount()
+    {
+        return deferredCount;
+    }
+
+    final boolean hasDeferred()
+    {
+        return !deferred.isEmpty();
+    }
+
+    /**
+     * Release deferred tasks strictly in txnId order, for as long as the head is due; and arrange a wakeup for the next.
+     * @return true if any task was released
+     */
+    final boolean releaseDueDeferredExclusive()
+    {
+        SafeTask<?> next = deferred.peek();
+        if (next == null)
+        {
+            // we may have published a wakeup for a task that has since been cancelled
+            if (supportsDeferral()) setDeferredWakeupExclusive(NO_WAKEUP);
+            return false;
+        }
+
+        long nowHlc = next.commandStore.node().now();
+        long now = nanoTime();
+        boolean released = false;
+        while (next != null && isDue(next, nowHlc, now))
+        {
+            next.unqueue(deferred);
+            released = true;
+            try { next.releaseDeferredExclusive(); }
+            catch (Throwable t) { next.tryFailAndCompleteUnexecutedExclusive(t, FAILED); next.unhandledException(t); }
+            next = deferred.peek();
+        }
+
+        // note: also cancels the wakeup if next == null
+        updateDeferredWakeupExclusive(next, nowHlc);
+        return released;
+    }
+
+    /**
+     * Due once our HLC deadline has passed; but as HLC is not monotonic, we also release once we have waited the maximum
+     * penalty since local receipt, so that a backwards clock adjustment cannot hold us for longer than this.
+     */
+    private static boolean isDue(SafeTask<?> task, long nowHlc, long now)
+    {
+        return task.deadlineHlc() <= nowHlc || now - task.createdAt >= PreAcceptDeadlines.MAX_PENALTY_NANOS;
+    }
+
+    private void updateDeferredWakeupExclusive(SafeTask<?> head, long nowHlc)
+    {
+        if (head == null)
+        {
+            setDeferredWakeupExclusive(NO_WAKEUP);
+            return;
+        }
+
+        long now = nanoTime();
+        long byHlc = now + TimeUnit.MICROSECONDS.toNanos(Math.max(0, head.deadlineHlc() - nowHlc));
+        long byReceipt = head.createdAt + PreAcceptDeadlines.MAX_PENALTY_NANOS;
+        setDeferredWakeupExclusive(byReceipt - byHlc < 0 ? byReceipt : byHlc);
     }
 
     public ExclusiveAsyncExecutor newExclusiveExecutor()
@@ -829,6 +930,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         try
         {
             addToSnapshot(result, loading, TaskInfo.Status.LOADING, TaskInfo.Status.LOADING);
+            addToSnapshot(result, deferred, TaskInfo.Status.LOADING, TaskInfo.Status.LOADING);
             for (TaskQueue queue : runnable.queues)
             {
                 if (queue != null)

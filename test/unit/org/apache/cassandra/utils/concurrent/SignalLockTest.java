@@ -137,6 +137,140 @@ public class SignalLockTest
             throw failure.get();
     }
 
+    /**
+     * Timed lock work: on release, the owner nominates exactly one waiting thread to acquire the lock at the declared
+     * time; the other waiting thread is not disturbed.
+     */
+    @Test
+    public void releaseNominatesOneTimedWaiter() throws Throwable
+    {
+        SignalLock lock = new SignalLock(2);
+        Waiter w0 = new Waiter(lock, 0), w1 = new Waiter(lock, 1);
+        w0.clearLockWorkAt = w1.clearLockWorkAt = true;
+        w0.start(); w1.start();
+        w0.awaitWaiting(); w1.awaitWaiting();
+
+        long at = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(100);
+        lock.lock();
+        lock.signalLockWorkAtExclusive(at);
+        lock.unlock();
+        assertThat(lock.timedThread()).describedAs("no timed thread was nominated").isEqualTo(1);
+
+        assertThat(w1.awaitResult()).describedAs("the timed thread did not acquire the lock").isTrue();
+        assertThat(w1.returnedAt).describedAs("the timed thread acquired the lock early").isGreaterThanOrEqualTo(at);
+        assertThat(lock.timedThread()).describedAs("the timed thread did not relinquish its nomination").isEqualTo(-1);
+        assertThat(w0.isWaiting()).describedAs("the other waiter was disturbed").isTrue();
+        lock.signalAllRegistered();
+        assertThat(w0.awaitResult()).isFalse();
+    }
+
+    /** If nobody is waiting when the owner releases, the first thread to begin waiting nominates itself. */
+    @Test
+    public void waiterNominatesItselfIfNoTimedThread() throws Throwable
+    {
+        SignalLock lock = new SignalLock(2);
+        long at = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50);
+        lock.lock();
+        lock.signalLockWorkAtExclusive(at);
+        lock.unlock();
+        assertThat(lock.timedThread()).isEqualTo(-1);
+
+        Waiter w0 = new Waiter(lock, 0);
+        w0.clearLockWorkAt = true;
+        w0.start();
+        assertThat(w0.awaitResult()).describedAs("the self-nominated thread did not acquire the lock").isTrue();
+        assertThat(w0.returnedAt).isGreaterThanOrEqualTo(at);
+        assertThat(lock.lockWorkAt()).isEqualTo(SignalLock.NO_LOCK_WORK_AT);
+    }
+
+    /**
+     * Other threads may acquire and release the lock (re-declaring the same or a later time) without disturbing the
+     * timed thread, which retains its nomination; but declaring an earlier time wakes it to re-arm.
+     */
+    @Test
+    public void timedThreadSurvivesOtherOwnersAndIsKickedByEarlierDeadline() throws Throwable
+    {
+        SignalLock lock = new SignalLock(2);
+        Waiter w0 = new Waiter(lock, 0);
+        w0.clearLockWorkAt = true;
+        w0.start();
+        w0.awaitWaiting();
+
+        long start = System.nanoTime();
+        lock.lock();
+        lock.signalLockWorkAtExclusive(start + TimeUnit.SECONDS.toNanos(5));
+        lock.unlock();
+        assertThat(lock.timedThread()).isEqualTo(0);
+
+        for (int i = 0 ; i < 100 ; ++i)
+        {
+            assertThat(lock.tryLock()).describedAs("could not steal the lock from a timed waiter").isTrue();
+            lock.signalLockWorkAtExclusive(start + TimeUnit.SECONDS.toNanos(5 + i));
+            lock.unlock();
+        }
+        assertThat(lock.timedThread()).describedAs("the timed thread lost its nomination").isEqualTo(0);
+        assertThat(w0.isWaiting()).isTrue();
+
+        long at = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50);
+        lock.lock();
+        lock.signalLockWorkAtExclusive(at);
+        lock.unlock();
+        assertThat(w0.awaitResult()).describedAs("the timed thread did not acquire the lock").isTrue();
+        assertThat(w0.returnedAt).isGreaterThanOrEqualTo(at);
+        assertThat(w0.returnedAt - start).describedAs("the timed thread was not woken to re-arm").isLessThan(TimeUnit.SECONDS.toNanos(4));
+    }
+
+    /** In spin mode, a spinning (so unregistered) waiter must still acquire the lock once timed lock work falls due */
+    @Test
+    public void spinningWaiterAcquiresTimedLockWork() throws Throwable
+    {
+        SignalLock lock = new SignalLock(2, 100, 0, TimeUnit.MICROSECONDS);
+        Waiter w0 = new Waiter(lock, 0), w1 = new Waiter(lock, 1);
+        w0.clearLockWorkAt = w1.clearLockWorkAt = true;
+        long at = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50);
+        lock.lock();
+        lock.signalLockWorkAtExclusive(at);
+        lock.unlock();
+        w0.start(); w1.start();
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        while (w0.thread.isAlive() && w1.thread.isAlive() && System.nanoTime() < deadline)
+            Thread.sleep(1);
+        Waiter acquired = w0.thread.isAlive() ? w1 : w0, other = acquired == w0 ? w1 : w0;
+        assertThat(acquired.awaitResult()).describedAs("no spinning waiter acquired the lock").isTrue();
+        assertThat(acquired.returnedAt).isGreaterThanOrEqualTo(at);
+        // the other waiter is (probably) still spinning, so is released by an async permit; but spinning waiters each
+        // check for timed lock work, so it may have raced to perform a (benign) spurious acquisition of its own
+        lock.incrementAsyncWork(true);
+        other.awaitResult();
+    }
+
+    /** Async work goes to a waiter that is not timed, if there is one; otherwise the timed thread relinquishes its role. */
+    @Test
+    public void asyncWorkPrefersUntimedWaiter() throws Throwable
+    {
+        SignalLock lock = new SignalLock(2);
+        Waiter w0 = new Waiter(lock, 0), w1 = new Waiter(lock, 1);
+        w0.start(); w1.start();
+        w0.awaitWaiting(); w1.awaitWaiting();
+
+        lock.lock();
+        lock.signalLockWorkAtExclusive(System.nanoTime() + TimeUnit.SECONDS.toNanos(10));
+        lock.unlock();
+        int timed = lock.timedThread();
+        assertThat(timed).isGreaterThanOrEqualTo(0);
+        Waiter timedWaiter = timed == 0 ? w0 : w1, untimedWaiter = timed == 0 ? w1 : w0;
+
+        assertThat(lock.incrementAsyncWork(true)).isTrue();
+        assertThat(untimedWaiter.awaitResult()).describedAs("the untimed waiter took the lock instead of the permit").isFalse();
+        assertThat(lock.timedThread()).describedAs("the timed thread was disturbed").isEqualTo(timed);
+
+        assertThat(lock.incrementAsyncWork(true)).isTrue();
+        assertThat(timedWaiter.awaitResult()).describedAs("the timed waiter took the lock instead of the permit").isFalse();
+        assertThat(lock.timedThread()).describedAs("the timed thread did not relinquish its nomination").isEqualTo(-1);
+        assertThat(lock.asyncSignalCount()).isZero();
+    }
+
     /** Awaits on one registered thread, recording whether it acquired the lock (and releasing it if so). */
     private static class Waiter
     {
@@ -145,6 +279,9 @@ public class SignalLockTest
         final AtomicInteger result = new AtomicInteger(Integer.MIN_VALUE);
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         final Thread thread;
+        /** if we acquire the lock, clear any (timed) lock work before releasing it */
+        volatile boolean clearLockWorkAt;
+        volatile long returnedAt;
 
         Waiter(SignalLock lock, int index)
         {
@@ -164,8 +301,17 @@ public class SignalLockTest
             try
             {
                 boolean tookLock = lock.awaitAsyncOrLock(index);
+                returnedAt = System.nanoTime();
                 if (tookLock)
+                {
+                    if (clearLockWorkAt)
+                    {
+                        // as an owner would, having performed the work
+                        lock.clearLockWork();
+                        lock.signalLockWorkAtExclusive(SignalLock.NO_LOCK_WORK_AT);
+                    }
                     lock.unlock();
+                }
                 result.set(tookLock ? 1 : 0);
             }
             catch (Throwable t)
@@ -182,6 +328,11 @@ public class SignalLockTest
             while (0 == (lock.state() & (1L << index)) && System.nanoTime() < deadline)
                 Thread.yield();
             assertThat(lock.state() & (1L << index)).describedAs("waiter never registered itself as waiting").isNotZero();
+        }
+
+        boolean isWaiting()
+        {
+            return thread.isAlive() && 0 != (lock.state() & (1L << index));
         }
 
         /** @return true if the waiter acquired the lock; fails if it is still parked */

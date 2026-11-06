@@ -219,9 +219,11 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         NONE(),
         LOADING(SCANNING_RANGES, LOADING_OPTIONAL, LOADING_REQUIRED),
         WAITING(WAITING_ON_TXN, WAITING_ON_KEY),
-        RUNNABLE(WAITING_TO_RUN);
+        RUNNABLE(WAITING_TO_RUN),
+        /** see {@link SafeTask#tryDeferExclusive} */
+        DEFERRED(LOADING_OPTIONAL);
 
-        private static final ExecutorQueue[] VALUES = values();
+        static final ExecutorQueue[] VALUES = values();
 
         final int permittedStates;
 
@@ -236,50 +238,55 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         }
     }
 
-    private static final int STATE_MASK = 0xf;
+    private static final long STATE_MASK = 0xfL;
     static final int GROUP_MASK = 0x7;
     private static final int EXCLUSIVE_GROUP_SHIFT = 4;
     private static final int GLOBAL_GROUP_SHIFT = 7;
 
-    private static final int NONSYNC_BIT = 1 << 10;
+    private static final long NONSYNC_BIT = 1L << 10;
 
     // used for validation only, can be repurposed if needed; marked only when waiting on keys and txns
-    private static final int VALIDATE_CACHE_QUEUED_BIT = 1 << 11;
+    private static final long VALIDATE_CACHE_QUEUED_BIT = 1L << 11;
 
-    private static final int IS_CONTINUATION = 1 << 12;
-    private static final int HAS_PRESETUP_BIT = 1 << 13;
+    private static final long IS_CONTINUATION = 1L << 12;
+    private static final long HAS_PRESETUP_BIT = 1L << 13;
 
     private static final int HAS_SETUP_SHIFT = 14;
-    private static final int HAS_SETUP_MASK = 0x3 << HAS_SETUP_SHIFT;
-    private static final int HAS_TRANCHE = 0x1 << HAS_SETUP_SHIFT;
-    private static final int HAS_INHERITED_TRANCHE = 0x2 << HAS_SETUP_SHIFT;
-    private static final int HAS_INHERITED_RANGE_SCAN = 0x3 << HAS_SETUP_SHIFT;
+    private static final long HAS_SETUP_MASK = 0x3L << HAS_SETUP_SHIFT;
+    private static final long HAS_TRANCHE = 0x1L << HAS_SETUP_SHIFT;
+    private static final long HAS_INHERITED_TRANCHE = 0x2L << HAS_SETUP_SHIFT;
+    private static final long HAS_INHERITED_RANGE_SCAN = 0x3L << HAS_SETUP_SHIFT;
 
-    private static final int EXECUTOR_QUEUE_SHIFT = 16;
-    private static final int EXECUTOR_QUEUE_UNSHIFTED_MASK = 0x3;
-    private static final int EXECUTOR_QUEUE_SHIFTED_MASK = EXECUTOR_QUEUE_UNSHIFTED_MASK << EXECUTOR_QUEUE_SHIFT;
+    // bits 16-17 unused (formerly the executor queue)
 
     private static final int INCREMENTAL_SHIFT = 18;
-    private static final int INCREMENTAL_MASK = 0x3 << INCREMENTAL_SHIFT;
-    private static final int INCREMENTAL = 0x1 << INCREMENTAL_SHIFT;
-    private static final int INCREMENTAL_STARTED = 0x2 << INCREMENTAL_SHIFT;
-    private static final int INCREMENTAL_FINISHING = 0x3 << INCREMENTAL_SHIFT;
+    private static final long INCREMENTAL_MASK = 0x3L << INCREMENTAL_SHIFT;
+    private static final long INCREMENTAL = 0x1L << INCREMENTAL_SHIFT;
+    private static final long INCREMENTAL_STARTED = 0x2L << INCREMENTAL_SHIFT;
+    private static final long INCREMENTAL_FINISHING = 0x3L << INCREMENTAL_SHIFT;
 
     private static final int SEQUENCED_SHIFT = 20;
-    private static final int SEQUENCED_MASK = 0x3 << SEQUENCED_SHIFT;
-    private static final int SEQUENCED_PRIORITY = 0x1 << SEQUENCED_SHIFT;
-    private static final int SEQUENCED_ATOMIC = 0x2 << SEQUENCED_SHIFT;
+    private static final long SEQUENCED_MASK = 0x3L << SEQUENCED_SHIFT;
+    private static final long SEQUENCED_PRIORITY = 0x1L << SEQUENCED_SHIFT;
+    private static final long SEQUENCED_ATOMIC = 0x2L << SEQUENCED_SHIFT;
 
     /**
      * We hold fifo positions in our cache entry queues. Independent of the declared sequence: ATOMIC tasks take fifo
      * positions at setup (or first run, if INCR), INCR tasks that hold their txnId locks between runs on first run, and any
      * waiting task may be promoted to fifo when overtaken by another fifo claim (see SafeTask.promoteOvertakenExclusive).
      */
-    private static final int CACHE_QUEUED_FIFO_BIT = 1 << 22;
+    private static final long CACHE_QUEUED_FIFO_BIT = 1L << 22;
 
     private static final int TRANCHE_SHIFT = 23;
     static final int MAX_TRANCHE = 0x1ff;
-    private static final int TRANCHE_MASK = MAX_TRANCHE << TRANCHE_SHIFT;
+    private static final long TRANCHE_MASK = (long) MAX_TRANCHE << TRANCHE_SHIFT;
+
+    /** see {@link SafeTask#tryDeferExclusive}: we have a deadline (stashed in SafeTask.waitingAt) we have not yet released */
+    static final long DEADLINE_BIT = 1L << 32;
+
+    private static final int EXECUTOR_QUEUE_SHIFT = 33;
+    private static final int EXECUTOR_QUEUE_UNSHIFTED_MASK = 0x7;
+    private static final long EXECUTOR_QUEUE_SHIFTED_MASK = (long) EXECUTOR_QUEUE_UNSHIFTED_MASK << EXECUTOR_QUEUE_SHIFT;
 
     static
     {
@@ -288,7 +295,9 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         Invariants.require(ExecutionContext.ExecutionSequence.values().length <= 3);
         Invariants.require((CACHE_QUEUED_FIFO_BIT & (SEQUENCED_MASK | TRANCHE_MASK)) == 0);
         Invariants.require((SEQUENCED_MASK & TRANCHE_MASK) == 0);
-        Invariants.require(TRANCHE_MASK >>> TRANCHE_SHIFT == MAX_TRANCHE); // i.e. the tranche occupies the top bits
+        Invariants.require(TRANCHE_MASK >>> TRANCHE_SHIFT == MAX_TRANCHE);
+        Invariants.require((DEADLINE_BIT & (TRANCHE_MASK | SEQUENCED_MASK | CACHE_QUEUED_FIFO_BIT | EXECUTOR_QUEUE_SHIFTED_MASK)) == 0);
+        Invariants.require(ExecutorQueue.VALUES.length <= EXECUTOR_QUEUE_UNSHIFTED_MASK + 1);
     }
 
     // TODO (desired): quite heavy to pass-through tracing session state we mostly don't use
@@ -296,7 +305,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     Task next;
 
     long position;
-    int info;
+    long info;
 
     public final long createdAt;
     long runningAt;
@@ -776,7 +785,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
 
     final int stateOrdinal()
     {
-        return info & STATE_MASK;
+        return (int) (info & STATE_MASK);
     }
 
     final boolean is(State state)
@@ -822,7 +831,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
 
     final void override(GlobalGroup group)
     {
-        info = (info & ~(GROUP_MASK << GLOBAL_GROUP_SHIFT)) | (group.ordinal() << GLOBAL_GROUP_SHIFT);
+        info = (info & ~((long) GROUP_MASK << GLOBAL_GROUP_SHIFT)) | ((long) group.ordinal() << GLOBAL_GROUP_SHIFT);
     }
 
     final void setStateExclusive(State state)
@@ -854,12 +863,12 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
 
     final int globalGroupOrdinal()
     {
-        return (info >>> GLOBAL_GROUP_SHIFT) & GROUP_MASK;
+        return (int) (info >>> GLOBAL_GROUP_SHIFT) & GROUP_MASK;
     }
 
     final int exclusiveGroupOrdinal()
     {
-        return (info >>> EXCLUSIVE_GROUP_SHIFT) & GROUP_MASK;
+        return (int) (info >>> EXCLUSIVE_GROUP_SHIFT) & GROUP_MASK;
     }
 
     private boolean isCompatible(ExecutorQueue queue)
@@ -918,7 +927,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     final void setSequencedExclusive(ExecutionContext.ExecutionSequence sequence)
     {
         Invariants.require(isUnsequenced());
-        info |= sequence.ordinal() << SEQUENCED_SHIFT;
+        info |= (long) sequence.ordinal() << SEQUENCED_SHIFT;
     }
 
     final boolean isUnsequenced()
@@ -934,7 +943,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     /** the sequence we were set up with */
     final boolean isSequencedBy(ExecutionContext.ExecutionSequence sequence)
     {
-        return (info & SEQUENCED_MASK) == sequence.ordinal() << SEQUENCED_SHIFT;
+        return (info & SEQUENCED_MASK) == (long) sequence.ordinal() << SEQUENCED_SHIFT;
     }
 
     /** the declared sequence is ATOMIC; NOT implied by {@link #isCacheQueuedFifo()} */
@@ -960,7 +969,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
 
     final int queuedOrdinal()
     {
-        return (info >>> EXECUTOR_QUEUE_SHIFT) & EXECUTOR_QUEUE_UNSHIFTED_MASK;
+        return (int) (info >>> EXECUTOR_QUEUE_SHIFT) & EXECUTOR_QUEUE_UNSHIFTED_MASK;
     }
 
     final ExecutorQueue queued()
@@ -972,7 +981,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     {
         Invariants.require(isCompatible(queue));
         Invariants.require(!isQueued());
-        info |= queue.ordinal() << EXECUTOR_QUEUE_SHIFT;
+        info |= (long) queue.ordinal() << EXECUTOR_QUEUE_SHIFT;
     }
 
     // supersedes the declared sequence for cache queue placement, in whichever order they're called; but does not
@@ -990,14 +999,14 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     final int tranche()
     {
         Invariants.require((info & HAS_SETUP_MASK) != 0);
-        return info >>> TRANCHE_SHIFT;
+        return (int) ((info & TRANCHE_MASK) >>> TRANCHE_SHIFT);
     }
 
     final void setTranche(int tranche)
     {
         Invariants.require(tranche <= MAX_TRANCHE);
         Invariants.require((info & HAS_SETUP_MASK) == 0);
-        info = info | (tranche << TRANCHE_SHIFT) | HAS_TRANCHE;
+        info = info | ((long) tranche << TRANCHE_SHIFT) | HAS_TRANCHE;
     }
 
     final Task inherit(Task parent)
@@ -1017,7 +1026,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     {
         Invariants.require(tranche <= MAX_TRANCHE);
         Invariants.require(!hasInherited() || hasInheritedRangeScan()); // we allow setting inherit range scan in advance because it composes cleanly
-        info = info | (tranche << TRANCHE_SHIFT) | HAS_INHERITED_TRANCHE;
+        info = info | ((long) tranche << TRANCHE_SHIFT) | HAS_INHERITED_TRANCHE;
     }
 
     final boolean isContinuation()
@@ -1030,6 +1039,11 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         info |= IS_CONTINUATION;
     }
 
+    final boolean isDeferred()
+    {
+        return queuedOrdinal() == ExecutorQueue.DEFERRED.ordinal();
+    }
+
     final boolean hasTrancheToComplete()
     {
         return (info & HAS_SETUP_MASK) != 0;
@@ -1040,7 +1054,7 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         if (!hasTrancheToComplete())
             return -1;
 
-        int tranche = info >>> TRANCHE_SHIFT;
+        int tranche = (int) ((info & TRANCHE_MASK) >>> TRANCHE_SHIFT);
         info &= ~(HAS_SETUP_MASK | TRANCHE_MASK);
         return tranche;
     }
@@ -1134,9 +1148,9 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         }
     }
 
-    static int init(GlobalGroup global, ExclusiveGroup exclusive)
+    static long init(GlobalGroup global, ExclusiveGroup exclusive)
     {
-        return (global.ordinal() << GLOBAL_GROUP_SHIFT) | (exclusive.ordinal() << EXCLUSIVE_GROUP_SHIFT);
+        return ((long) global.ordinal() << GLOBAL_GROUP_SHIFT) | ((long) exclusive.ordinal() << EXCLUSIVE_GROUP_SHIFT);
     }
 
     static Task reverse(Task unqueued)

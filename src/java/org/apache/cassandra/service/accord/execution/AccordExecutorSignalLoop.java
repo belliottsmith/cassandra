@@ -265,8 +265,23 @@ public class AccordExecutorSignalLoop extends AbstractLoop
             lock.signalLockWorkExclusive();
     }
 
+    @Override
+    boolean supportsDeferral()
+    {
+        return true;
+    }
+
+    @Override
+    void setDeferredWakeupExclusive(long atNanos)
+    {
+        // a registered thread will be nominated to acquire the lock at this time (unless it is acquired sooner),
+        // whereupon fetchWorkExclusive will release any due deferred tasks
+        lock.signalLockWorkAtExclusive(atNanos == NO_WAKEUP ? SignalLock.NO_LOCK_WORK_AT : atNanos);
+    }
+
     private void fetchWorkExclusive()
     {
+        releaseDueDeferredExclusive();
         boolean hasReadyToRun = hasReadyToRun();
         boolean hadWaitingToRun = hasAlreadyWaitingToRun();
         {
@@ -326,7 +341,9 @@ public class AccordExecutorSignalLoop extends AbstractLoop
 
                 lock.clearLockWork();
                 hasDrainedSignal = true;
-                if (!updateAndEnqueuePendingUntilHasWaitingToRun(0))
+                // a deferred wakeup may have fired (and been cleared) since we last checked, so we must check after clearing
+                boolean released = releaseDueDeferredExclusive();
+                if (!updateAndEnqueuePendingUntilHasWaitingToRun(0) && !(released && hasAlreadyWaitingToRun()))
                 {
                     if (tasks == 0)
                         notifyQuiescentExclusive();

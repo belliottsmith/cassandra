@@ -289,6 +289,29 @@ public class AccordConfig
      * promoted. One per key suffices to bound how often any waiter may be overtaken. Zero disables.
      */
     public Integer queue_fifo_promote_per_key;
+
+    /**
+     * Deadline-ordered delivery of contended PreAccepts (AccordExecutorSignalLoop only). If set, a PreAccept that is
+     * judged to be contended has its processing postponed until txnId.hlc() plus this pluggable
+     * {@link org.apache.cassandra.service.accord.execution.deadline.PreAcceptPenalty}, and contended PreAccepts are
+     * released strictly in txnId order.
+     *
+     * The standard implementation supplies Y, the maximum one-way link latency from any DC, estimated as half the
+     * round-trip to each DC measured by {@link org.apache.cassandra.net.LinkLatencies} (so link_latency_probe_interval
+     * must also be configured), e.g.
+     *   class_name: LinkLatencyPreAcceptPenalty
+     */
+    public ParameterizedClass preaccept_deadline_penalty;
+
+    /**
+     * A loaded key is considered contended if it has witnessed a transaction with an HLC within this window of now.
+     */
+    public DurationSpec.LongMicrosecondsBound preaccept_deadline_contention_window = new DurationSpec.LongMicrosecondsBound("100ms");
+
+    /**
+     * The maximum penalty that may be applied to any PreAccept, irrespective of what the penalty implementation supplies.
+     */
+    public DurationSpec.LongMicrosecondsBound preaccept_deadline_max_penalty = new DurationSpec.LongMicrosecondsBound("200ms");
     /**
      * The target number of command stores to create per topology shard.
      * This determines the amount of execution parallelism possible for a given table/shard on the host.

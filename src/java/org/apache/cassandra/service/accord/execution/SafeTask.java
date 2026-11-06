@@ -53,9 +53,11 @@ import accord.local.CommandSummaries;
 import accord.local.CommandSummaries.Summary;
 import accord.local.ExecutionContext;
 import accord.local.LoadKeys;
+import accord.local.NodeCommandStoreService;
 import accord.local.SafeCommandStore;
 import accord.local.SafeState;
 import accord.local.cfk.CommandsForKey;
+import accord.messages.PreAccept;
 import accord.primitives.AbstractRanges;
 import accord.primitives.AbstractUnseekableKeys;
 import accord.primitives.Range;
@@ -67,6 +69,7 @@ import accord.primitives.Unseekables;
 import accord.utils.ArrayBuffers.BufferList;
 import accord.utils.Invariants;
 import accord.utils.Invariants.Paranoia;
+import accord.utils.TinyEnumSet;
 import accord.utils.UnhandledEnum;
 import accord.utils.async.AsyncChain;
 import accord.utils.async.AsyncChains;
@@ -85,6 +88,8 @@ import org.apache.cassandra.service.accord.execution.AccordCacheEntry.Loading;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.Status;
+import org.apache.cassandra.service.accord.execution.deadline.PreAcceptDeadlines;
+import org.apache.cassandra.service.accord.serializers.CommandSerializers;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -729,6 +734,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     break;
                 case Key:
                     setupKeyLoadsExclusive(hasPreSetup, caches, (AbstractUnseekableKeys) keysOrRanges, hasInheritedRangeScan());
+                    if (PreAcceptDeadlines.ENABLED && !hasPreSetup)
+                        maybeAssignDeadlineExclusive();
                     break;
             }
         }
@@ -1071,6 +1078,144 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
 
     private void waitOnTxnsExclusive()
     {
+        if (hasDeadline() && tryDeferExclusive())
+            return;
+
+        waitOnTxnsInternalExclusive();
+    }
+
+    /**
+     * Deadline-ordered delivery of contended PreAccepts. We have setup our references, and submitted any loads, but have
+     * not yet placed any (non-fifo) claims on any cache entry, so we can wait here without blocking any other task.
+     * We park in LOADING_OPTIONAL in executor().deferred, which is ordered by position (i.e. txnId), and released
+     * strictly in this order as the deadline of its head passes.
+     *
+     * Until we are released, our deadline (in HLC micros) is stashed in waitingAt, which is otherwise unused until we
+     * reach waitOnTxnsInternalExclusive.
+     *
+     * @return true if we have been deferred
+     */
+    private boolean tryDeferExclusive()
+    {
+        Invariants.require(!isCacheQueuedFifo() && !isQueued());
+        if (waitingAt <= commandStore.node().now())
+        {
+            clearDeadline();
+            return false;
+        }
+
+        if (!is(LOADING_OPTIONAL))
+            setStateExclusive(LOADING_OPTIONAL);
+        executor().deferExclusive(this);
+        return true;
+    }
+
+    /** the HLC (micros) at which we should be released */
+    long deadlineHlc()
+    {
+        Invariants.require(hasDeadline());
+        return waitingAt;
+    }
+
+    private boolean hasDeadline()
+    {
+        return 0 != (info & DEADLINE_BIT);
+    }
+
+    private void clearDeadline()
+    {
+        info &= ~DEADLINE_BIT;
+        waitingAt = 0;
+    }
+
+    /**
+     * Invoked by the executor once our deadline has passed, and all preceding deferred tasks have been released,
+     * having removed us from its deferred queue.
+     */
+    void releaseDeferredExclusive()
+    {
+        Invariants.require(is(LOADING_OPTIONAL) && !isQueued());
+        clearDeadline();
+        // if we are async and still waiting for more keys to load, we will proceed as normal once they do
+        if (isSync() || nonSync().isLoaded(this)) waitOnTxnsInternalExclusive();
+        else executor().loading.enqueue(this);
+    }
+
+    /**
+     * Decide if this is a contended PreAccept and, if so, assign it a deadline of txnId.hlc() + penalty.
+     * We consider a key contended if:
+     *  - it is loaded and has witnessed some other transaction within the last CONTENTION_WINDOW_MICROS; or
+     *  - some other PreAccept/Accept/Commit/Stable is queued against it (in particular, if it is not yet loaded)
+     */
+    private void maybeAssignDeadlineExclusive()
+    {
+        if (!is(ExclusiveGroup.PREACCEPT) || !(context instanceof PreAccept) || !executor().supportsDeferral())
+            return;
+
+        TxnId txnId = context.primaryTxnId();
+        // we must be ordered by our txnId to be released in txnId order (this excludes the FIFO priority model)
+        if (txnId == null || !txnId.is(Key) || position != txnId.hlc())
+            return;
+
+        NodeCommandStoreService node = commandStore.node();
+        long nowHlc = node.now();
+        if (!isContendedExclusive(txnId, nowHlc))
+            return;
+
+        long penaltyMicros = Math.min(PreAcceptDeadlines.MAX_PENALTY_MICROS, PreAcceptDeadlines.PENALTY.penaltyMicros(node.id(), txnId.node, txnId));
+        if (penaltyMicros <= 0)
+            return;
+
+        // bound the delay, in case the coordinator's clock is ahead of ours
+        long deadline = Math.min(txnId.hlc() + penaltyMicros, nowHlc + PreAcceptDeadlines.MAX_PENALTY_MICROS);
+        if (deadline <= nowHlc)
+            return;
+
+        Invariants.require(waitingAt == 0);
+        waitingAt = deadline;
+        info |= DEADLINE_BIT;
+    }
+
+    private boolean isContendedExclusive(TxnId self, long nowHlc)
+    {
+        long recentHlc = nowHlc - PreAcceptDeadlines.CONTENTION_WINDOW_MICROS;
+        for (SafeState<?> safeState : refs.values())
+        {
+            if (!(safeState instanceof SaferCommandsForKey))
+                continue;
+
+            AccordCacheEntry<?, ?, ?> entry = ((SaferCommandsForKey) safeState).global();
+            if (entry.isUnsafeToRead())
+                continue;
+
+            if (entry.isLoaded())
+            {
+                CommandsForKey cfk = (CommandsForKey) entry.tryGetExclusive(); // null if shrunk; we do not inflate just for this
+                if (cfk != null)
+                {
+                    for (int i = cfk.size() - 1 ; i >= 0 ; --i)
+                    {
+                        TxnId txnId = cfk.txnId(i);
+                        if (txnId.hlc() < recentHlc) break;
+                        if (!txnId.equals(self)) return true;
+                    }
+                }
+            }
+
+            if (entry.anyQueuedMatching(this, SafeTask::isContending))
+                return true;
+        }
+        return false;
+    }
+
+    private static final int CONTENDING_GROUPS = TinyEnumSet.encode(ExclusiveGroup.PREACCEPT, ExclusiveGroup.ACCEPT, ExclusiveGroup.COMMIT, ExclusiveGroup.STABLE);
+    private static boolean isContending(SafeTask<?> task)
+    {
+        return TinyEnumSet.contains(CONTENDING_GROUPS, task.exclusiveGroupOrdinal()) && !task.isDone();
+    }
+
+    private void waitOnTxnsInternalExclusive()
+    {
         waitingAt = Math.max(createdAt, nanoTime());
         ExclusiveExecutor exclusiveExecutor = commandStore.exclusiveExecutor();
         executor().runnable.incrementArrivals(this);
@@ -1291,7 +1436,7 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
     {
         Invariants.require(CACHE_QUEUES_ENABLED);
         nonSync().addLoaded();
-        if (is(LOADING_OPTIONAL) && nonSync().isLoaded(this))
+        if (is(LOADING_OPTIONAL) && !isDeferred() && nonSync().isLoaded(this))
         {
             unqueue(executor().loading);
             waitOnTxnsExclusive();
@@ -2056,7 +2201,7 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     NonSyncState nonSync = nonSync();
                     Invariants.expect(nonSync.blocking == null || !nonSync.blocking.contains(entry.key()));
                     Invariants.expect(nonSync.notBlocking == null || !nonSync.notBlocking.contains(entry.key()));
-                    if (is(LOADING_OPTIONAL) && nonSync.isLoaded(this))
+                    if (is(LOADING_OPTIONAL) && !isDeferred() && nonSync.isLoaded(this))
                     {
                         unqueue(executor().loading);
                         waitOnTxnsExclusive();
@@ -2108,6 +2253,9 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 break;
             case RUNNABLE:
                 expected = commandStore.exclusiveExecutor();
+                break;
+            case DEFERRED:
+                expected = executor().deferred;
                 break;
         }
         expected.unqueue(this);
