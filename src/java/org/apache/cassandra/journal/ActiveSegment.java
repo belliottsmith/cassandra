@@ -507,7 +507,7 @@ public final class ActiveSegment<K, V> extends Segment<K, V>
         {
             try (Timer.Context ignored = waitingOnFlush.time())
             {
-                waitForFlush(start);
+                waitForFlush(start + length);
             }
         }
 

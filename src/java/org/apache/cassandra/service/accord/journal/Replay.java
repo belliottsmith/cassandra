@@ -71,6 +71,10 @@ public class Replay
                 accordReplayerMode = AbstractReplayer.Mode.ALL;
         }
 
+        // see AccordConfig.validateReplayMode; checked again here for replays requested at runtime
+        if (journal.rangeSearch != null && accordReplayerMode != AbstractReplayer.Mode.ALL)
+            throw new IllegalArgumentException("range_index_mode journal_sai requires accord.journal.replay ALL or RESET, not " + replayMode);
+
         Invariants.require(param == null || param.getClass() == Long2LongHashMap.class, "Param should be null or a map of commandStoreId->minSegmentId");
         final Long2LongHashMap minSegments = param == null || journal.rangeSearch != null ? new Long2LongHashMap(0L) : (Long2LongHashMap) param;
         if (journal.rangeSearch != null)
@@ -80,7 +84,8 @@ public class Replay
         // Replay is performed in parallel, where at most X commands can be in flight, across at most Y commands stores.
         // That is, you can limit replay parallelism to 1 command store at a time, but load multiple commands within that data store,
         // _or_ have multiple commands being loaded accross multiple data stores.
-        final Semaphore commandParallelism = Semaphore.newSemaphore(getAvailableProcessors());
+        final int maxCommandsInFlight = getAvailableProcessors();
+        final Semaphore commandParallelism = Semaphore.newSemaphore(maxCommandsInFlight);
         final int commandStoreParallelism = Math.max(Math.max(1, Math.min(getAvailableProcessors(), 4)), getAvailableProcessors() / 4);
         final AtomicBoolean abort = new AtomicBoolean();
         final IntArrayList activeCommandStoreIds = new IntArrayList();
@@ -140,9 +145,16 @@ public class Replay
                             }
                             return null;
                         }).begin((success, fail) -> {
-                            commandParallelism.release(1);
-                            if (fail != null && !journal.segments.handleError("Could not replay command " + txnId, fail))
-                                abort.set(true);
+                            try
+                            {
+                                if (fail != null && !journal.segments.handleError("Could not replay command " + txnId, fail))
+                                    abort.set(true);
+                            }
+                            finally
+                            {
+                                // release only once abort is set, as we drain these permits before testing abort
+                                commandParallelism.release(1);
+                            }
                         });
 
                 return true;
@@ -205,6 +217,14 @@ public class Replay
                 }
 
                 ++cur;
+            }
+
+            // wait for in-flight commands, any of which may yet abort
+            commandParallelism.acquireThrowUncheckedOnInterrupt(maxCommandsInFlight);
+            if (abort.get())
+            {
+                replayStreams.values().forEach(ReplayStream::close);
+                return false;
             }
             return true;
         }

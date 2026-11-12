@@ -419,6 +419,7 @@ final class Flusher<K, V>
     {
         void flushAndAwaitDurable(ActiveSegment<K, V>.Allocation alloc);
         RecordPointer flushAsync(ActiveSegment<K, V>.Allocation alloc);
+        // note: a RecordPointer is the start of a record, and fsyncFinishedForPosition the (exclusive) end of the last fsync
         boolean isDurable(RecordPointer recordPointer);
     }
 
@@ -445,7 +446,7 @@ final class Flusher<K, V>
         @Override
         public boolean isDurable(RecordPointer pointer)
         {
-            return pointer.compareTo(fsyncFinishedForPosition) <= 0;
+            return pointer.compareTo(fsyncFinishedForPosition) < 0;
         }
     }
 
@@ -470,7 +471,7 @@ final class Flusher<K, V>
         @Override
         public boolean isDurable(RecordPointer pointer)
         {
-            return pointer.compareTo(fsyncFinishedForPosition) <= 0;
+            return pointer.compareTo(fsyncFinishedForPosition) < 0;
         }
     }
 

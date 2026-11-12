@@ -218,6 +218,11 @@ public class AccordSyncPropagator implements TopologyListener
         return !pending.isEmpty();
     }
 
+    private synchronized boolean isPending(Node.Id to)
+    {
+        return pending.containsKey(to.id);
+    }
+
     public synchronized boolean hasPending(long epoch)
     {
         if (pending.isEmpty()) return false;
@@ -330,7 +335,12 @@ public class AccordSyncPropagator implements TopologyListener
     {
         InetAddressAndPort toEp = endpointMapper.mappedEndpointOrNull(to, notification);
         if (toEp == null)
+        {
+            // the mapping may not yet be known (e.g. on join), so retry until it is known or the node is removed
+            if (isPending(to))
+                scheduleRetry(to, notification);
             return false;
+        }
 
         // was the endpoint removed from membership?
         NodeStatus nodeStatus = endpointMapper.nodeStatus(to);
@@ -347,7 +357,10 @@ public class AccordSyncPropagator implements TopologyListener
                 // going to answer, scheduleRetry has no attempt limit, and the epoch's sync must complete without it
             case UNKNOWN:
                 // endpoint is not a member of the latest epoch
-                pending.ack(to, notification);
+                synchronized (AccordSyncPropagator.this)
+                {
+                    pending.ack(to, notification);
+                }
                 return true;
 
             case HEALTHY:

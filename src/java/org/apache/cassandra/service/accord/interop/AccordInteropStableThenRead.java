@@ -58,8 +58,6 @@ import static accord.messages.Commit.WithDeps.HasDeps;
 import static accord.messages.Commit.WithDeps.NoDeps;
 import static accord.messages.Commit.WithTxn.HasTxn;
 import static accord.messages.Commit.WithTxn.NoTxn;
-import static accord.primitives.SaveStatus.PreApplied;
-import static accord.primitives.SaveStatus.ReadyToExecute;
 
 public class AccordInteropStableThenRead extends AccordInteropRead
 {
@@ -113,9 +111,6 @@ public class AccordInteropStableThenRead extends AccordInteropRead
         }
     };
 
-    // TODO (required): why is this safe to execute at PreApplied? Document.
-    private static final ExecuteOn EXECUTE_ON = new ExecuteOn(ReadyToExecute, PreApplied);
-
     public final long minEpoch;
     public final Commit.Kind kind;
     public final Timestamp executeAt;
@@ -159,12 +154,6 @@ public class AccordInteropStableThenRead extends AccordInteropRead
     public ReadType kind()
     {
         return ReadType.stableThenRead;
-    }
-
-    @Override
-    protected ExecuteOn executeOn()
-    {
-        return EXECUTE_ON;
     }
 
     @Override
