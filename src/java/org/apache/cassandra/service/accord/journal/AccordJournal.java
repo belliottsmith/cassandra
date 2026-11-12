@@ -601,7 +601,8 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
     {
         Long2LongHashMap minSegments = new Long2LongHashMap(0);
         minSegments.put(commandStore.id(), minSegmentId);
-        Replay.replay(this, replayMode, new CommandStore[] {commandStore }, minSegments);
+        if (!Replay.replay(this, replayMode, new CommandStore[] {commandStore }, minSegments))
+            throw new IllegalStateException("Replay of " + commandStore + " was aborted");
     }
 
     @Override

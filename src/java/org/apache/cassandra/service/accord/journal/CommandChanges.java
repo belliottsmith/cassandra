@@ -238,8 +238,8 @@ public class CommandChanges extends CommandChange.Builder implements Merger
         for (CommandChange.Field field = nextSetField(iterable); field != null; field = nextSetField(iterable = unsetIterable(field, iterable)))
         {
             // Since we are iterating in reverse order, we skip the fields that were
-            // set by entries written later (i.e. already read ones).
-            if (isChanged(field, flags | mask) && field != CLEANUP)
+            // set by entries written later (i.e. already read ones), and those we were asked not to load.
+            if ((isChanged(field, flags) || isMasked(field, mask)) && field != CLEANUP)
                 skip(txnId, field, in, userVersion);
             else
                 deserialize(field, in, userVersion);
@@ -247,6 +247,12 @@ public class CommandChanges extends CommandChange.Builder implements Merger
 
         // upper 16 bits are changed flags, lower are nulls; by masking upper by ~lower we restrict to only non-null changed fields
         this.flags |= readFlags & (~readFlags << 16);
+    }
+
+    // the bits of fields we should not load are set in mask (see CommandChange.mask)
+    private static boolean isMasked(CommandChange.Field field, int mask)
+    {
+        return (mask & (1 << field.ordinal())) != 0;
     }
 
     private void deserialize(CommandChange.Field field, DataInputPlus in, Version userVersion) throws IOException

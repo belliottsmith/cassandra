@@ -31,6 +31,7 @@ import accord.api.ProtocolModifiers.UniqueTimestampOnConflict;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.journal.Params;
 import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.consensus.TransactionalMode;
@@ -39,6 +40,7 @@ import static org.apache.cassandra.config.AccordConfig.QueueShardModel.THREAD_PO
 import static org.apache.cassandra.config.AccordConfig.QueueSubmissionModel.SIGNAL;
 import static org.apache.cassandra.config.AccordConfig.QueueSubmissionModel.SYNC;
 import static org.apache.cassandra.config.AccordConfig.RangeIndexMode.in_memory;
+import static org.apache.cassandra.config.AccordConfig.RangeIndexMode.journal_sai;
 
 public class AccordConfig
 {
@@ -391,6 +393,18 @@ public class AccordConfig
 
     public enum RangeIndexMode { in_memory, journal_sai }
     public RangeIndexMode range_index_mode = in_memory;
+
+    /**
+     * With journal_sai, replay rebuilds the in-memory index of journal segments not yet compacted into the journal table
+     * only from the commands it replays (see Replay). Modes weaker than ALL skip commands durable to both the command
+     * and data stores, whose routes would then be missing from range searches until their segments are compacted.
+     * TODO (required): re-index skipped commands from their stored route, then remove this restriction
+     */
+    public static void validateReplayMode(RangeIndexMode rangeIndexMode, JournalConfig.ReplayMode replay) throws ConfigurationException
+    {
+        if (rangeIndexMode == journal_sai && (replay == JournalConfig.ReplayMode.PART_NON_DURABLE || replay == JournalConfig.ReplayMode.NON_DURABLE))
+            throw new ConfigurationException("accord.range_index_mode journal_sai requires accord.journal.replay ALL or RESET, not " + replay, false);
+    }
 
     public final JournalConfig journal = new JournalConfig();
 

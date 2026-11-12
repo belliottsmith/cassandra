@@ -106,6 +106,9 @@ public class AccordInteropReadRepair extends ReadData
         }
     }
 
+    // TODO (required): confirm executing until Applied is safe; unlike AccordInteropRead we may execute at PreApplied, while
+    //  still waiting on local dependencies. Presumably deliberate (the read is logically safe until Applied), but this
+    //  mode is not yet considered safe and needs validating.
     private static final ExecuteOn EXECUTE_ON = new ExecuteOn(SaveStatus.ReadyToExecute, SaveStatus.Applied);
 
     private final Mutation mutation;

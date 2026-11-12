@@ -668,6 +668,8 @@ public class DatabaseDescriptor
         if (conf.accord.durability_flush_interval == null)
             conf.accord.durability_flush_interval = conf.accord.shard_durability_cycle;
 
+        AccordConfig.validateReplayMode(conf.accord.range_index_mode, conf.accord.journal.replay);
+
         /* evaluate the DiskAccessMode Config directive, which also affects indexAccessMode selection */
         if (conf.disk_access_mode == DiskAccessMode.auto || conf.disk_access_mode == DiskAccessMode.mmap_index_only)
         {

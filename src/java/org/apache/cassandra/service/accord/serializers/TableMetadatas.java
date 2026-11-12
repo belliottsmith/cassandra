@@ -423,13 +423,13 @@ public abstract class TableMetadatas extends AbstractList<TableId>
             TableId id = TableId.deserializeCompactComparable(in);
             TableMetadata metadata = Schema.instance.getTableMetadata(id);
             metadatas[i] = metadata;
-            if (ids != null) ids[i] = id;
-            else if (metadata == null)
+            if (ids == null && metadata == null)
             {
                 ids = new TableId[count];
                 for (int j = 0 ; j < i ; ++j)
                     ids[j] = metadatas[j].id;
             }
+            if (ids != null) ids[i] = id;
         }
         if (ids == null)
             return new Multi(metadatas);

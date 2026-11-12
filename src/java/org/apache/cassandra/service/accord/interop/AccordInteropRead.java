@@ -70,7 +70,6 @@ import org.apache.cassandra.service.accord.txn.TxnNamedRead;
 import org.apache.cassandra.service.accord.txn.TxnRead;
 import org.apache.cassandra.utils.Pair;
 
-import static accord.primitives.SaveStatus.PreApplied;
 import static accord.primitives.SaveStatus.ReadyToExecute;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -251,7 +250,8 @@ public class AccordInteropRead extends ReadData
         }
     }
 
-    private static final ExecuteOn EXECUTE_ON = new ExecuteOn(ReadyToExecute, PreApplied);
+    // as ReadTxnData, not at PreApplied as we may still await local dependencies; also used by AccordInteropStableThenRead
+    private static final ExecuteOn EXECUTE_ON = new ExecuteOn(ReadyToExecute, ReadyToExecute);
 
     protected final ReadCommand command;
 

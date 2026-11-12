@@ -78,6 +78,7 @@ import org.apache.cassandra.concurrent.ForwardingExecutorFactory;
 import org.apache.cassandra.concurrent.ForwardingExecutorPlus;
 import org.apache.cassandra.concurrent.ImmediateExecutor;
 import org.apache.cassandra.concurrent.SequentialExecutorPlus;
+import org.apache.cassandra.config.AccordConfig.JournalConfig.ReplayMode;
 import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.OptionaldPositiveInt;
@@ -138,6 +139,7 @@ public class RouteIndexTest extends CQLTester
         DatabaseDescriptor.getAccord().journal.enable_compaction = false;
         DatabaseDescriptor.getAccord().journal.stopMarkerFailurePolicy = ALLOW_UNSAFE_STARTUP;
         DatabaseDescriptor.getAccord().range_index_mode = journal_sai;
+        DatabaseDescriptor.getAccord().journal.replay = ReplayMode.ALL; // required by journal_sai
         DatabaseDescriptor.setIncrementalBackupsEnabled(false);
         DatabaseDescriptor.setAutoSnapshot(false);
 
