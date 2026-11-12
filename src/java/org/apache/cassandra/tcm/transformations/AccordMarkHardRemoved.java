@@ -106,6 +106,11 @@ public class AccordMarkHardRemoved implements Transformation
             if (prev.accordNodeInfos.hardRemoved().contains(id))
                 return new Rejected(INVALID, String.format("Cannot mark node %s hard removed as it already is.", id));
 
+        SortedArrayList<Node.Id> allHardRemoved = prev.accordNodeInfos.hardRemoved().with(hardRemoveIds);
+        String inactive = AccordMarkStale.tooManyInactive(prev, prev.accordNodeInfos.stale(), allHardRemoved);
+        if (inactive != null)
+            return new Rejected(INVALID, String.format("Cannot mark nodes %s hard removed as %s", hardRemoveIds, inactive));
+
         logger.info("Marking " + ids + " hard removed. These nodes should be permanently offline and unable to respond to any messages at any future point.");
         ClusterMetadata.Transformer next = prev.transformer().markHardRemovedReplicas(hardRemoveIds);
         return Transformation.success(next, LockedRanges.AffectedRanges.EMPTY);

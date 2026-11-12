@@ -554,9 +554,10 @@ public class SimulatedAccordCommandStore implements AutoCloseable
         }
 
         @Override
-        public void saveCommand(int commandStoreId, CommandUpdate update, Runnable onFlush)
+        public void saveCommand(CommandStore commandStore, CommandUpdate update, Runnable onFlush)
         {
-            super.saveCommand(commandStoreId, update, onFlush);
+            super.saveCommand(commandStore, update, onFlush);
+            int commandStoreId = commandStore.id();
             if (!update.after.txnId().domain().isRange())
                 return;
             Command after = update.after;

@@ -185,6 +185,6 @@ public class AccordJournalReplayMinSegmentTest
         Command command = Command.NotDefined.notDefined(txnId, SaveStatus.NotDefined, Status.Durability.NotDurable,
                                                         StoreParticipants.create(null, participants, null, null, participants, participants),
                                                         Ballot.ZERO);
-        journal.saveCommand(STORE, new accord.api.Journal.CommandUpdate(null, command), () -> {});
+        journal.saveCommandById(STORE, new accord.api.Journal.CommandUpdate(null, command), () -> {});
     }
 }

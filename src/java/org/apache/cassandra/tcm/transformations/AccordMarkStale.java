@@ -83,24 +83,38 @@ public class AccordMarkStale implements Transformation
             if (prev.accordNodeInfos.stale().contains(id))
                 return new Rejected(INVALID, String.format("Can not mark node %s stale as it already is.", id));
 
-        for (KeyspaceMetadata keyspace : prev.schema.getKeyspaces().without(SchemaConstants.REPLICATED_SYSTEM_KEYSPACE_NAMES))
-        {
-            List<AccordTopology.KeyspaceShard> shards = AccordTopology.KeyspaceShard.forKeyspace(keyspace, prev.placements(), prev.directory);
-            
-            for (AccordTopology.KeyspaceShard shard : shards)
-            {
-                SortedArrayList<Node.Id> intersecting = allStaleIds.intersecting(shard.nodes());
-                if (intersecting.size() > Shard.maxToleratedFailures(shard.nodes().size()))
-                {
-                    return new Rejected(INVALID, String.format("Can not mark nodes %s stale as that would leave fewer than a quorum of nodes active for ranges %s in keyspace '%s'.",
-                                                               allStaleIds, shard.ranges(), keyspace.name));
-                }
-            }
-        }
+        String inactive = tooManyInactive(prev, allStaleIds, prev.accordNodeInfos.hardRemoved());
+        if (inactive != null)
+            return new Rejected(INVALID, String.format("Can not mark nodes %s stale as %s", allStaleIds, inactive));
 
         logger.info("Marking " + ids + " stale. They will no longer participate in durability status coordination...");
         ClusterMetadata.Transformer next = prev.transformer().markStaleReplicas(staleIds);
         return Transformation.success(next, LockedRanges.AffectedRanges.EMPTY);
+    }
+
+    /**
+     * Stale and hard removed replicas are both excluded from durability coordination, so together they may not exceed
+     * the failures each shard tolerates (which hard removal can raise). A replica that is both stale and hard removed
+     * is counted once, so a stale replica may always be hard removed.
+     *
+     * @return a description of the first shard that would have too many inactive replicas, or null if there is none
+     */
+    static String tooManyInactive(ClusterMetadata metadata, SortedArrayList<Node.Id> stale, SortedArrayList<Node.Id> hardRemoved)
+    {
+        for (KeyspaceMetadata keyspace : metadata.schema.getKeyspaces().without(SchemaConstants.REPLICATED_SYSTEM_KEYSPACE_NAMES))
+        {
+            List<AccordTopology.KeyspaceShard> shards = AccordTopology.KeyspaceShard.forKeyspace(keyspace, metadata.placements(), metadata.directory);
+            for (AccordTopology.KeyspaceShard shard : shards)
+            {
+                SortedArrayList<Node.Id> shardHardRemoved = hardRemoved.intersecting(shard.nodes());
+                SortedArrayList<Node.Id> inactive = stale.intersecting(shard.nodes()).with(shardHardRemoved);
+                int maxFailures = Shard.maxFailures(shard.nodes().size(), shardHardRemoved.size());
+                if (inactive.size() > maxFailures)
+                    return String.format("that would leave %s stale or hard removed, more than the %d failures tolerated by ranges %s in keyspace '%s'.",
+                                         inactive, maxFailures, shard.ranges(), keyspace.name);
+            }
+        }
+        return null;
     }
 
     @Override
