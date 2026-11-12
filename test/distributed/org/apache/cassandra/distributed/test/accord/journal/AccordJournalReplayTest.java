@@ -129,7 +129,7 @@ public class AccordJournalReplayTest extends TestBaseImpl
                 }
                 Writes writes = new Writes(txnId, txnId, Keys.EMPTY, null);
                 Command command = Command.Executed.executed(txnId, SaveStatus.PreApplied, Status.Durability.NotDurable, StoreParticipants.execute(commandStore.unsafeGetRangesForEpoch(), route, txnId, txnId.epoch()), Ballot.ZERO, txnId, txn.intersecting(route, true), deps.intersecting(route), Ballot.ZERO, waitingOn, writes, TxnDataResult.PERSISTABLE);
-                commandStore.journal.saveCommand(commandStore.id(), new Journal.CommandUpdate(null, command), () -> {});
+                commandStore.journal.saveCommand(commandStore, new Journal.CommandUpdate(null, command), () -> {});
 
                 SyncPoint syncPoint = AccordService.getBlocking(CoordinateSyncPoint.exclusive(node, syncPointId, Ranges.of(key.asRange())));
                 AccordService.getBlocking(ExecuteSyncPoint.coordinate(node, syncPoint, 1).onQuorumOrDone());

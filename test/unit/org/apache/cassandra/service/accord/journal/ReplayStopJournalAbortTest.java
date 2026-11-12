@@ -234,7 +234,7 @@ public class ReplayStopJournalAbortTest
         {
             Command command = Command.NotDefined.notDefined(txnId, SaveStatus.NotDefined, Status.Durability.NotDurable,
                                                             StoreParticipants.create(null, participants, null, null, participants, participants), Ballot.ZERO);
-            journal.saveCommand(STORE_ID, new CommandUpdate(null, command), () -> {});
+            journal.saveCommandById(STORE_ID, new CommandUpdate(null, command), () -> {});
         }
         journal.closeCurrentSegmentForTestingIfNonEmpty();
 

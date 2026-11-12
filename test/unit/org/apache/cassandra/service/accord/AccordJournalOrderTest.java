@@ -91,7 +91,7 @@ public class AccordJournalOrderTest
             res.compute(key, (k, prev) -> prev == null ? 1 : prev + 1);
             Participants<?> participants = RoutingKeys.of(new TokenKey(TableId.generate(), new ByteOrderedPartitioner.BytesToken(new byte[1])));
             Command command = Command.NotDefined.notDefined(txnId, SaveStatus.NotDefined, Status.Durability.NotDurable, StoreParticipants.create(null, participants, null, null, participants, participants), Ballot.ZERO);
-            accordJournal.saveCommand(key.commandStoreId,
+            accordJournal.saveCommandById(key.commandStoreId,
                                       new Journal.CommandUpdate(null, command),
                                       () -> {});
         }

@@ -209,6 +209,11 @@ public class Journal<K, V>
         flusherCallbacks.submit(recordPointer, runnable);
     }
 
+    public boolean isDurable(RecordPointer recordPointer)
+    {
+        return flusher.isDurable(recordPointer);
+    }
+
     public void open()
     {
         Invariants.require(stateUpdater.compareAndSet(this, State.UNINITIALIZED, State.OPENING),

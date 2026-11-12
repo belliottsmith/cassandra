@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
@@ -208,7 +207,7 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         }
     }
 
-    static class NonSyncState<R> extends OptionalState implements ExecutionContext.Wrapped, Runnable
+    static class NonSyncState<R> extends OptionalState implements ExecutionContext.Wrapped
     {
         final SafeTask<R> owner;
         final ExecutionContext context;
@@ -217,10 +216,6 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         ObjectHashSet<RoutingKey> blocking, notBlocking;
         int loaded, processed;
         boolean alwaysReady;
-        R pendingResult;
-        private volatile int pendingJournalWrites;
-
-        private static final AtomicIntegerFieldUpdater<NonSyncState> pendingJournalWritesUpdater = AtomicIntegerFieldUpdater.newUpdater(NonSyncState.class, "pendingJournalWrites");
 
         NonSyncState(SafeTask<R> owner, ExecutionContext context)
         {
@@ -399,23 +394,6 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 active = null;
                 keys = null;
             }
-        }
-
-        void incrementPendingJournalWrites()
-        {
-            pendingJournalWritesUpdater.incrementAndGet(this);
-        }
-
-        void initialisePendingJournalWrites()
-        {
-            pendingJournalWritesUpdater.lazySet(this, 1);
-        }
-
-        @Override
-        public void run()
-        {
-            if (0 == pendingJournalWritesUpdater.decrementAndGet(this))
-                owner.finish(pendingResult);
         }
     }
 
@@ -684,7 +662,6 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             Invariants.require(context.isIdempotent() || context.abandonPartialSuccess(), "Incremental tasks must be idempotent, or it must be safe to abandon partial success");
             setIncrementalExclusive();
             requireSequencedIfHoldsLocksBetweenRuns();
-            nonSync().initialisePendingJournalWrites();
         }
     }
 
@@ -1580,46 +1557,30 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
 
                 R result = function.apply(safeStore);
 
-                boolean finished = true;
+                // we may have read state written by another task that is not yet durable, so may not reply until the
+                // store's latest write is durable; journal records become durable in order, so this also awaits ours
                 List<Journal.CommandUpdate> updates = txnIdUpdates();
-                if (updates != null || safeStore.fieldUpdates() != null)
-                {
-                    finished = false;
-                    Runnable run;
-                    if (isIncremental())
-                    {
-                        NonSyncState nonSync = nonSync();
-                        nonSync.incrementPendingJournalWrites();
-                        run = nonSync;
-                    }
-                    else
-                    {
-                        run = () -> finish(result);
-                        setRunState(RUN_PERSISTING);
-                    }
+                safeStore.persistFieldUpdatesInternal(null);
+                if (updates != null)
+                    save(updates, null);
 
-                    safeStore.persistFieldUpdatesInternal(updates == null ? run : null);
-                    if (updates != null)
-                        save(updates, run);
-                }
-
+                boolean finishing = !isIncremental() || isIncrementalFinishing();
                 if (isIncremental())
-                {
-                    finished = false;
-                    if (isIncrementalFinishing())
-                    {
-                        setRunState(RUN_PERSISTING);
-                        NonSyncState nonSync = nonSync();
-                        nonSync.pendingResult = result;
-                        nonSync.run();
-                    }
-                    else setRunState(RUN_INCOMPLETE);
-                }
+                    setRunState(finishing ? RUN_PERSISTING : RUN_INCOMPLETE);
 
                 safeStore.postExecute(); // TODO (desired): do not notify callback until cfk are updated; must mark continuation tasks
-                if (finished)
+                if (!finishing)
+                    return false;
+
+                if (commandStore.isJournalDurable())
+                {
                     finish(result);
-                return finished;
+                    return !isIncremental();
+                }
+
+                setRunState(RUN_PERSISTING);
+                commandStore.onJournalDurable(() -> finish(result));
+                return false;
             }
             finally
             {

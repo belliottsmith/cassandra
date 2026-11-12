@@ -26,6 +26,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
@@ -94,6 +95,7 @@ import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.journal.Descriptor;
+import org.apache.cassandra.journal.RecordPointer;
 import org.apache.cassandra.metrics.LogLinearDecayingHistograms;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.TableId;
@@ -228,6 +230,8 @@ public class AccordCommandStore extends CommandStore
 
     public volatile String loggingId;
     public final Journal journal;
+    // the latest journal record written by this store; accessed only by this store's (exclusive) executor
+    private @Nullable RecordPointer latestJournalWrite;
     private final AccordExecutor sharedExecutor;
     private final ExclusiveExecutor exclusiveExecutor;
     private final ExclusiveCaches caches;
@@ -367,14 +371,43 @@ public class AccordCommandStore extends CommandStore
 
     public void persistFieldUpdates(FieldUpdates fieldUpdates, Runnable onFlush)
     {
-        journal.saveStoreState(id, fieldUpdates, onFlush);
+        journal.saveStoreState(this, fieldUpdates, onFlush);
+    }
+
+    /**
+     * @return true iff every journal record written by this store so far is durable
+     */
+    public boolean isJournalDurable()
+    {
+        return journal.isDurable(this);
+    }
+
+    /**
+     * Invoke {@code onDurable} once every journal record written by this store so far is durable
+     */
+    public void onJournalDurable(Runnable onDurable)
+    {
+        journal.onDurable(this, onDurable);
+    }
+
+    /**
+     * Only the journal may call this, from this store's (exclusive) executor, as it writes each record
+     */
+    public void latestJournalWrite(RecordPointer pointer)
+    {
+        latestJournalWrite = pointer;
+    }
+
+    public @Nullable RecordPointer latestJournalWrite()
+    {
+        return latestJournalWrite;
     }
 
     @Nullable
     @VisibleForTesting
     public void appendToLog(Command before, Command after, Runnable onFlush)
     {
-        journal.saveCommand(id, new CommandUpdate(before, after), onFlush);
+        journal.saveCommand(this, new CommandUpdate(before, after), onFlush);
     }
 
     @VisibleForTesting
@@ -578,12 +611,20 @@ public class AccordCommandStore extends CommandStore
 
     public void appendCommands(List<CommandUpdate> diffs, Runnable onFlush)
     {
+        // a no-op diff runs its callback inline, so we cannot attach onFlush to the last diff only
+        if (onFlush != null && diffs.size() > 1)
+            onFlush = countDown(diffs.size(), onFlush);
         for (int i = 0; i < diffs.size(); i++)
-        {
-            boolean isLast = i == diffs.size() - 1;
-            CommandUpdate change = diffs.get(i);
-            journal.saveCommand(id, change, isLast ? onFlush : null);
-        }
+            journal.saveCommand(this, diffs.get(i), onFlush);
+    }
+
+    private static Runnable countDown(int count, Runnable onDone)
+    {
+        AtomicInteger remaining = new AtomicInteger(count);
+        return () -> {
+            if (remaining.decrementAndGet() == 0)
+                onDone.run();
+        };
     }
 
     @VisibleForTesting

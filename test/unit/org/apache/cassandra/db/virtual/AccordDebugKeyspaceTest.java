@@ -970,7 +970,7 @@ public class AccordDebugKeyspaceTest extends CQLTester
 
     private static void write(AccordCommandStore commandStore, Command command)
     {
-        commandStore.journal.saveCommand(commandStore.id(), new Journal.CommandUpdate(null, command), ()->{});
+        commandStore.journal.saveCommand(commandStore, new Journal.CommandUpdate(null, command), ()->{});
     }
 
     private static Command committed(FullRoute<?> route, TxnId txnId, Timestamp executeAt, Txn txn, TxnId[] ids, int ... deps)

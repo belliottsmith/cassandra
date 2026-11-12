@@ -143,8 +143,8 @@ public class AccordJournalCompactUnknownTableTest
         TxnId t0 = AccordTestUtils.txnId(1, 10, 1);
         TxnId t1 = AccordTestUtils.txnId(1, 20, 1);
 
-        journal.saveCommand(storeId, new Journal.CommandUpdate(null, preaccepted(t0, txn0)), () -> {});
-        journal.saveCommand(storeId, new Journal.CommandUpdate(null, preaccepted(t1, liveTxn())), () -> {});
+        journal.saveCommandById(storeId, new Journal.CommandUpdate(null, preaccepted(t0, txn0)), () -> {});
+        journal.saveCommandById(storeId, new Journal.CommandUpdate(null, preaccepted(t1, liveTxn())), () -> {});
         journal.closeCurrentSegmentForTestingIfNonEmpty();
         Assert.assertEquals("T1 record present before compaction", 1, journal.load(storeId, t1).count());
 

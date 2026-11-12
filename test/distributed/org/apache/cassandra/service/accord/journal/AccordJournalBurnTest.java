@@ -220,7 +220,7 @@ public class AccordJournalBurnTest extends BurnTestBase
                              }
 
                              @Override
-                             public void saveCommand(int store, CommandUpdate update, @Nullable Runnable onFlush)
+                             public void saveCommand(CommandStore store, CommandUpdate update, @Nullable Runnable onFlush)
                              {
                                  // For the purpose of this test, we do not have to wait for flush, since we do not test durability and are using mmap
                                  super.saveCommand(store, update, () -> {});
@@ -229,11 +229,24 @@ public class AccordJournalBurnTest extends BurnTestBase
                              }
 
                              @Override
-                             public void saveStoreState(int store, FieldUpdates fieldUpdates, @Nullable Runnable onFlush)
+                             public void saveStoreState(CommandStore store, FieldUpdates fieldUpdates, @Nullable Runnable onFlush)
                              {
                                  super.saveStoreState(store, fieldUpdates, () -> {});
                                  if (onFlush != null)
                                      onFlush.run();
+                             }
+
+                             // as saveCommand and saveStoreState, treat every write as durable once written
+                             @Override
+                             public boolean isDurable(CommandStore store)
+                             {
+                                 return true;
+                             }
+
+                             @Override
+                             public void onDurable(CommandStore store, Runnable onDurable)
+                             {
+                                 onDurable.run();
                              }
 
                              @Override

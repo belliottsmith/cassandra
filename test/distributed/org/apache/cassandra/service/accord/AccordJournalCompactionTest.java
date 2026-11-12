@@ -135,7 +135,7 @@ public class AccordJournalCompactionTest
                 updates.newPermanentlyUnsafeToRead = permanentlyUnsafeToRead.next(rs);
 
                 journal.durableBeforePersister().persist(addDurableBefore, null);
-                journal.saveStoreState(1, updates, null);
+                journal.saveStoreStateById(1, updates, null);
 
                 redundantBeforeAccumulator = updates.newRedundantBefore;
                 durableBeforeMerger.update(addDurableBefore);

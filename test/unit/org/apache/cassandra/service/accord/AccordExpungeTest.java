@@ -146,7 +146,7 @@ public class AccordExpungeTest
                                   reconstructed != null && reconstructed.saveStatus() == SaveStatus.Erased);
 
                 loadAndValidate(before, journal, rb, db);
-                journal.saveCommand(COMMAND_STORE_ID, new Journal.CommandUpdate(null, before), null);
+                journal.saveCommandById(COMMAND_STORE_ID, new Journal.CommandUpdate(null, before), null);
                 loadAndValidate(before, journal, rb, db);
                 journal.closeCurrentSegmentForTestingIfNonEmpty();
                 loadAndValidate(before, journal, rb, db);

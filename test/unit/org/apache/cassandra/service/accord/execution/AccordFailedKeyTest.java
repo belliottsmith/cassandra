@@ -1609,11 +1609,11 @@ public class AccordFailedKeyTest
         return new accord.impl.basic.InMemoryJournal(new Id(1), new accord.utils.DefaultRandom(1))
         {
             @Override
-            public void saveCommand(int commandStoreId, accord.api.Journal.CommandUpdate update, Runnable onFlush)
+            public void saveCommand(accord.local.CommandStore commandStore, accord.api.Journal.CommandUpdate update, Runnable onFlush)
             {
                 if (txnId.equals(update.txnId))
                     counter.incrementAndGet();
-                super.saveCommand(commandStoreId, update, onFlush);
+                super.saveCommand(commandStore, update, onFlush);
             }
         };
     }
@@ -1696,11 +1696,28 @@ public class AccordFailedKeyTest
         return new accord.impl.basic.InMemoryJournal(new Id(1), new accord.utils.DefaultRandom(1))
         {
             @Override
-            public void saveCommand(int commandStoreId, accord.api.Journal.CommandUpdate update, Runnable onFlush)
+            public void saveCommand(accord.local.CommandStore commandStore, accord.api.Journal.CommandUpdate update, Runnable onFlush)
             {
-                super.saveCommand(commandStoreId, update, null);
+                super.saveCommand(commandStore, update, null);
                 if (onFlush != null)
                     held.add(onFlush);
+                written = true;
+            }
+
+            // the test runs the held callbacks itself, so once anything is written we hold durability waits with them
+            volatile boolean written;
+
+            @Override
+            public boolean isDurable(accord.local.CommandStore commandStore)
+            {
+                return !written;
+            }
+
+            @Override
+            public void onDurable(accord.local.CommandStore commandStore, Runnable onDurable)
+            {
+                if (written) held.add(onDurable);
+                else onDurable.run();
             }
         };
     }

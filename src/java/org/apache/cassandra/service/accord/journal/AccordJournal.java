@@ -67,6 +67,7 @@ import org.apache.cassandra.journal.RecordConsumer;
 import org.apache.cassandra.journal.RecordPointer;
 import org.apache.cassandra.journal.Segments;
 import org.apache.cassandra.journal.ValueSerializer;
+import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordKeyspace;
 import org.apache.cassandra.service.accord.JournalKey;
 import org.apache.cassandra.service.accord.journal.Merger.KeepFirst;
@@ -158,14 +159,25 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
     }
 
     @Override
-    public void saveCommand(int commandStoreId, CommandUpdate update, @Nullable Runnable onFlush)
+    public void saveCommand(CommandStore store, CommandUpdate update, @Nullable Runnable onFlush)
+    {
+        recordLatestWrite(store, saveCommandById(store.id(), update, onFlush));
+    }
+
+    /**
+     * As {@link #saveCommand(CommandStore, CommandUpdate, Runnable)} for callers without a command store, so the write
+     * is not visible to {@link #isDurable(CommandStore)} or {@link #onDurable(CommandStore, Runnable)}
+     *
+     * @return the record written, or null if the update changes nothing
+     */
+    public @Nullable RecordPointer saveCommandById(int commandStoreId, CommandUpdate update, @Nullable Runnable onFlush)
     {
         CommandChangeWriter change = CommandChangeWriter.make(update.before, update.after);
         if (change == null)
         {
             if (onFlush != null)
                 onFlush.run();
-            return;
+            return null;
         }
 
         JournalKey key = new JournalKey(update.txnId, COMMAND_DIFF, commandStoreId);
@@ -174,6 +186,7 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
             onFlush = merge(onFlush, rangeSearch.maybeIndex(key, pointer, change));
         if (onFlush != null)
             segments.onDurable(pointer, onFlush);
+        return pointer;
     }
 
     <T> void append(JournalKey key, T write, Runnable onFlush)
@@ -372,7 +385,18 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
     }
 
     @Override
-    public void saveStoreState(int commandStoreId, FieldUpdates fieldUpdates, Runnable onFlush)
+    public void saveStoreState(CommandStore store, FieldUpdates fieldUpdates, Runnable onFlush)
+    {
+        recordLatestWrite(store, saveStoreStateById(store.id(), fieldUpdates, onFlush));
+    }
+
+    /**
+     * As {@link #saveStoreState(CommandStore, FieldUpdates, Runnable)} for callers without a command store, so the
+     * write is not visible to {@link #isDurable(CommandStore)} or {@link #onDurable(CommandStore, Runnable)}
+     *
+     * @return the last record written, or null if there are no updates
+     */
+    public @Nullable RecordPointer saveStoreStateById(int commandStoreId, FieldUpdates fieldUpdates, Runnable onFlush)
     {
         RecordPointer pointer = null;
         if (fieldUpdates.newRedundantBefore != null)
@@ -386,13 +410,43 @@ public class AccordJournal implements accord.api.Journal, RangeSearcher.Supplier
         if (fieldUpdates.newPermanentlyUnsafeToRead != null)
             pointer = appendInternal(new JournalKey(TxnId.NONE, JournalKey.Type.PERMANENTLY_UNSAFE_TO_READ, commandStoreId), fieldUpdates.newPermanentlyUnsafeToRead);
 
-        if (onFlush == null)
-            return;
+        if (onFlush != null)
+        {
+            if (pointer != null) segments.onDurable(pointer, onFlush);
+            else onFlush.run();
+        }
+        return pointer;
+    }
 
-        if (pointer != null)
-            segments.onDurable(pointer, onFlush);
-        else
-            onFlush.run();
+    // a store's writes are issued by its (exclusive) executor, so each is later than the last
+    private static void recordLatestWrite(CommandStore store, @Nullable RecordPointer pointer)
+    {
+        if (pointer != null && store instanceof AccordCommandStore)
+            ((AccordCommandStore) store).latestJournalWrite(pointer);
+    }
+
+    // journal records become durable in order, so the store's latest record is durable only once all of them are
+    @Override
+    public boolean isDurable(CommandStore store)
+    {
+        RecordPointer pointer = latestJournalWrite(store);
+        return pointer == null || segments.isDurable(pointer);
+    }
+
+    @Override
+    public void onDurable(CommandStore store, Runnable onDurable)
+    {
+        RecordPointer pointer = latestJournalWrite(store);
+        if (pointer == null) onDurable.run();
+        else segments.onDurable(pointer, onDurable); // runs inline if already durable
+    }
+
+    // we track writes only for AccordCommandStore, the only store we use in production
+    private static @Nullable RecordPointer latestJournalWrite(CommandStore store)
+    {
+        if (!(store instanceof AccordCommandStore))
+            throw new UnsupportedOperationException("Journal durability is tracked only for AccordCommandStore, not " + store.getClass().getName());
+        return ((AccordCommandStore) store).latestJournalWrite();
     }
 
     public <BUILDER extends Merger> BUILDER readAll(JournalKey key)
