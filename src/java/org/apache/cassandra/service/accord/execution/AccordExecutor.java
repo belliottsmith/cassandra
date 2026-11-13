@@ -118,13 +118,13 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     {
         AccordConfig config = DatabaseDescriptor.getAccord();
         AGE_LIMIT = config.queue_priority_age_limit.to(TimeUnit.MICROSECONDS);
-        PRIORITY_MODEL = config.queue_priority_model != null ? config.queue_priority_model : QueuePriorityModel.HLC_FIFO;
-        BALANCING_MODEL = config.queue_balancing_model != null ? config.queue_balancing_model : QueueBalancingModel.BLENDED_PRIORITY_PHASE_FAIR;
-        NONSYNC_MIN_BATCH_SIZE = config.queue_nonsync_min_batch_size == null ? 16 : config.queue_nonsync_min_batch_size;
-        NONSYNC_MAX_BATCH_SIZE = config.queue_nonsync_max_batch_size == null ? 64 : config.queue_nonsync_max_batch_size;
-        CACHE_QUEUES_ENABLED = config.queue_key_ordering_enabled == null || config.queue_key_ordering_enabled;
-        NONSYNC_ENABLED = CACHE_QUEUES_ENABLED && (config.queue_nonsync_enabled == null || config.queue_nonsync_enabled);
-        if (!CACHE_QUEUES_ENABLED && (config.queue_nonsync_enabled == null || config.queue_nonsync_enabled))
+        PRIORITY_MODEL = config.queue_priority_model;
+        BALANCING_MODEL = config.queue_balancing_model;
+        NONSYNC_MIN_BATCH_SIZE = config.queue_nonsync_min_batch_size;
+        NONSYNC_MAX_BATCH_SIZE = config.queue_nonsync_max_batch_size;
+        CACHE_QUEUES_ENABLED = config.queue_key_ordering_enabled;
+        NONSYNC_ENABLED = CACHE_QUEUES_ENABLED && config.queue_nonsync_enabled;
+        if (!CACHE_QUEUES_ENABLED && config.queue_nonsync_enabled)
             logger.info("config.queue_key_ordering_enabled is false; accord.queue_nonsync_enabled forced to false as well");
         NONSYNC_BLOCKED_LIMIT = config.queue_nonsync_blocked_limit == null ? 8 : config.queue_nonsync_blocked_limit;
         switch (BALANCING_MODEL)

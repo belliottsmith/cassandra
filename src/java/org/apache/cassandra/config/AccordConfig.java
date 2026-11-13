@@ -194,26 +194,26 @@ public class AccordConfig
      */
     public volatile OptionaldPositiveInt queue_thread_count = OptionaldPositiveInt.UNDEFINED;
 
-    public QueuePriorityModel queue_priority_model;
-    public QueueBalancingModel queue_balancing_model;
+    public QueuePriorityModel queue_priority_model = QueuePriorityModel.HLC_FIFO;
+    public QueueBalancingModel queue_balancing_model = QueueBalancingModel.BLENDED_PRIORITY_PHASE_FAIR;
 
     public String queue_active_limits;
 
-    public Boolean queue_nonsync_enabled;
-    public Boolean queue_key_ordering_enabled;
+    public boolean queue_nonsync_enabled = true;
+    public boolean queue_key_ordering_enabled = true;
 
     /**
      * Size at which we will begin processing a task that is ASYNC, INCR OR INCR_ATOMIC.
      * Note that a size of zero will effectively give implicit priority to INCR_ATOMIC tasks, as they may immediately
      * take a FIFO queue slot (which is processed preferentially).
      */
-    public Integer queue_nonsync_min_batch_size;
+    public Integer queue_nonsync_min_batch_size = 16;
 
     /**
      * If there are more than min_batch_size keys ready for an ASYNC, INCR or INCR_ATOMIC task,
      * process up to this many keys at once.
      */
-    public Integer queue_nonsync_max_batch_size;
+    public Integer queue_nonsync_max_batch_size = 64;
 
     /**
      * An ASYNC, INCR or INCR_ATOMIC task that is ready to run but waiting for batch_size work will proceed
