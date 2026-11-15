@@ -74,15 +74,20 @@ public class BacklogMessageSerializersTest
     {
         DataOutputBuffer buffer = new DataOutputBuffer();
         qt().forAll(txnIds(), routes(), AccordGens.timestamps()).check((txnId, route, executeAt) -> {
-            ReadTxnDataIfReady read = ReadTxnDataIfReady.SerializerSupport.create(txnId, route, executeAt, executeAt.epoch(), ExecuteFlags.none().with(NO_WAIT));
-            ReadData result = roundTrip(buffer, ReadDataSerializer.request, read);
-            assertThat(result).isInstanceOf(ReadTxnDataIfReady.class);
-            assertThat(result.txnId).isEqualTo(txnId);
-            assertThat(result.scope).isEqualTo(route);
-            assertThat(result.executeAt()).isEqualTo(executeAt);
-            assertThat(result.executeAtEpoch).isEqualTo(executeAt.epoch());
-            assertThat(result.flags.bits()).isEqualTo(read.flags.bits());
-            assertThat(result.partialTxn()).isNull();
+            // with NO_WAIT the read is opportunistic; without, it waits for Stable stores to become ready
+            for (boolean wait : new boolean[] { false, true })
+            {
+                ReadTxnDataIfReady read = ReadTxnDataIfReady.SerializerSupport.create(txnId, route, executeAt, executeAt.epoch(), wait ? ExecuteFlags.none() : ExecuteFlags.none().with(NO_WAIT));
+                ReadData result = roundTrip(buffer, ReadDataSerializer.request, read);
+                assertThat(result).isInstanceOf(ReadTxnDataIfReady.class);
+                assertThat(result.txnId).isEqualTo(txnId);
+                assertThat(result.scope).isEqualTo(route);
+                assertThat(result.executeAt()).isEqualTo(executeAt);
+                assertThat(result.executeAtEpoch).isEqualTo(executeAt.epoch());
+                assertThat(result.flags.bits()).isEqualTo(read.flags.bits());
+                assertThat(result.flags.contains(NO_WAIT)).isEqualTo(!wait);
+                assertThat(result.partialTxn()).isNull();
+            }
         });
     }
 
