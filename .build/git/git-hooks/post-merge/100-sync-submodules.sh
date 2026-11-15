@@ -15,6 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+##
+## Move submodules that were in step with the superproject before a merge (or pull) to the commit it now records
+## (see sync_submodules).
+##
+
 # Redirect output to stderr.
 exec 1>&2
 
@@ -23,26 +28,7 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-bin="$(cd "$(dirname "$0")" > /dev/null; pwd)"
+cd "$(git rev-parse --show-toplevel)"
+source "$(dirname "$0")/../cassandra-lib/submodules.sh"
 
-_main() {
-  # In case the usage happens at a different layer, make sure to cd to the toplevel
-  local root_dir
-  root_dir="$(git rev-parse --show-toplevel)"
-  cd "$root_dir"
-
-  if ! git ls-files --error-unmatch .gitmodules &>/dev/null; then
-    # nothing to see here, look away!
-    return 0
-  fi
-
-  local extra_args=""
-  if [[ -n "${BUILD_OFFLINE:-}" ]]; then
-    echo "BUILD_OFFLINE is defined; using --no-fetch for submodule updates (local SHAs only)."
-    echo "If your submodules are not already available locally, expect this to error out."
-    extra_args="--no-fetch"
-  fi
-  git submodule update --init --recursive ${extra_args:-}
-}
-
-_main "$@"
+sync_submodules HEAD "$(git rev-parse -q --verify ORIG_HEAD || true)"
