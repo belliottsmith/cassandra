@@ -167,7 +167,7 @@ public class AccordLoadTestBase extends AccordTestBase
                   .set("accord.queue_shard_count", "1")
                   .set("accord.replica_execution", "ALL")
                   .set("accord.send_stable", "TO_ALL_REPLICA_EXECUTABLE_ELSE_FOR_READS")
-                  .set("accord.send_minimal", "false")
+                  .set("accord.send_minimal", "MAXIMAL")
                   .set("accord.catchup_on_start_fail_latency", "2m");
         });
     }

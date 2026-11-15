@@ -2884,7 +2884,7 @@ accord:
 
  replica_execution: ALL
  send_stable: TO_ALL_REPLICA_EXECUTABLE_ELSE_FOR_READS
- send_minimal: false
+ send_minimal: MAXIMAL
  shrink_cache_entries_before_eviction: false
 
  # Bound the time each dispatch pass of the signal loop spends completing tasks; later completions are deferred (unset: no budget)

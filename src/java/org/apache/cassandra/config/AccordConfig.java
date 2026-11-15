@@ -26,6 +26,7 @@ import accord.api.ProtocolModifiers.CleanCfkBefore;
 import accord.api.ProtocolModifiers.CoordinatorBacklogExecution;
 import accord.api.ProtocolModifiers.FastExecution;
 import accord.api.ProtocolModifiers.ReplicaExecution;
+import accord.api.ProtocolModifiers.SendMinimal;
 import accord.api.ProtocolModifiers.SendStableMessages;
 import accord.api.ProtocolModifiers.UniqueTimestampOnConflict;
 import accord.primitives.TxnId;
@@ -434,7 +435,6 @@ public class AccordConfig
 
     public CoordinatorBacklogExecution coordinator_backlog_execution;
     public Boolean coordinator_backlog_execution_multi_key;
-    public Boolean apply_omits_deps_if_known_stable; // must not be enabled until all nodes support Apply.Kind.NoDeps
     public Boolean permit_local_delivery;
     public Boolean permit_atomic_incremental_tasks;
     public Boolean permit_coordinator_local_execution; // if disabled, the privileged coordinator optimisation will be counter-productive and should also be disabled
@@ -451,8 +451,9 @@ public class AccordConfig
     /**
      * include the least information expected to be necessary in messages -
      * this is more efficient but may lead to some additional traffic and latency when earlier messages had not arrived
+     * (MINIMAL_NO_DEPS must not be enabled until all nodes support it)
      */
-    public Boolean send_minimal;
+    public SendMinimal send_minimal;
     // note: simulator incompatible (for now)
     public Boolean precise_micros;
     public UniqueTimestampReservations unique_timestamp_reservations = UniqueTimestampReservations.HISTOGRAM;
