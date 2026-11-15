@@ -435,6 +435,7 @@ public class AccordConfig
 
     public CoordinatorBacklogExecution coordinator_backlog_execution;
     public Boolean coordinator_backlog_execution_multi_key;
+    public Boolean coordinator_backlog_execution_claims; // must not be enabled until all nodes support BacklogClaim
     public Boolean permit_local_delivery;
     public Boolean permit_atomic_incremental_tasks;
     public Boolean permit_coordinator_local_execution; // if disabled, the privileged coordinator optimisation will be counter-productive and should also be disabled

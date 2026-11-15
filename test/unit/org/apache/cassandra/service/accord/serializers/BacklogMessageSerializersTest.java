@@ -27,6 +27,7 @@ import org.junit.Test;
 import accord.api.RoutingKey;
 import accord.coordinate.ExecuteFlag.ExecuteFlags;
 import accord.messages.Apply;
+import accord.messages.BacklogClaim;
 import accord.messages.ReadData;
 import accord.messages.ReadData.CommitOrReadNack;
 import accord.messages.ReadData.ReadReply;
@@ -120,7 +121,17 @@ public class BacklogMessageSerializersTest
         });
     }
 
-    private static <T> T roundTrip(DataOutputBuffer buffer, IVersionedSerializer<T> serializer, T input) throws IOException
+    @Test
+    public void backlogClaim()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(txnIds()).check(txnId -> {
+            BacklogClaim result = roundTrip(buffer, BacklogClaimSerializers.request, new BacklogClaim(txnId));
+            assertThat(result.txnId).isEqualTo(txnId);
+        });
+    }
+
+    private static <T> T roundTrip(DataOutputBuffer buffer, org.apache.cassandra.io.VersionedSerializer<T, Version> serializer, T input) throws IOException
     {
         buffer.clear();
         long expectedSize = serializer.serializedSize(input, Version.LATEST);
