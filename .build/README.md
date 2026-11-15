@@ -184,6 +184,26 @@ Run them:
     python3 -m unittest discover -s .build/sh/test    # the log summarizers
     .build/sh/test/stub-ant-cases.sh                  # .build/*.sh
     .build/sh/test/stub-docker-cases.sh               # .build/docker/*.sh
+    .build/git/test/test-git-hooks.sh                 # the git hooks, in scratch repositories
+
+
+Git hooks
+---------
+
+The build installs git hooks (see `.build/git/install-git-defaults.sh`) that keep submodules, such as
+`modules/accord`, consistent with the commits that record them:
+
+- After a checkout, commit, merge, rebase or amend, a submodule that was in step with the superproject is
+  detached at the commit now recorded.  A submodule that has moved on (e.g. with new commits not yet
+  recorded) is left alone.
+- A commit that moves a submodule back to an ancestor of the recorded commit is refused, as this usually
+  means a stale checkout was staged.  If intended, use `CASSANDRA_ALLOW_SUBMODULE_REWIND=1 git commit ...`
+- A push is refused if it records submodule commits that are not on a network remote of the submodule
+  (remotes on the local filesystem do not count).  To skip the check, use
+  `CASSANDRA_SKIP_SUBMODULE_PUSH_CHECK=1 git push ...`, or to push the submodule commits automatically, run
+  `git config cassandra.submodules.push on-demand`
+
+Your own hooks can be added to `.git/hooks/<hook>.d/`.
 
 
 Running Sonar analysis (experimental)
