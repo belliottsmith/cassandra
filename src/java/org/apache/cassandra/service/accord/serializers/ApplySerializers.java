@@ -56,7 +56,9 @@ public class ApplySerializers
             out.writeUnsignedVInt(apply.maxEpoch - apply.minEpoch);
             kinds.serialize(apply.kind, out);
             ExecuteAtSerializer.serialize(apply.txnId, apply.executeAt, out);
-            DepsSerializers.partialDeps.serialize(apply.deps(), out);
+            // NoDeps was introduced later, so we must not change the encoding of the other kinds
+            if (apply.kind != Apply.Kind.NoDeps)
+                DepsSerializers.partialDeps.serialize(apply.deps(), out);
             CommandSerializers.nullablePartialTxn.serialize(apply.txn(), out, version);
             KeySerializers.nullableFullRoute.serialize(apply.fullRoute, out);
             if (apply.txnId.is(Write))
@@ -73,10 +75,11 @@ public class ApplySerializers
             Ballot ballot = CommandSerializers.ballot.deserialize(in);
             long minEpoch = waitForEpoch + in.readVInt();
             long maxEpoch = minEpoch + in.readUnsignedVInt();
+            Apply.Kind kind = kinds.deserialize(in);
             return deserializeApply(txnId, ballot, scope, minEpoch, waitForEpoch, maxEpoch,
-                                    kinds.deserialize(in),
+                                    kind,
                                     ExecuteAtSerializer.deserialize(txnId, in),
-                                    DepsSerializers.partialDeps.deserialize(in),
+                                    kind == Apply.Kind.NoDeps ? null : DepsSerializers.partialDeps.deserialize(in),
                                     CommandSerializers.nullablePartialTxn.deserialize(in, version),
                                     KeySerializers.nullableFullRoute.deserialize(in),
                                     (txnId.is(Write) ? CommandSerializers.writes.deserialize(in, version) : null),
@@ -92,7 +95,7 @@ public class ApplySerializers
                    + TypeSizes.sizeofUnsignedVInt(apply.maxEpoch - apply.minEpoch)
                    + kinds.serializedSize(apply.kind)
                    + ExecuteAtSerializer.serializedSize(apply.txnId, apply.executeAt)
-                   + DepsSerializers.partialDeps.serializedSize(apply.deps())
+                   + (apply.kind == Apply.Kind.NoDeps ? 0 : DepsSerializers.partialDeps.serializedSize(apply.deps()))
                    + CommandSerializers.nullablePartialTxn.serializedSize(apply.txn(), version)
                    + KeySerializers.nullableFullRoute.serializedSize(apply.fullRoute)
                    + (apply.txnId.is(Write) ? CommandSerializers.writes.serializedSize(apply.writes(), version) : 0)
