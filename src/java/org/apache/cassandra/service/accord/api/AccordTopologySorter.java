@@ -33,6 +33,7 @@ import accord.utils.SortedList;
 
 import org.apache.cassandra.locator.DynamicEndpointSnitch;
 import org.apache.cassandra.locator.Endpoint;
+import org.apache.cassandra.locator.InOurDc;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.NodeProximity;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
@@ -63,6 +64,13 @@ public class AccordTopologySorter implements TopologySorter
         public TopologySorter get(Topologies topologies)
         {
             return create(topologies.nodes());
+        }
+
+        @Override
+        public boolean isNearby(Node.Id node)
+        {
+            InetAddressAndPort endpoint = mapper.mappedEndpointOrNull(node);
+            return endpoint != null && InOurDc.endpoints().test(endpoint);
         }
 
         private AccordTopologySorter create(SortedList<Node.Id> nodes)

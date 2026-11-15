@@ -52,6 +52,17 @@ public class CompositeTopologySorter implements TopologySorter
                 sorters[i] = delegates[i].get(topologies);
             return new CompositeTopologySorter(sorters);
         }
+
+        @Override
+        public boolean isNearby(Node.Id node)
+        {
+            for (TopologySorter.Supplier delegate : delegates)
+            {
+                if (delegate.isNearby(node))
+                    return true;
+            }
+            return false;
+        }
     }
 
     private final TopologySorter[] delegates;
