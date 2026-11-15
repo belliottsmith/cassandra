@@ -29,9 +29,11 @@ import accord.messages.ReadData.CommitOrReadNack;
 import accord.messages.ReadData.ReadOk;
 import accord.messages.ReadData.ReadOkWithFutureEpoch;
 import accord.messages.ReadData.ReadReply;
+import accord.messages.ReadData.ReadyWithDefinition;
 import accord.messages.ReadData.ReadType;
 import accord.messages.ReadEphemeralTxnData;
 import accord.messages.ReadTxnData;
+import accord.messages.ReadTxnDataIfReady;
 import accord.messages.StableThenRead;
 import accord.messages.WaitUntilApplied;
 import accord.primitives.FullRoute;
@@ -102,7 +104,9 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
         switch (type)
         {
             default: throw new UnhandledEnum(type);
-            case readTxnData: break;
+            case readTxnData:
+            case readTxnDataIfReady:
+                break;
             case waitUntilApplied:
             {
                 out.writeVInt(read.txnId.epoch() - ((WaitUntilApplied)read).minEpoch());
@@ -177,6 +181,10 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
             case readTxnData:
             {
                 return ReadTxnData.SerializerSupport.create(txnId, scope, txn, executeAt, executeAtEpoch, flags);
+            }
+            case readTxnDataIfReady:
+            {
+                return ReadTxnDataIfReady.SerializerSupport.create(txnId, scope, executeAt, executeAtEpoch, flags);
             }
             case waitUntilApplied:
             {
@@ -259,7 +267,9 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
         switch (type)
         {
             default: throw new UnhandledEnum(type);
-            case readTxnData: break;
+            case readTxnData:
+            case readTxnDataIfReady:
+                break;
             case waitUntilApplied:
             {
                 size += VIntCoding.computeVIntSize(read.txnId.epoch() - ((WaitUntilApplied)read).minEpoch());
@@ -308,6 +318,9 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
 
     public static final class ReplySerializer<D extends Data> implements IVersionedSerializer<ReadReply>
     {
+        // 0-2 are ReadOk variants; 3+ are CommitOrReadNack kinds; leave room for more of these
+        private static final int READY_WITH_DEFINITION = 0x40;
+
         private final VersionedSerializer<D, Version> dataSerializer;
 
         public ReplySerializer(VersionedSerializer<D, Version> dataSerializer)
@@ -318,6 +331,15 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
         @Override
         public void serialize(ReadReply reply, DataOutputPlus out, Version version) throws IOException
         {
+            if (reply instanceof ReadyWithDefinition)
+            {
+                ReadyWithDefinition definition = (ReadyWithDefinition) reply;
+                out.writeByte(READY_WITH_DEFINITION);
+                CommandSerializers.nullablePartialTxn.serialize(definition.partialTxn, out, version);
+                DepsSerializers.nullablePartialDeps.serialize(definition.partialDeps, out);
+                return;
+            }
+
             if (!reply.isOk())
             {
                 CommitOrReadNack nack = (CommitOrReadNack) reply;
@@ -343,6 +365,13 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
         public ReadReply deserialize(DataInputPlus in, Version version) throws IOException
         {
             int flags = in.readByte();
+            if (flags == READY_WITH_DEFINITION)
+            {
+                PartialTxn partialTxn = CommandSerializers.nullablePartialTxn.deserialize(in, version);
+                PartialDeps partialDeps = DepsSerializers.nullablePartialDeps.deserialize(in);
+                return new ReadyWithDefinition(partialTxn, partialDeps);
+            }
+
             if (flags > 2)
             {
                 CommitOrReadNack.Kind kind = CommitOrReadNack.Kind.lookupByOrdinal(flags - 3);
@@ -364,6 +393,14 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
         @Override
         public long serializedSize(ReadReply reply, Version version)
         {
+            if (reply instanceof ReadyWithDefinition)
+            {
+                ReadyWithDefinition definition = (ReadyWithDefinition) reply;
+                return TypeSizes.BYTE_SIZE
+                       + CommandSerializers.nullablePartialTxn.serializedSize(definition.partialTxn, version)
+                       + DepsSerializers.nullablePartialDeps.serializedSize(definition.partialDeps);
+            }
+
             if (!reply.isOk())
             {
                 CommitOrReadNack nack = (CommitOrReadNack) reply;
