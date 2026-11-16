@@ -441,6 +441,7 @@ public class AccordConfig
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_linger;
     public Boolean coordinator_backlog_execution_per_dc; // with coordinator_backlog_execution: DESIGNATED
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_grace; // with coordinator_backlog_execution: DESIGNATED
+    public Boolean relay_remote_apply; // must not be enabled until all nodes support ApplyRelay
     public Boolean coordinator_backlog_execution_persist_locally; // with coordinator_backlog_execution: DESIGNATED and per_dc; must not be enabled until all nodes support BacklogApplied
     // with coordinator_backlog_execution_persist_locally: how long the original coordinator waits for designated replicas in
     // other DCs to report they have applied a transaction before sending its own Apply; latencies are PreAccept latencies

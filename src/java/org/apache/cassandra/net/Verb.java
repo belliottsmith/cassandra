@@ -106,6 +106,7 @@ import org.apache.cassandra.service.accord.serializers.PreacceptSerializers;
 import org.apache.cassandra.service.accord.serializers.ReadDataSerializer;
 import org.apache.cassandra.service.accord.serializers.RecoverySerializers;
 import org.apache.cassandra.service.accord.serializers.RemoteSuccessSerializers;
+import org.apache.cassandra.service.accord.serializers.ApplyRelaySerializers;
 import org.apache.cassandra.service.accord.serializers.BacklogClaimSerializers;
 import org.apache.cassandra.service.accord.serializers.SetDurableSerializers;
 import org.apache.cassandra.service.accord.serializers.SimpleReplySerializer;
@@ -394,6 +395,8 @@ public enum Verb
     ACCORD_REMOTE_SUCCESS_REQ       (173, P2, shortTimeout, IMMEDIATE,          () -> accordEmbedded(RemoteSuccessSerializers.remoteSuccess),    AccordService::requestHandlerOrNoop),
     ACCORD_BACKLOG_CLAIM_REQ        (180, P2, shortTimeout, IMMEDIATE,          () -> accordEmbedded(BacklogClaimSerializers.request),          AccordService::requestHandlerOrNoop),
     ACCORD_BACKLOG_APPLIED_REQ      (181, P2, writeTimeout, IMMEDIATE,          () -> accordEmbedded(BacklogClaimSerializers.applied),          AccordService::requestHandlerOrNoop, ACCORD_SIMPLE_RSP),
+    ACCORD_APPLY_RELAY_RSP          (177, P2, writeTimeout, IMMEDIATE,          () -> accordEmbedded(ApplyRelaySerializers.reply),              AccordService::responseHandlerOrNoop),
+    ACCORD_APPLY_RELAY_REQ          (178, P2, writeTimeout, IMMEDIATE,          () -> accordEmbedded(ApplyRelaySerializers.request),            AccordService::requestHandlerOrNoop, ACCORD_APPLY_RELAY_RSP),
     ACCORD_REMOTE_TRACE(174, P0, shortTimeout, IMMEDIATE, () -> AccordRemoteTracing.traceSerializer, () -> AccordRemoteTracing.traceMessageHandler),
 
     DICTIONARY_UPDATE_RSP           (171, P1, rpcTimeout,   REQUEST_RESPONSE,  () -> NoPayload.serializer,                  RESPONSE_HANDLER                             ),

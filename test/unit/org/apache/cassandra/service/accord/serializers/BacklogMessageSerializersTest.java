@@ -28,6 +28,8 @@ import accord.api.RoutingKey;
 import accord.coordinate.ExecuteFlag.ExecuteFlags;
 import accord.local.Node;
 import accord.messages.Apply;
+import accord.messages.ApplyRelay;
+import accord.messages.ApplyRelay.ApplyRelayReply;
 import accord.messages.BacklogApplied;
 import accord.messages.BacklogClaim;
 import accord.messages.ReadData;
@@ -152,6 +154,34 @@ public class BacklogMessageSerializersTest
             assertThat(result.failedAt).isEqualTo(failedAt);
             result = roundTrip(buffer, BacklogClaimSerializers.applied, new BacklogApplied(txnId, SortedArrayList.empty(), failedAt));
             assertThat(result.appliedAt).isEmpty();
+        });
+    }
+
+    @Test
+    public void applyRelay()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(txnIds(Txn.Kind.Read), routes(), AccordGens.timestamps()).check((txnId, route, executeAt) -> {
+            SortedArrayList<Node.Id> forwardTo = SortedArrayList.ofSorted(new Node.Id(2), new Node.Id(4), new Node.Id(6));
+            SortedArrayList<Node.Id> noDepsAt = SortedArrayList.ofSorted(new Node.Id(4));
+            long epoch = executeAt.epoch();
+            ApplyRelay relay = new ApplyRelay(txnId, route, Ballot.ZERO, Apply.Kind.Minimal, executeAt, null, PartialDeps.NONE, null,
+                                              TxnDataResult.PERSISTABLE, forwardTo, noDepsAt, Math.max(1, epoch - 1), epoch + 1);
+            ApplyRelay result = roundTrip(buffer, ApplyRelaySerializers.request, relay);
+            assertThat(result.txnId).isEqualTo(txnId);
+            assertThat(result.route).isEqualTo(route);
+            assertThat(result.kind).isEqualTo(Apply.Kind.Minimal);
+            assertThat(result.executeAt).isEqualTo(executeAt);
+            assertThat(result.txn).isNull();
+            assertThat(result.deps).isEqualTo(PartialDeps.NONE);
+            assertThat(result.forwardTo).isEqualTo(forwardTo);
+            assertThat(result.noDepsAt).isEqualTo(noDepsAt);
+            assertThat(result.minEpoch).isEqualTo(relay.minEpoch);
+            assertThat(result.maxEpoch).isEqualTo(relay.maxEpoch);
+
+            ApplyRelayReply reply = roundTrip(buffer, ApplyRelaySerializers.reply, new ApplyRelayReply(forwardTo, SortedArrayList.empty()));
+            assertThat(reply.appliedAt).isEqualTo(forwardTo);
+            assertThat(reply.failedAt).isEmpty();
         });
     }
 
