@@ -59,12 +59,14 @@ public class BacklogClaimSerializers
         {
             CommandSerializers.txnId.serialize(msg.txnId, out);
             CollectionSerializers.serializeList(msg.appliedAt, out, TopologySerializers.nodeId);
+            CollectionSerializers.serializeList(msg.notAppliedAt, out, TopologySerializers.nodeId);
         }
 
         @Override
         public BacklogApplied deserialize(DataInputPlus in, Version version) throws IOException
         {
             return new BacklogApplied(CommandSerializers.txnId.deserialize(in),
+                                      CollectionSerializers.deserializeSortedArrayList(in, TopologySerializers.nodeId, Node.Id[]::new),
                                       CollectionSerializers.deserializeSortedArrayList(in, TopologySerializers.nodeId, Node.Id[]::new));
         }
 
@@ -72,7 +74,8 @@ public class BacklogClaimSerializers
         public long serializedSize(BacklogApplied msg, Version version)
         {
             return CommandSerializers.txnId.serializedSize(msg.txnId)
-                   + CollectionSerializers.serializedListSize(msg.appliedAt, TopologySerializers.nodeId);
+                   + CollectionSerializers.serializedListSize(msg.appliedAt, TopologySerializers.nodeId)
+                   + CollectionSerializers.serializedListSize(msg.notAppliedAt, TopologySerializers.nodeId);
         }
     };
 }

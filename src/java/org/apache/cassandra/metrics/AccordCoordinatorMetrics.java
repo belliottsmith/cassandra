@@ -20,6 +20,7 @@ package org.apache.cassandra.metrics;
 
 import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
@@ -65,6 +66,7 @@ public class AccordCoordinatorMetrics
     public static final String COORDINATOR_COMMIT_LATENCY = "CommitLatency";
     public static final String COORDINATOR_EXECUTE_LATENCY = "ExecuteLatency";
     public static final String COORDINATOR_APPLY_LATENCY = "ApplyLatency";
+    public static final String COORDINATOR_BACKLOG_APPLIED_LATENCY = "BacklogAppliedLatency";
     public static final String EPHEMERAL = "Ephemeral";
     public static final String FAST_PATHS = "FastPaths";
     public static final String MEDIUM_PATHS = "MediumPaths";
@@ -224,6 +226,12 @@ public class AccordCoordinatorMetrics
     public final Timer applyLatency;
 
     /**
+     * With accord.coordinator_backlog_execution_persist_locally, the time between this (original) coordinator beginning
+     * to persist a transaction and receiving a report that a designated replica in another DC has applied it there
+     */
+    public final Timer backlogAppliedLatency;
+
+    /**
      * The number of epochs used to coordinate the transaction
      */
     public final Histogram epochs;
@@ -301,6 +309,7 @@ public class AccordCoordinatorMetrics
         commitLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_COMMIT_LATENCY));
         executeLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_EXECUTE_LATENCY));
         applyLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_APPLY_LATENCY));
+        backlogAppliedLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_BACKLOG_APPLIED_LATENCY));
         epochs = Metrics.histogram(coordinator.createMetricName(COORDINATOR_EPOCHS), true);
         keys = Metrics.histogram(coordinator.createMetricName(COORDINATOR_KEYS), true);
         tables = Metrics.histogram(coordinator.createMetricName(COORDINATOR_TABLES), true);
@@ -488,6 +497,14 @@ public class AccordCoordinatorMetrics
                 long now = AccordTimeService.nowMicros();
                 metrics.applyLatency.update(Math.max(0, now - txnId.hlc()), MICROSECONDS);
             }
+        }
+
+        @Override
+        public void onBacklogApplied(TxnId txnId, long elapsed, TimeUnit units)
+        {
+            AccordCoordinatorMetrics metrics = forTransaction(txnId);
+            if (metrics != null)
+                metrics.backlogAppliedLatency.update(elapsed, units);
         }
 
         @Override

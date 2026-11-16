@@ -20,6 +20,7 @@ package org.apache.cassandra.service;
 
 import java.util.concurrent.TimeUnit;
 
+import com.codahale.metrics.UniformSnapshot;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
 
@@ -71,5 +72,25 @@ public class TimeoutStrategyTest
         // Attempt 3: baseLatency * 1.5^(3-1) = baseLatency * 2.25
         Assertions.assertThat(w.getMicros(3))
                 .isEqualTo((int) (expectedBaseLatencyMicros * 2.25));
+    }
+
+    @Test
+    public void testBacklogRemoteApplyDelayDefault()
+    {
+        // the default for accord.coordinator_backlog_execution_remote_apply_delay
+        String spec = "50ms <= p99(rw)*1.5 <= 1000ms";
+        long[][] samples = new long[1][];
+        samples[0] = new long[0];
+        TimeoutStrategy.LatencySourceFactory latencies = new TimeoutStrategy.ReadWriteLatencySourceFactory(() -> new UniformSnapshot(samples[0]), () -> new UniformSnapshot(new long[0]));
+        TimeoutStrategy strategy = TimeoutStrategy.parse(spec, latencies);
+        Assertions.assertThat(strategy.computeWait(1, TimeUnit.MILLISECONDS)).isEqualTo(50);
+
+        samples[0] = new long[] { TimeUnit.MILLISECONDS.toMicros(200) };
+        strategy = TimeoutStrategy.parse(spec, new TimeoutStrategy.ReadWriteLatencySourceFactory(() -> new UniformSnapshot(samples[0]), () -> new UniformSnapshot(new long[0])));
+        Assertions.assertThat(strategy.computeWait(1, TimeUnit.MILLISECONDS)).isEqualTo(300);
+
+        samples[0] = new long[] { TimeUnit.SECONDS.toMicros(2) };
+        strategy = TimeoutStrategy.parse(spec, new TimeoutStrategy.ReadWriteLatencySourceFactory(() -> new UniformSnapshot(samples[0]), () -> new UniformSnapshot(new long[0])));
+        Assertions.assertThat(strategy.computeWait(1, TimeUnit.MILLISECONDS)).isEqualTo(1000);
     }
 }

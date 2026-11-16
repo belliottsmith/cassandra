@@ -105,6 +105,7 @@ public class AccordWaitStrategies
     static TimeoutStrategy fetchTxn, fetchSyncPoint;
     static RetryStrategy recoverTxn, recoverSyncPoint, retrySyncPoint, retryBackgroundSyncPoint, retryDurability, retryBootstrap, retryJoinBootstrap;
     static RetryStrategy retryFetchMinEpoch, retryFetchTopology;
+    static TimeoutStrategy backlogRemoteApplyDelay;
 
     /*
      * Each of the following strategies concerns a request of {@code verb} for {@code txnId} sent to {@code destination}
@@ -192,6 +193,13 @@ public class AccordWaitStrategies
         setRetryJoinBootstrap(config.retry_join_bootstrap);
         setRetryFetchMinEpoch(config.retry_fetch_min_epoch);
         setRetryFetchTopology(config.retry_fetch_topology);
+        setBacklogRemoteApplyDelay(config.coordinator_backlog_execution_remote_apply_delay);
+    }
+
+    public static void setBacklogRemoteApplyDelay(String spec)
+    {
+        backlogRemoteApplyDelay = TimeoutStrategy.parse(spec, new TimeoutStrategy.ReadWriteLatencySourceFactory(AccordCoordinatorMetrics.readMetrics.backlogAppliedLatency::getSnapshot,
+                                                                                                             AccordCoordinatorMetrics.writeMetrics.backlogAppliedLatency::getSnapshot));
     }
 
     public static void setSlowRead(String spec)

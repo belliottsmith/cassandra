@@ -145,9 +145,13 @@ public class BacklogMessageSerializersTest
         DataOutputBuffer buffer = new DataOutputBuffer();
         qt().forAll(txnIds()).check(txnId -> {
             SortedArrayList<Node.Id> appliedAt = SortedArrayList.ofSorted(new Node.Id(1), new Node.Id(3), new Node.Id(7));
-            BacklogApplied result = roundTrip(buffer, BacklogClaimSerializers.applied, new BacklogApplied(txnId, appliedAt));
+            SortedArrayList<Node.Id> notAppliedAt = SortedArrayList.ofSorted(new Node.Id(5));
+            BacklogApplied result = roundTrip(buffer, BacklogClaimSerializers.applied, new BacklogApplied(txnId, appliedAt, notAppliedAt));
             assertThat(result.txnId).isEqualTo(txnId);
             assertThat(result.appliedAt).isEqualTo(appliedAt);
+            assertThat(result.notAppliedAt).isEqualTo(notAppliedAt);
+            result = roundTrip(buffer, BacklogClaimSerializers.applied, new BacklogApplied(txnId, SortedArrayList.empty(), notAppliedAt));
+            assertThat(result.appliedAt).isEmpty();
         });
     }
 

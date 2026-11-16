@@ -102,6 +102,7 @@ import static org.apache.cassandra.config.DatabaseDescriptor.getAccordScheduleDu
 import static org.apache.cassandra.config.DatabaseDescriptor.getReadRpcTimeout;
 import static org.apache.cassandra.net.LinkLatencies.SELF;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireEpochWait;
+import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.backlogRemoteApplyDelay;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expire;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.fetch;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.recover;
@@ -458,6 +459,12 @@ public class AccordAgent implements Agent, OwnershipEventListener
     {
         // TODO (desired): separate config?
         return fetch(txnId).computeWait(attempt, units);
+    }
+
+    @Override
+    public long backlogRemoteApplyDelay(TxnId txnId, TimeUnit units)
+    {
+        return backlogRemoteApplyDelay.computeWait(1, units);
     }
 
     @Override

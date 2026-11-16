@@ -549,8 +549,6 @@ public class AccordService implements IAccordService, Shutdownable
             ProtocolModifiers.Configure.setCoordinatorBacklogExecutionGrace(config.coordinator_backlog_execution_grace.toMilliseconds(), TimeUnit.MILLISECONDS);
         if (config.coordinator_backlog_execution_persist_locally != null)
             ProtocolModifiers.Configure.setCoordinatorBacklogExecutionPersistLocally(config.coordinator_backlog_execution_persist_locally);
-        if (config.coordinator_backlog_execution_remote_apply_delay != null)
-            ProtocolModifiers.Configure.setCoordinatorBacklogExecutionRemoteApplyDelay(config.coordinator_backlog_execution_remote_apply_delay.toMilliseconds(), TimeUnit.MILLISECONDS);
         if (config.permit_coordinator_local_execution != null)
             ProtocolModifiers.Configure.setPermitCoordinatorLocalExecution(config.permit_coordinator_local_execution);
         if (config.permit_local_delivery != null)
