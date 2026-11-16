@@ -59,7 +59,7 @@ public class BacklogClaimSerializers
         {
             CommandSerializers.txnId.serialize(msg.txnId, out);
             CollectionSerializers.serializeList(msg.appliedAt, out, TopologySerializers.nodeId);
-            CollectionSerializers.serializeList(msg.notAppliedAt, out, TopologySerializers.nodeId);
+            CollectionSerializers.serializeList(msg.failedAt, out, TopologySerializers.nodeId);
         }
 
         @Override
@@ -75,7 +75,7 @@ public class BacklogClaimSerializers
         {
             return CommandSerializers.txnId.serializedSize(msg.txnId)
                    + CollectionSerializers.serializedListSize(msg.appliedAt, TopologySerializers.nodeId)
-                   + CollectionSerializers.serializedListSize(msg.notAppliedAt, TopologySerializers.nodeId);
+                   + CollectionSerializers.serializedListSize(msg.failedAt, TopologySerializers.nodeId);
         }
     };
 }

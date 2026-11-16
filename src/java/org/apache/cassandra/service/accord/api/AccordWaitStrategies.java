@@ -198,8 +198,9 @@ public class AccordWaitStrategies
 
     public static void setBacklogRemoteApplyDelay(String spec)
     {
-        backlogRemoteApplyDelay = TimeoutStrategy.parse(spec, new TimeoutStrategy.ReadWriteLatencySourceFactory(AccordCoordinatorMetrics.readMetrics.backlogAppliedLatency::getSnapshot,
-                                                                                                             AccordCoordinatorMetrics.writeMetrics.backlogAppliedLatency::getSnapshot));
+        // TODO (expected): a better basis, e.g. inter-DC link latencies; for now PreAccept latency is a proxy for a round-trip to remote DCs
+        backlogRemoteApplyDelay = TimeoutStrategy.parse(spec, new TimeoutStrategy.ReadWriteLatencySourceFactory(AccordCoordinatorMetrics.readMetrics.preacceptLatency::getSnapshot,
+                                                                                                             AccordCoordinatorMetrics.writeMetrics.preacceptLatency::getSnapshot));
     }
 
     public static void setSlowRead(String spec)

@@ -443,9 +443,9 @@ public class AccordConfig
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_grace; // with coordinator_backlog_execution: DESIGNATED
     public Boolean coordinator_backlog_execution_persist_locally; // with coordinator_backlog_execution: DESIGNATED and per_dc; must not be enabled until all nodes support BacklogApplied
     // with coordinator_backlog_execution_persist_locally: how long the original coordinator waits for designated replicas in
-    // other DCs to report they have applied a transaction before sending its own Apply; latencies are those of these reports
-    // (AccordCoordinator BacklogAppliedLatency, measured since the coordinator began to persist)
-    public String coordinator_backlog_execution_remote_apply_delay = "50ms <= p99(rw)*1.5 <= 1000ms";
+    // other DCs to report they have applied a transaction before sending its own Apply; latencies are PreAccept latencies
+    // (AccordCoordinator PreAcceptLatency), as a proxy for a round-trip to remote DCs
+    public String coordinator_backlog_execution_remote_apply_delay = "50ms <= p99(rw) <= 1000ms";
     public Boolean permit_local_delivery;
     public Boolean permit_atomic_incremental_tasks;
     public Boolean permit_coordinator_local_execution; // if disabled, the privileged coordinator optimisation will be counter-productive and should also be disabled
