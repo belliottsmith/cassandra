@@ -1587,6 +1587,20 @@ dynamic_snitch_reset_interval: 600000ms
 # until the pinned host was 20% worse than the fastest.
 dynamic_snitch_badness_threshold: 1.0
 
+# If set, every interval probe one live peer in each datacenter (including our own)
+# to estimate the network round-trip between this node and each datacenter, independently
+# of the time peers take to process requests. Probes are sent on the urgent connection, timed
+# with the monotonic clock and handled on receipt by the network event loop, and the estimate is
+# the median of the most recent link_latency_probe_window round-trips. Estimates are published
+# as the Messaging metrics <dc>-LinkRoundTripEstimate (micros) and <dc>-LinkRoundTripLatency.
+# They are also used to infer the time spent at replicas that do not report it themselves, for
+# the Accord AccordCoordinator.ReplicaTime.<request> metrics.
+# NOTE: probes use the LINK_PROBE_REQ/RSP messages, which older versions cannot deserialize, so
+# this must only be enabled once every node in the cluster supports them. Disabled by default.
+# Min unit: ms
+#link_latency_probe_interval: 1s
+#link_latency_probe_window: 64
+
 # Paxos variant for lightweight transactions (LWTs)
 # Options:
 #   v1

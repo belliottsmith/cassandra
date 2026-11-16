@@ -56,6 +56,9 @@ public class AccordVerbHandler<T extends Request> implements IVerbHandler<T>
     @Override
     public void doVerb(Message<T> message) throws IOException
     {
+        // NOTE: almost all Accord requests are handled on the IMMEDIATE stage, so this is (approximately) the time of
+        // receipt; for the few on another stage (e.g. ACCORD_SET_SHARD_DURABLE_REQ) it excludes their stage queueing
+        ReceivedResponseContext replyContext = new ReceivedResponseContext(message.header);
         logger.trace("Receiving {} from {}", message.payload, message.from());
 
         T request = message.payload;
@@ -82,14 +85,14 @@ public class AccordVerbHandler<T extends Request> implements IVerbHandler<T>
         long waitForEpoch = request.waitForEpoch();
         if (node.topology().active().hasAtLeastEpoch(waitForEpoch))
         {
-            request.process(node, fromNodeId, message.header);
+            request.process(node, fromNodeId, replyContext);
         }
         else
         {
             node.withEpochAtLeast(waitForEpoch, null, (ignored, withEpochFailure) -> {
                 if (withEpochFailure != null)
                     throw new RuntimeException("Timed out waiting for epoch when processing message from " + fromNodeId + " to " + node + " message " + message, withEpochFailure);
-                request.process(node, fromNodeId, message.header);
+                request.process(node, fromNodeId, replyContext);
             });
         }
     }

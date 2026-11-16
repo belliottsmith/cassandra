@@ -28,9 +28,12 @@ import accord.messages.Reply;
 
 import org.apache.cassandra.exceptions.RequestFailure;
 import org.apache.cassandra.exceptions.RequestFailureReason;
+import org.apache.cassandra.metrics.AccordCoordinatorMetrics;
 import org.apache.cassandra.net.IVerbHandler;
+import org.apache.cassandra.net.LinkLatencies;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.ParamType;
 import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 import org.apache.cassandra.tracing.Tracing;
@@ -38,7 +41,7 @@ import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.NoSpamLogger.NoSpamLogStatement;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static org.apache.cassandra.utils.MonotonicClock.Global.approxTime;
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
 {
@@ -80,8 +83,16 @@ class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
             if (cbe == null)
                 return;
 
-            long latencyNanos = approxTime.now() - cbe.registeredAt(NANOSECONDS);
+            // registeredAt is measured with nanoTime (with micro precision); this handler runs on the IMMEDIATE stage,
+            // so this is (approximately) the time of receipt
+            long latencyNanos = nanoTime() - cbe.registeredAt(NANOSECONDS);
             MessagingService.instance().latencySubscribers.add(message.from(), latencyNanos, NANOSECONDS);
+            if (remove && cbe.context() != null)
+            {
+                Long replicaNanos = (Long) message.header.params().get(ParamType.RECEIPT_TO_REPLY_NANOS);
+                if (replicaNanos != null) AccordCoordinatorMetrics.recordMeasured(cbe.context(), latencyNanos, replicaNanos);
+                else AccordCoordinatorMetrics.recordInferred(cbe.context(), latencyNanos, LinkLatencies.instance.roundTripNanos(message.from()));
+            }
         }
     }
 

@@ -200,6 +200,25 @@ public class MessageTest
     }
 
     @Test
+    public void testReceiptToReplyNanos() throws Exception
+    {
+        for (long nanos : new long[]{ 0, 1, 127, 128, 1_234_567, Long.MAX_VALUE })
+        {
+            Message<Integer> msg = Message.out(Verb._TEST_2, 42).withParam(ParamType.RECEIPT_TO_REPLY_NANOS, nanos);
+            testCycle(msg);
+            try (DataOutputBuffer out = new DataOutputBuffer())
+            {
+                serializer.serialize(msg, out, VERSION_40);
+                try (DataInputBuffer in = new DataInputBuffer(out.buffer(), true))
+                {
+                    Message<?> msgOut = serializer.deserialize(in, msg.from(), VERSION_40);
+                    assertEquals(nanos, msgOut.header.params().get(ParamType.RECEIPT_TO_REPLY_NANOS));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testFailureResponse() throws Exception
     {
         long expiresAt = approxTime.now();

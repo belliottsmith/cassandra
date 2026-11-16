@@ -777,24 +777,37 @@ public class MessagingService extends MessagingServiceMBeanImpl implements Messa
 
     public void listen()
     {
-        inboundSockets.open();
+        openInbound();
     }
 
     public void waitUntilListening() throws InterruptedException
     {
-        inboundSockets.open().await();
+        openInbound().await();
     }
 
     public void waitUntilListeningUnchecked()
     {
         try
         {
-            inboundSockets.open().await();
+            openInbound().await();
         }
         catch (InterruptedException e)
         {
             throw new RuntimeException(e);
         }
+    }
+
+    private Future<Void> openInbound()
+    {
+        Future<Void> open = inboundSockets.open();
+        // once we are able to receive responses, begin measuring link latencies (if configured)
+        LinkLatencies.instance.start();
+        return open;
+    }
+
+    boolean isShuttingDown()
+    {
+        return isShuttingDown;
     }
 
     /**

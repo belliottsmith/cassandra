@@ -524,6 +524,18 @@ public class Config
     public DurationSpec.IntMillisecondsBound dynamic_snitch_reset_interval = new DurationSpec.IntMillisecondsBound("10m");
     public double dynamic_snitch_badness_threshold = 1.0;
 
+    /**
+     * If set, every interval probe one live peer in each datacenter to estimate the network round-trip between this
+     * node and each datacenter, independently of request processing time; see {@link org.apache.cassandra.net.LinkLatencies}.
+     * Used to separate link latency out of other measurements (e.g. Accord's per-replica round-trips). Disabled if null.
+     * Probes use {@link org.apache.cassandra.net.Verb#LINK_PROBE_REQ}, so this must only be set once every node supports it.
+     */
+    public DurationSpec.IntMillisecondsBound link_latency_probe_interval = null;
+    /**
+     * The number of most recent probes per datacenter whose median round-trip estimates its link latency.
+     */
+    public int link_latency_probe_window = 64;
+
     public String node_proximity;
     public String initial_location_provider;
     public String addresses_config;

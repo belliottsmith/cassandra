@@ -26,6 +26,7 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.Int32Serializer;
 import org.apache.cassandra.utils.Int64Serializer;
 import org.apache.cassandra.utils.TimeUUID;
+import org.apache.cassandra.utils.UnsignedVInt64Serializer;
 
 import static java.lang.Math.max;
 import static org.apache.cassandra.locator.InetAddressAndPort.FwdFrmSerializer.fwdFrmSerializer;
@@ -60,6 +61,11 @@ public enum ParamType
     WRITE_SIZE_WARN                  (18, WriteThresholdMapSerializer.serializer),
     WRITE_TOMBSTONE_WARN             (19, WriteThresholdMapSerializer.serializer),
     ACCORD_TRACING                   (20, AccordRemoteTracing.tracingSerializer),
+    /**
+     * On a response: the nanos elapsed on the responder (by its monotonic clock) between receipt of the request and
+     * sending the response, so that the requester may separate time spent at the responder from time on the network
+     */
+    RECEIPT_TO_REPLY_NANOS           (21, UnsignedVInt64Serializer.serializer),
     ;
 
     final int id;

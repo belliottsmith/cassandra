@@ -4284,6 +4284,16 @@ public class DatabaseDescriptor
         conf.dynamic_snitch_badness_threshold = dynamicBadnessThreshold;
     }
 
+    public static DurationSpec.IntMillisecondsBound getLinkLatencyProbeInterval()
+    {
+        return conf == null ? null : conf.link_latency_probe_interval;
+    }
+
+    public static int getLinkLatencyProbeWindow()
+    {
+        return conf == null ? 64 : conf.link_latency_probe_window;
+    }
+
     public static EncryptionOptions.ServerEncryptionOptions getInternodeMessagingEncyptionOptions()
     {
         return conf.server_encryption_options;

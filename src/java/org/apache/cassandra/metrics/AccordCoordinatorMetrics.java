@@ -19,9 +19,11 @@
 package org.apache.cassandra.metrics;
 
 import java.lang.reflect.Field;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.annotation.Nullable;
 
+import com.codahale.metrics.Counter;
 import com.codahale.metrics.Counting;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
@@ -36,6 +38,7 @@ import accord.primitives.Deps;
 import accord.primitives.TxnId;
 import accord.utils.UnhandledEnum;
 
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.accord.api.AccordTimeService;
 import org.apache.cassandra.tracing.Tracing;
 
@@ -69,6 +72,93 @@ public class AccordCoordinatorMetrics
     public static final String RECOVERY_DELAY = "RecoveryDelay";
     public static final String RECOVERY_TIME = "RecoveryTime";
     public static final String FAST_PATH_TO_TOTAL = "FastPathToTotal";
+    public static final String REPLICA_ROUND_TRIP = "ReplicaRoundTrip";
+    public static final String REPLICA_TIME = "ReplicaTime";
+    public static final String REPLICA_LINK = "ReplicaLink";
+    public static final String REPLICA_TIME_INFERRED = "ReplicaTimeInferred";
+
+    /**
+     * The round-trips of one kind of request (by request verb) sent by this node to replicas, for one kind of
+     * transaction, measured with the monotonic clock from registering the request's callback to receipt of its final
+     * reply, and split into the time spent at the replica and the time spent on the link:
+     * <ul>
+     *   <li>{@code ReplicaRoundTrip.<Request>}: the total round-trip</li>
+     *   <li>{@code ReplicaTime.<Request>}: the time spent at the replica, i.e. from its receipt of the request to its
+     *       reply, as reported by the replica ({@link org.apache.cassandra.net.ParamType#RECEIPT_TO_REPLY_NANOS}); for
+     *       requests delivered to ourselves this is the whole round-trip</li>
+     *   <li>{@code ReplicaLink.<Request>}: the remainder of the round-trip, i.e. the time on the network including
+     *       messaging queues in both directions (zero for ourselves)</li>
+     *   <li>{@code ReplicaTimeInferred.<Request>}: the number of samples for which the replica did not report its
+     *       time (e.g. it runs an older version), so that the split was instead inferred by subtracting the estimated
+     *       {@link org.apache.cassandra.net.LinkLatencies link round-trip} to its datacenter; if there is no
+     *       estimate either, only the total round-trip is recorded</li>
+     * </ul>
+     */
+    public static final class ReplicaRoundTrip
+    {
+        public final Timer roundTrip, atReplica, link;
+        public final Counter inferred;
+
+        private ReplicaRoundTrip(DefaultNameFactory factory, String request)
+        {
+            roundTrip = Metrics.timer(factory.createMetricName(REPLICA_ROUND_TRIP + '.' + request));
+            atReplica = Metrics.timer(factory.createMetricName(REPLICA_TIME + '.' + request));
+            link = Metrics.timer(factory.createMetricName(REPLICA_LINK + '.' + request));
+            inferred = Metrics.counter(factory.createMetricName(REPLICA_TIME_INFERRED + '.' + request));
+        }
+
+        /**
+         * @param replicaNanos the time spent at the replica, as reported by the replica
+         */
+        public void recordMeasured(long roundTripNanos, long replicaNanos)
+        {
+            if (roundTripNanos < 0 || replicaNanos < 0)
+                return;
+
+            // the round-trip is measured with micro precision, so may be fractionally less than the replica's time
+            replicaNanos = Math.min(replicaNanos, roundTripNanos);
+            roundTrip.update(roundTripNanos, NANOSECONDS);
+            atReplica.update(replicaNanos, NANOSECONDS);
+            link.update(roundTripNanos - replicaNanos, NANOSECONDS);
+        }
+
+        /**
+         * @param linkNanos the estimated link round-trip, or negative if unknown
+         */
+        public void recordInferred(long roundTripNanos, long linkNanos)
+        {
+            if (roundTripNanos < 0)
+                return;
+
+            roundTrip.update(roundTripNanos, NANOSECONDS);
+            if (linkNanos >= 0)
+            {
+                inferred.inc();
+                atReplica.update(Math.max(0, roundTripNanos - linkNanos), NANOSECONDS);
+                link.update(linkNanos, NANOSECONDS);
+            }
+        }
+
+        /**
+         * e.g. ACCORD_PRE_ACCEPT_REQ -> PreAccept
+         */
+        static String requestName(Verb verb)
+        {
+            String name = verb.name();
+            if (name.startsWith("ACCORD_")) name = name.substring("ACCORD_".length());
+            if (name.endsWith("_REQ")) name = name.substring(0, name.length() - "_REQ".length());
+            StringBuilder result = new StringBuilder();
+            for (String part : name.split("_"))
+            {
+                if (part.isEmpty()) continue;
+                result.append(part.charAt(0)).append(part.substring(1).toLowerCase());
+            }
+            return result.toString();
+        }
+    }
+
+    private final DefaultNameFactory nameFactory;
+    private final ConcurrentHashMap<Verb, ReplicaRoundTrip> replicaRoundTrips = new ConcurrentHashMap<>();
 
     /**
      * A histogram of the number of dependencies per transaction at this coordinator.
@@ -168,7 +258,7 @@ public class AccordCoordinatorMetrics
 
     private AccordCoordinatorMetrics(String scope)
     {
-        DefaultNameFactory coordinator = new DefaultNameFactory(ACCORD_COORDINATOR, scope);
+        DefaultNameFactory coordinator = nameFactory = new DefaultNameFactory(ACCORD_COORDINATOR, scope);
         dependencies = Metrics.histogram(coordinator.createMetricName(COORDINATOR_DEPENDENCIES), true);
         preacceptLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_PREACCEPT_LATENCY));
         commitLatency = Metrics.timer(coordinator.createMetricName(COORDINATOR_COMMIT_LATENCY));
@@ -189,6 +279,60 @@ public class AccordCoordinatorMetrics
         recoveryDelay = Metrics.timer(coordinator.createMetricName(RECOVERY_DELAY));
         recoveryDuration = Metrics.timer(coordinator.createMetricName(RECOVERY_TIME));
         fastPathToTotal = new RatioGaugeSet(fastPaths, RatioGaugeSet.sum(ephemeral, fastPaths, mediumPaths, slowPaths), coordinator, FAST_PATH_TO_TOTAL + ".%s");
+    }
+
+    public ReplicaRoundTrip replicaRoundTrip(Verb requestVerb)
+    {
+        ReplicaRoundTrip result = replicaRoundTrips.get(requestVerb);
+        if (result == null)
+            result = replicaRoundTrips.computeIfAbsent(requestVerb, v -> new ReplicaRoundTrip(nameFactory, ReplicaRoundTrip.requestName(v)));
+        return result;
+    }
+
+    /**
+     * @return the metrics to record round-trips of {@code requestVerb} for {@code txnId} into, or null if none
+     */
+    @Nullable
+    public static ReplicaRoundTrip replicaRoundTrip(@Nullable Verb requestVerb, @Nullable TxnId txnId)
+    {
+        if (requestVerb == null) return null;
+        AccordCoordinatorMetrics metrics = forTransaction(txnId);
+        return metrics == null ? null : metrics.replicaRoundTrip(requestVerb);
+    }
+
+    @Nullable
+    static AccordCoordinatorMetrics forTransaction(@Nullable TxnId txnId)
+    {
+        if (txnId != null)
+        {
+            if (txnId.isWrite())
+                return writeMetrics;
+            else if (txnId.isSomeRead())
+                return readMetrics;
+            else if (txnId.isSyncPoint())
+                return syncPointMetrics;
+        }
+        return null;
+    }
+
+    /**
+     * Record a round-trip of a request registered with {@code context} (if it is a {@link ReplicaRoundTrip}), for
+     * which the replica reported its time
+     */
+    public static void recordMeasured(@Nullable Object context, long roundTripNanos, long replicaNanos)
+    {
+        if (context instanceof ReplicaRoundTrip)
+            ((ReplicaRoundTrip) context).recordMeasured(roundTripNanos, replicaNanos);
+    }
+
+    /**
+     * Record a round-trip of a request registered with {@code context} (if it is a {@link ReplicaRoundTrip}), for
+     * which the replica did not report its time, given the estimated link round-trip (negative if unknown)
+     */
+    public static void recordInferred(@Nullable Object context, long roundTripNanos, long linkNanos)
+    {
+        if (context instanceof ReplicaRoundTrip)
+            ((ReplicaRoundTrip) context).recordInferred(roundTripNanos, linkNanos);
     }
 
     @Override
@@ -219,20 +363,6 @@ public class AccordCoordinatorMetrics
 
     public static class Listener implements CoordinatorEventListener
     {
-        private AccordCoordinatorMetrics forTransaction(TxnId txnId)
-        {
-            if (txnId != null)
-            {
-                if (txnId.isWrite())
-                    return writeMetrics;
-                else if (txnId.isSomeRead())
-                    return readMetrics;
-                else if (txnId.isSyncPoint())
-                    return syncPointMetrics;
-            }
-            return null;
-        }
-
         @Override
         public void onPreAccepted(TxnId txnId)
         {

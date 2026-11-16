@@ -22,6 +22,9 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
+import javax.annotation.Nullable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +46,7 @@ import accord.utils.async.Cancellable;
 
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.metrics.AccordCoordinatorMetrics;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessageDelivery;
 import org.apache.cassandra.net.MessagingService;
@@ -186,6 +190,15 @@ public class AccordMessageSink implements MessageSink
             return ((AccordMessageType)type).verb;
         }
 
+        @Nullable
+        private static Verb getVerbOrNull(MessageType type)
+        {
+            if (type == null) return null;
+            if (type.getClass() == StandardMessage.class) return (Verb) ((StandardMessage) type).mapToImplementation();
+            if (type instanceof AccordMessageType) return ((AccordMessageType)type).verb;
+            return null;
+        }
+
         private static Verb getVerb(Request request)
         {
             MessageType type = request.type();
@@ -290,10 +303,20 @@ public class AccordMessageSink implements MessageSink
             return null;
         }
 
-        Cancellable cancellable = callbacks.registerAt(message.id(), executor, callback, to, nowNanos, slowAtNanos, expiresAtNanos, NANOSECONDS);
+        // the metrics to record this request's round-trip into on reply (see AccordResponseVerbHandler)
+        Object context = AccordCoordinatorMetrics.replicaRoundTrip(verb, txnId);
+        Cancellable cancellable = callbacks.registerAt(message.id(), executor, callback, to, nowNanos, slowAtNanos, expiresAtNanos, NANOSECONDS, context);
         if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onSend(to, request, message.id(), true);
         messaging.send(message, endpoint);
         return cancellable;
+    }
+
+    @Override
+    public void onLocalReply(MessageType requestType, @Nullable TxnId txnId, long elapsed, TimeUnit units)
+    {
+        // there is no link for local delivery: the whole round-trip is spent at the replica
+        long elapsedNanos = units.toNanos(elapsed);
+        AccordCoordinatorMetrics.recordMeasured(AccordCoordinatorMetrics.replicaRoundTrip(VerbMapping.getVerbOrNull(requestType), txnId), elapsedNanos, elapsedNanos);
     }
 
     public void reply(Node.Id replyingTo, ReplyContext replyContext, Reply reply, Throwable failure)
@@ -306,6 +329,9 @@ public class AccordMessageSink implements MessageSink
             message = Message.responseWith(reply, respondTo);
             if (Invariants.isParanoid()) checkReplyType(reply, respondTo);
         }
+        // report the time spent at this replica, so the requester can separate it from the time on the network
+        if (failure == null && respondTo instanceof ReceivedResponseContext)
+            message = message.withParam(ParamType.RECEIPT_TO_REPLY_NANOS, ((ReceivedResponseContext) respondTo).elapsedNanos());
         Object tracing = respondTo.params().get(ParamType.ACCORD_TRACING);
         if (tracing != null)
         {
