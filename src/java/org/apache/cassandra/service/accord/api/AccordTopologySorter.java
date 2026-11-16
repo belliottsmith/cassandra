@@ -31,10 +31,12 @@ import accord.topology.Topologies;
 import accord.topology.Topology;
 import accord.utils.SortedList;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.locator.DynamicEndpointSnitch;
 import org.apache.cassandra.locator.Endpoint;
 import org.apache.cassandra.locator.InOurDc;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.locator.Locator;
 import org.apache.cassandra.locator.NodeProximity;
 import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 import org.apache.cassandra.utils.FBUtilities;
@@ -71,6 +73,19 @@ public class AccordTopologySorter implements TopologySorter
         {
             InetAddressAndPort endpoint = mapper.mappedEndpointOrNull(node);
             return endpoint != null && InOurDc.endpoints().test(endpoint);
+        }
+
+        @Override
+        public boolean areNearby(Node.Id a, Node.Id b)
+        {
+            if (a.equals(b))
+                return true;
+            InetAddressAndPort ea = mapper.mappedEndpointOrNull(a);
+            InetAddressAndPort eb = mapper.mappedEndpointOrNull(b);
+            if (ea == null || eb == null)
+                return false;
+            Locator locator = DatabaseDescriptor.getLocator();
+            return locator.location(ea).datacenter.equals(locator.location(eb).datacenter);
         }
 
         private AccordTopologySorter create(SortedList<Node.Id> nodes)

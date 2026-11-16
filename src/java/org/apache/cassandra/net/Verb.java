@@ -393,6 +393,7 @@ public enum Verb
     ACCORD_FETCH_TOPOLOGY_REQ       (170, P0, shortTimeout, FETCH_METADATA,     () -> accordEmbedded(FetchTopologies.serializer),                () -> FetchTopologies.handler,           ACCORD_FETCH_TOPOLOGY_RSP),
     ACCORD_REMOTE_SUCCESS_REQ       (173, P2, shortTimeout, IMMEDIATE,          () -> accordEmbedded(RemoteSuccessSerializers.remoteSuccess),    AccordService::requestHandlerOrNoop),
     ACCORD_BACKLOG_CLAIM_REQ        (180, P2, shortTimeout, IMMEDIATE,          () -> accordEmbedded(BacklogClaimSerializers.request),          AccordService::requestHandlerOrNoop),
+    ACCORD_BACKLOG_APPLIED_REQ      (181, P2, writeTimeout, IMMEDIATE,          () -> accordEmbedded(BacklogClaimSerializers.applied),          AccordService::requestHandlerOrNoop, ACCORD_SIMPLE_RSP),
     ACCORD_REMOTE_TRACE(174, P0, shortTimeout, IMMEDIATE, () -> AccordRemoteTracing.traceSerializer, () -> AccordRemoteTracing.traceMessageHandler),
 
     DICTIONARY_UPDATE_RSP           (171, P1, rpcTimeout,   REQUEST_RESPONSE,  () -> NoPayload.serializer,                  RESPONSE_HANDLER                             ),

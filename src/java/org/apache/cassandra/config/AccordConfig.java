@@ -441,6 +441,8 @@ public class AccordConfig
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_linger;
     public Boolean coordinator_backlog_execution_per_dc; // with coordinator_backlog_execution: DESIGNATED
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_grace; // with coordinator_backlog_execution: DESIGNATED
+    public Boolean coordinator_backlog_execution_persist_locally; // with coordinator_backlog_execution: DESIGNATED and per_dc; must not be enabled until all nodes support BacklogApplied
+    public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_remote_apply_delay; // with coordinator_backlog_execution_persist_locally
     public Boolean permit_local_delivery;
     public Boolean permit_atomic_incremental_tasks;
     public Boolean permit_coordinator_local_execution; // if disabled, the privileged coordinator optimisation will be counter-productive and should also be disabled

@@ -19,11 +19,15 @@ package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
 
+import accord.local.Node;
+import accord.messages.BacklogApplied;
 import accord.messages.BacklogClaim;
+import accord.utils.SortedArrays.SortedArrayList;
 
 import org.apache.cassandra.io.VersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.utils.CollectionSerializers;
 
 public class BacklogClaimSerializers
 {
@@ -45,6 +49,30 @@ public class BacklogClaimSerializers
         public long serializedSize(BacklogClaim msg, Version version)
         {
             return CommandSerializers.txnId.serializedSize(msg.txnId);
+        }
+    };
+
+    public static final VersionedSerializer<BacklogApplied, Version> applied = new VersionedSerializer<>()
+    {
+        @Override
+        public void serialize(BacklogApplied msg, DataOutputPlus out, Version version) throws IOException
+        {
+            CommandSerializers.txnId.serialize(msg.txnId, out);
+            CollectionSerializers.serializeList(msg.appliedAt, out, TopologySerializers.nodeId);
+        }
+
+        @Override
+        public BacklogApplied deserialize(DataInputPlus in, Version version) throws IOException
+        {
+            return new BacklogApplied(CommandSerializers.txnId.deserialize(in),
+                                      CollectionSerializers.deserializeSortedArrayList(in, TopologySerializers.nodeId, Node.Id[]::new));
+        }
+
+        @Override
+        public long serializedSize(BacklogApplied msg, Version version)
+        {
+            return CommandSerializers.txnId.serializedSize(msg.txnId)
+                   + CollectionSerializers.serializedListSize(msg.appliedAt, TopologySerializers.nodeId);
         }
     };
 }

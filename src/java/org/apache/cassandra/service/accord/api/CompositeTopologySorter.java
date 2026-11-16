@@ -63,6 +63,17 @@ public class CompositeTopologySorter implements TopologySorter
             }
             return false;
         }
+
+        @Override
+        public boolean areNearby(Node.Id a, Node.Id b)
+        {
+            for (TopologySorter.Supplier delegate : delegates)
+            {
+                if (delegate.areNearby(a, b))
+                    return true;
+            }
+            return false;
+        }
     }
 
     private final TopologySorter[] delegates;

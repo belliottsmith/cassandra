@@ -26,7 +26,9 @@ import org.junit.Test;
 
 import accord.api.RoutingKey;
 import accord.coordinate.ExecuteFlag.ExecuteFlags;
+import accord.local.Node;
 import accord.messages.Apply;
+import accord.messages.BacklogApplied;
 import accord.messages.BacklogClaim;
 import accord.messages.ReadData;
 import accord.messages.ReadData.CommitOrReadNack;
@@ -42,6 +44,7 @@ import accord.primitives.TxnId;
 import accord.utils.AccordGens;
 import accord.utils.Gen;
 import accord.utils.Gens;
+import accord.utils.SortedArrays.SortedArrayList;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -133,6 +136,18 @@ public class BacklogMessageSerializersTest
         qt().forAll(txnIds()).check(txnId -> {
             BacklogClaim result = roundTrip(buffer, BacklogClaimSerializers.request, new BacklogClaim(txnId));
             assertThat(result.txnId).isEqualTo(txnId);
+        });
+    }
+
+    @Test
+    public void backlogApplied()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(txnIds()).check(txnId -> {
+            SortedArrayList<Node.Id> appliedAt = SortedArrayList.ofSorted(new Node.Id(1), new Node.Id(3), new Node.Id(7));
+            BacklogApplied result = roundTrip(buffer, BacklogClaimSerializers.applied, new BacklogApplied(txnId, appliedAt));
+            assertThat(result.txnId).isEqualTo(txnId);
+            assertThat(result.appliedAt).isEqualTo(appliedAt);
         });
     }
 
