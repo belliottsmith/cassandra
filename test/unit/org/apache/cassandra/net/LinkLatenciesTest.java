@@ -24,6 +24,8 @@ import org.junit.Test;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.LinkLatencies.Snapshot;
+import org.apache.cassandra.tcm.membership.NodeVersion;
+import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
@@ -123,12 +125,47 @@ public class LinkLatenciesTest
         LinkLatencies latencies = new LinkLatencies();
         latencies.addRoundTrip("metricsDc", 10, MILLISECONDS);
         String prefix = "org.apache.cassandra.metrics.Messaging.metricsDc";
-        assertThat(Metrics.getTimers()).containsKey(prefix + LinkLatencies.ROUND_TRIP_METRIC);
-        assertThat(Metrics.getTimers().get(prefix + LinkLatencies.ROUND_TRIP_METRIC).getCount()).isEqualTo(1);
-        assertThat(Metrics.getGauges().get(prefix + LinkLatencies.ESTIMATE_METRIC).getValue()).isEqualTo(10_000L);
+        assertThat(Metrics.getTimers().get(prefix + LinkLatencies.PROBE_ROUND_TRIP_METRIC).getCount()).isEqualTo(1);
+        assertThat(Metrics.getTimers().get(prefix + LinkLatencies.OBSERVED_ROUND_TRIP_METRIC).getCount()).isEqualTo(0);
+        assertThat(Metrics.getTimers().get(prefix + LinkLatencies.SEND_QUEUE_METRIC).getCount()).isEqualTo(0);
+        assertThat(Metrics.getGauges().get(prefix + LinkLatencies.PROBE_ESTIMATE_METRIC).getValue()).isEqualTo(10_000L);
+        assertThat(latencies.links()).containsKey("metricsDc");
 
         latencies.unsafeSetRoundTripMicros("metricsDc", -1);
-        assertThat(Metrics.getTimers()).doesNotContainKey(prefix + LinkLatencies.ROUND_TRIP_METRIC);
-        assertThat(Metrics.getGauges()).doesNotContainKey(prefix + LinkLatencies.ESTIMATE_METRIC);
+        assertThat(latencies.links()).doesNotContainKey("metricsDc");
+        for (String metric : new String[]{ LinkLatencies.PROBE_ROUND_TRIP_METRIC, LinkLatencies.OBSERVED_ROUND_TRIP_METRIC, LinkLatencies.SEND_QUEUE_METRIC })
+            assertThat(Metrics.getTimers()).doesNotContainKey(prefix + metric);
+        assertThat(Metrics.getGauges()).doesNotContainKey(prefix + LinkLatencies.PROBE_ESTIMATE_METRIC);
+    }
+
+    @Test
+    public void testObserved() throws Exception
+    {
+        LinkLatencies latencies = new LinkLatencies();
+        // ignored: ourselves, and peers with no known datacenter
+        latencies.addObserved(FBUtilities.getBroadcastAddressAndPort(), 0, 10, 100, 5);
+        latencies.addObserved(InetAddressAndPort.getByName("127.0.0.99"), 0, 10, 100, 5);
+        assertThat(latencies.links()).isEmpty();
+    }
+
+    @Test
+    public void testSupportsProbe()
+    {
+        assertThat(LinkLatencies.supportsProbe(null)).isFalse();
+        assertThat(LinkLatencies.supportsProbe(version("5.0.4"))).isFalse();
+        assertThat(LinkLatencies.supportsProbe(version("6.0.0-alpha2"))).isFalse();
+        assertThat(LinkLatencies.supportsProbe(version("6.0-alpha2-SNAPSHOT"))).isFalse();
+        // snapshots are treated as the version they are building towards
+        assertThat(LinkLatencies.supportsProbe(version("6.0-alpha3-SNAPSHOT"))).isTrue();
+        assertThat(LinkLatencies.supportsProbe(version("6.0.0-alpha3"))).isTrue();
+        assertThat(LinkLatencies.supportsProbe(version("6.0.0-beta1"))).isTrue();
+        assertThat(LinkLatencies.supportsProbe(version("6.0.0"))).isTrue();
+        assertThat(LinkLatencies.supportsProbe(version("6.0-SNAPSHOT"))).isTrue();
+        assertThat(LinkLatencies.supportsProbe(version("6.1.0"))).isTrue();
+    }
+
+    private static NodeVersion version(String version)
+    {
+        return new NodeVersion(new CassandraVersion(version), NodeVersion.CURRENT_METADATA_VERSION);
     }
 }

@@ -26,7 +26,6 @@ import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.Int32Serializer;
 import org.apache.cassandra.utils.Int64Serializer;
 import org.apache.cassandra.utils.TimeUUID;
-import org.apache.cassandra.utils.UnsignedVInt64Serializer;
 
 import static java.lang.Math.max;
 import static org.apache.cassandra.locator.InetAddressAndPort.FwdFrmSerializer.fwdFrmSerializer;
@@ -63,9 +62,16 @@ public enum ParamType
     ACCORD_TRACING                   (20, AccordRemoteTracing.tracingSerializer),
     /**
      * On a response: the nanos elapsed on the responder (by its monotonic clock) between receipt of the request and
-     * sending the response, so that the requester may separate time spent at the responder from time on the network
+     * serialization of the response, so that the requester may separate time spent at the responder from time on the
+     * network; see {@link SerializationTime.ElapsedSince}
      */
-    RECEIPT_TO_REPLY_NANOS           (21, UnsignedVInt64Serializer.serializer),
+    RECEIPT_TO_REPLY_NANOS           (21, SerializationTime.serializer),
+    /**
+     * On a request: the requester's monotonic clock (in nanos) when the request was serialized; see
+     * {@link SerializationTime#NOW}. Echoed unchanged on the response, so that the requester may separate time spent
+     * queued to be sent from time on the network.
+     */
+    SENT_AT_NANOS                    (22, SerializationTime.serializer),
     ;
 
     final int id;

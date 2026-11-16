@@ -1727,12 +1727,12 @@ dynamic_snitch_badness_threshold: 1.0
 # to estimate the network round-trip between this node and each datacenter, independently
 # of the time peers take to process requests. Probes are sent on the urgent connection, timed
 # with the monotonic clock and handled on receipt by the network event loop, and the estimate is
-# the median of the most recent link_latency_probe_window round-trips. Estimates are published
-# as the Messaging metrics <dc>-LinkRoundTripEstimate (micros) and <dc>-LinkRoundTripLatency.
-# They are also used to infer the time spent at replicas that do not report it themselves, for
-# the Accord AccordCoordinator.ReplicaTime.<request> metrics.
-# NOTE: probes use the LINK_PROBE_REQ/RSP messages, which older versions cannot deserialize, so
-# this must only be enabled once every node in the cluster supports them. Disabled by default.
+# the median of the most recent link_latency_probe_window round-trips. Only peers whose version
+# supports the probe messages (6.0.0-alpha3 or later) are probed. Estimates are published as the
+# Messaging metrics <dc>-LinkProbeEstimate (micros) and <dc>-LinkProbeRoundTrip (alongside the
+# round-trips observed on real traffic, <dc>-LinkObservedRoundTrip and <dc>-LinkSendQueue), and
+# are used to infer the time spent at replicas that do not report it themselves, for the Accord
+# AccordCoordinator.ReplicaTime.<request> metrics. Disabled by default.
 # Min unit: ms
 #link_latency_probe_interval: 1s
 #link_latency_probe_window: 64

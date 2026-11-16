@@ -70,6 +70,7 @@ import org.apache.cassandra.db.virtual.AccordDebugRemoteKeyspace;
 import org.apache.cassandra.db.virtual.ExceptionsTable;
 import org.apache.cassandra.db.virtual.LogMessagesTable;
 import org.apache.cassandra.db.virtual.SlowQueriesTable;
+import org.apache.cassandra.db.virtual.SystemViewsDebugKeyspace;
 import org.apache.cassandra.db.virtual.SystemViewsKeyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspace;
 import org.apache.cassandra.db.virtual.VirtualKeyspaceRegistry;
@@ -642,6 +643,9 @@ public class CassandraDaemon
     {
         VirtualKeyspaceRegistry.instance.register(VirtualSchemaKeyspace.instance);
         VirtualKeyspaceRegistry.instance.register(SystemViewsKeyspace.instance);
+
+        if (DatabaseDescriptor.getEnableVirtualDebugOnlyKeyspace())
+            VirtualKeyspaceRegistry.instance.register(SystemViewsDebugKeyspace.instance);
 
         if (DatabaseDescriptor.getAccord().enable_virtual_debug_only_keyspace)
         {

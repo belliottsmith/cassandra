@@ -241,7 +241,7 @@ public enum Verb
     ECHO_REQ               (31,  P0, rpcTimeout,      GOSSIP,            () -> NoPayload.serializer,                 () -> EchoVerbHandler.instance,            ECHO_RSP            ),
     PING_RSP               (97,  P1, pingTimeout,     GOSSIP,            () -> NoPayload.serializer,                 RESPONSE_HANDLER                             ),
     PING_REQ               (37,  P1, pingTimeout,     GOSSIP,            () -> PingRequest.serializer,               () -> PingVerbHandler.instance,            PING_RSP            ),
-    // NOTE: only sent if link_latency_probe_interval is configured, which must only be done once every node supports these verbs
+    // NOTE: only sent if link_latency_probe_interval is configured, and only to peers of LinkLatencies.MIN_PROBE_VERSION or later
     // P0, so both are sent on the urgent connection
     LINK_PROBE_RSP         (176, P0, pingTimeout,     IMMEDIATE,         () -> NoPayload.serializer,                 RESPONSE_HANDLER                             ),
     LINK_PROBE_REQ         (175, P0, pingTimeout,     IMMEDIATE,         () -> NoPayload.serializer,                 () -> LinkLatencies.probeHandler,          LINK_PROBE_RSP      ),

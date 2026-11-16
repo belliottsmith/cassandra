@@ -241,6 +241,11 @@ public class Message<T> implements ResponseContext
         return outWithParam(nextId(), verb, expiresAtNanos, payload, 0, null, null);
     }
 
+    public static <T> Message<T> out(Verb verb, T payload, long expiresAtNanos, ParamType paramType, Object paramValue)
+    {
+        return outWithParam(nextId(), verb, expiresAtNanos, payload, paramType, paramValue);
+    }
+
     public static <T> Message<T> out(Verb verb, T payload, boolean isUrgent)
     {
         if (isUrgent)

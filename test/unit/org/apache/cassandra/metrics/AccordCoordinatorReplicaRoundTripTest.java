@@ -67,9 +67,7 @@ public class AccordCoordinatorReplicaRoundTripTest
     public void testRecordMeasured()
     {
         ReplicaRoundTrip metrics = AccordCoordinatorMetrics.syncPointMetrics.replicaRoundTrip(Verb.ACCORD_APPLY_REQ);
-        long roundTrips = metrics.roundTrip.getCount(), atReplica = metrics.atReplica.getCount(), links = metrics.link.getCount();
 
-        // reported by the replica: the remainder of the round-trip is the link
         AccordCoordinatorMetrics.recordMeasured(metrics, ms(70), ms(10));
         // reported time fractionally exceeding the (micro precision) round-trip is capped at the round-trip
         AccordCoordinatorMetrics.recordMeasured(metrics, ms(5), ms(5) + 500);
@@ -77,10 +75,9 @@ public class AccordCoordinatorReplicaRoundTripTest
         metrics.recordMeasured(-1, 0);
         metrics.recordMeasured(ms(1), -1);
 
-        assertThat(metrics.roundTrip.getCount() - roundTrips).isEqualTo(2);
-        assertThat(metrics.atReplica.getCount() - atReplica).isEqualTo(2);
-        assertThat(metrics.link.getCount() - links).isEqualTo(2);
-        assertThat(metrics.link.getSnapshot().getMin()).isEqualTo(0);
+        assertThat(metrics.roundTrip.getCount()).isEqualTo(2);
+        assertThat(metrics.atReplica.getCount()).isEqualTo(2);
+        assertThat(metrics.atReplica.getSnapshot().getMax()).isLessThanOrEqualTo(metrics.roundTrip.getSnapshot().getMax());
         assertThat(metrics.inferred.getCount()).isEqualTo(0);
     }
 
@@ -99,7 +96,6 @@ public class AccordCoordinatorReplicaRoundTripTest
 
         assertThat(metrics.roundTrip.getCount()).isEqualTo(3);
         assertThat(metrics.atReplica.getCount()).isEqualTo(2);
-        assertThat(metrics.link.getCount()).isEqualTo(2);
         assertThat(metrics.inferred.getCount()).isEqualTo(2);
         assertThat(metrics.atReplica.getSnapshot().getMin()).isEqualTo(0);
     }

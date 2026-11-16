@@ -56,6 +56,7 @@ import static org.apache.cassandra.net.NoPayload.noPayload;
 import static org.apache.cassandra.net.ParamType.RESPOND_TO;
 import static org.apache.cassandra.net.ParamType.TRACE_SESSION;
 import static org.apache.cassandra.net.ParamType.TRACE_TYPE;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 import static org.apache.cassandra.utils.MonotonicClock.Global.approxTime;
 import static org.apache.cassandra.utils.TimeUUID.Generator.nextTimeUUID;
@@ -200,20 +201,40 @@ public class MessageTest
     }
 
     @Test
-    public void testReceiptToReplyNanos() throws Exception
+    public void testSerializationTimeParams() throws Exception
     {
-        for (long nanos : new long[]{ 0, 1, 127, 128, 1_234_567, Long.MAX_VALUE })
+        long before = nanoTime();
+        Message<Integer> msg = Message.out(Verb._TEST_2, 42)
+                                      .withParam(ParamType.SENT_AT_NANOS, SerializationTime.NOW)
+                                      .withParam(ParamType.RECEIPT_TO_REPLY_NANOS, new SerializationTime.ElapsedSince(before));
+        // fixed width, so the size is independent of when serialized
+        long size = msg.serializedSize(VERSION_40);
+        Thread.sleep(2);
+
+        Message<?> out = cycle(msg, size);
+        long after = nanoTime();
+        long sentAt = (Long) out.header.params().get(ParamType.SENT_AT_NANOS);
+        long elapsed = (Long) out.header.params().get(ParamType.RECEIPT_TO_REPLY_NANOS);
+        // both read the clock on serialization, not construction
+        assertTrue(sentAt >= before + MILLISECONDS.toNanos(2) && sentAt <= after);
+        assertTrue(elapsed >= MILLISECONDS.toNanos(2) && elapsed <= after - before);
+
+        // once deserialized, values are reserialized unchanged (e.g. when echoed)
+        Message<Integer> echoed = Message.out(Verb._TEST_2, 42).withParam(ParamType.SENT_AT_NANOS, sentAt);
+        Message<?> echo = cycle(echoed, echoed.serializedSize(VERSION_40));
+        assertEquals(sentAt, echo.header.params().get(ParamType.SENT_AT_NANOS));
+        testCycle(Message.out(Verb._TEST_2, 42).withParam(ParamType.RECEIPT_TO_REPLY_NANOS, Long.MAX_VALUE));
+    }
+
+    private static Message<?> cycle(Message<?> msg, long expectSize) throws Exception
+    {
+        try (DataOutputBuffer out = new DataOutputBuffer())
         {
-            Message<Integer> msg = Message.out(Verb._TEST_2, 42).withParam(ParamType.RECEIPT_TO_REPLY_NANOS, nanos);
-            testCycle(msg);
-            try (DataOutputBuffer out = new DataOutputBuffer())
+            serializer.serialize(msg, out, VERSION_40);
+            assertEquals(expectSize, out.getLength());
+            try (DataInputBuffer in = new DataInputBuffer(out.buffer(), true))
             {
-                serializer.serialize(msg, out, VERSION_40);
-                try (DataInputBuffer in = new DataInputBuffer(out.buffer(), true))
-                {
-                    Message<?> msgOut = serializer.deserialize(in, msg.from(), VERSION_40);
-                    assertEquals(nanos, msgOut.header.params().get(ParamType.RECEIPT_TO_REPLY_NANOS));
-                }
+                return serializer.deserialize(in, msg.from(), VERSION_40);
             }
         }
     }

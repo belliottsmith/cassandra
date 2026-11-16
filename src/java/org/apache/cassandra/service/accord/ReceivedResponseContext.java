@@ -30,7 +30,8 @@ import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 /**
  * The context for replying to a request, recording when the request was received (by the monotonic clock), so that
- * the reply may report the time spent at this replica ({@link ParamType#RECEIPT_TO_REPLY_NANOS}).
+ * the reply may report the time spent at this replica ({@link ParamType#RECEIPT_TO_REPLY_NANOS}), up to the reply's
+ * serialization.
  */
 class ReceivedResponseContext implements ResponseContext
 {
@@ -46,9 +47,9 @@ class ReceivedResponseContext implements ResponseContext
         this.receivedAtNanos = nanoTime();
     }
 
-    long elapsedNanos()
+    long receivedAtNanos()
     {
-        return Math.max(0, nanoTime() - receivedAtNanos);
+        return receivedAtNanos;
     }
 
     @Override public long id() { return request.id(); }

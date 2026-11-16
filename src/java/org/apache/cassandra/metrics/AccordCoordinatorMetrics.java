@@ -74,36 +74,33 @@ public class AccordCoordinatorMetrics
     public static final String FAST_PATH_TO_TOTAL = "FastPathToTotal";
     public static final String REPLICA_ROUND_TRIP = "ReplicaRoundTrip";
     public static final String REPLICA_TIME = "ReplicaTime";
-    public static final String REPLICA_LINK = "ReplicaLink";
     public static final String REPLICA_TIME_INFERRED = "ReplicaTimeInferred";
 
     /**
      * The round-trips of one kind of request (by request verb) sent by this node to replicas, for one kind of
-     * transaction, measured with the monotonic clock from registering the request's callback to receipt of its final
-     * reply, and split into the time spent at the replica and the time spent on the link:
+     * transaction, measured with the monotonic clock from submitting the request to receipt of its final reply:
      * <ul>
      *   <li>{@code ReplicaRoundTrip.<Request>}: the total round-trip</li>
      *   <li>{@code ReplicaTime.<Request>}: the time spent at the replica, i.e. from its receipt of the request to its
-     *       reply, as reported by the replica ({@link org.apache.cassandra.net.ParamType#RECEIPT_TO_REPLY_NANOS}); for
-     *       requests delivered to ourselves this is the whole round-trip</li>
-     *   <li>{@code ReplicaLink.<Request>}: the remainder of the round-trip, i.e. the time on the network including
-     *       messaging queues in both directions (zero for ourselves)</li>
+     *       serialization of the reply, as reported by the replica ({@link org.apache.cassandra.net.ParamType#RECEIPT_TO_REPLY_NANOS});
+     *       for requests delivered to ourselves this is the whole round-trip</li>
      *   <li>{@code ReplicaTimeInferred.<Request>}: the number of samples for which the replica did not report its
-     *       time (e.g. it runs an older version), so that the split was instead inferred by subtracting the estimated
+     *       time (e.g. it runs an older version), so that it was instead inferred by subtracting the estimated
      *       {@link org.apache.cassandra.net.LinkLatencies link round-trip} to its datacenter; if there is no
      *       estimate either, only the total round-trip is recorded</li>
      * </ul>
+     * The remainder of each round-trip (time queued here to be sent, and on the network) is recorded per datacenter by
+     * {@link org.apache.cassandra.net.LinkLatencies}.
      */
     public static final class ReplicaRoundTrip
     {
-        public final Timer roundTrip, atReplica, link;
+        public final Timer roundTrip, atReplica;
         public final Counter inferred;
 
         private ReplicaRoundTrip(DefaultNameFactory factory, String request)
         {
             roundTrip = Metrics.timer(factory.createMetricName(REPLICA_ROUND_TRIP + '.' + request));
             atReplica = Metrics.timer(factory.createMetricName(REPLICA_TIME + '.' + request));
-            link = Metrics.timer(factory.createMetricName(REPLICA_LINK + '.' + request));
             inferred = Metrics.counter(factory.createMetricName(REPLICA_TIME_INFERRED + '.' + request));
         }
 
@@ -115,11 +112,9 @@ public class AccordCoordinatorMetrics
             if (roundTripNanos < 0 || replicaNanos < 0)
                 return;
 
-            // the round-trip is measured with micro precision, so may be fractionally less than the replica's time
-            replicaNanos = Math.min(replicaNanos, roundTripNanos);
             roundTrip.update(roundTripNanos, NANOSECONDS);
-            atReplica.update(replicaNanos, NANOSECONDS);
-            link.update(roundTripNanos - replicaNanos, NANOSECONDS);
+            // the round-trip may be measured with only micro precision, so may be fractionally less than the replica's time
+            atReplica.update(Math.min(replicaNanos, roundTripNanos), NANOSECONDS);
         }
 
         /**
@@ -135,7 +130,6 @@ public class AccordCoordinatorMetrics
             {
                 inferred.inc();
                 atReplica.update(Math.max(0, roundTripNanos - linkNanos), NANOSECONDS);
-                link.update(linkNanos, NANOSECONDS);
             }
         }
 

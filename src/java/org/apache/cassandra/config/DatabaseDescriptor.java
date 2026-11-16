@@ -4289,6 +4289,11 @@ public class DatabaseDescriptor
         return conf == null ? null : conf.link_latency_probe_interval;
     }
 
+    public static boolean getEnableVirtualDebugOnlyKeyspace()
+    {
+        return conf.enable_virtual_debug_only_keyspace;
+    }
+
     public static int getLinkLatencyProbeWindow()
     {
         return conf == null ? 64 : conf.link_latency_probe_window;

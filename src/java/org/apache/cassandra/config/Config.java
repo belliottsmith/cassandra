@@ -528,13 +528,22 @@ public class Config
      * If set, every interval probe one live peer in each datacenter to estimate the network round-trip between this
      * node and each datacenter, independently of request processing time; see {@link org.apache.cassandra.net.LinkLatencies}.
      * Used to separate link latency out of other measurements (e.g. Accord's per-replica round-trips). Disabled if null.
-     * Probes use {@link org.apache.cassandra.net.Verb#LINK_PROBE_REQ}, so this must only be set once every node supports it.
+     * Probes use {@link org.apache.cassandra.net.Verb#LINK_PROBE_REQ}, so are only sent to peers whose version supports it.
      */
     public DurationSpec.IntMillisecondsBound link_latency_probe_interval = null;
     /**
      * The number of most recent probes per datacenter whose median round-trip estimates its link latency.
      */
     public int link_latency_probe_window = 64;
+
+    /**
+     * Enables the virtual debug-only keyspace {@code system_views_debug}, with tables that expose internal state to aid
+     * developers (see also {@link AccordConfig#enable_virtual_debug_only_keyspace}).
+     * <p/>
+     * These tables can and will change and/or go away at any point, including in a minor release, are not to be
+     * considered part of the API, and are NOT to be relied on for anything.
+     */
+    public boolean enable_virtual_debug_only_keyspace = false;
 
     public String node_proximity;
     public String initial_location_provider;

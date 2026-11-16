@@ -51,6 +51,7 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessageDelivery;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.ParamType;
+import org.apache.cassandra.net.SerializationTime;
 import org.apache.cassandra.net.ResponseContext;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.TimeoutStrategy;
@@ -288,7 +289,8 @@ public class AccordMessageSink implements MessageSink
             }
         }
 
-        Message<Request> message = Message.out(verb, request, expiresAtNanos);
+        // stamped on serialization, and echoed by the replica, so we can separate time queued to be sent from the network
+        Message<Request> message = Message.out(verb, request, expiresAtNanos, ParamType.SENT_AT_NANOS, SerializationTime.NOW);
         if (request instanceof MapReduceCommandStores<?, ?>)
         {
             Tracing tracing =  ((MapReduceCommandStores<?, ?>) request).tracing();
@@ -329,9 +331,15 @@ public class AccordMessageSink implements MessageSink
             message = Message.responseWith(reply, respondTo);
             if (Invariants.isParanoid()) checkReplyType(reply, respondTo);
         }
-        // report the time spent at this replica, so the requester can separate it from the time on the network
+        // report the time spent at this replica (up to serialization of the reply), and echo the time the request was
+        // sent, so the requester can separate the time on the network from time queued here or there
         if (failure == null && respondTo instanceof ReceivedResponseContext)
-            message = message.withParam(ParamType.RECEIPT_TO_REPLY_NANOS, ((ReceivedResponseContext) respondTo).elapsedNanos());
+        {
+            Object elapsed = new SerializationTime.ElapsedSince(((ReceivedResponseContext) respondTo).receivedAtNanos());
+            Object sentAt = respondTo.params().get(ParamType.SENT_AT_NANOS);
+            message = sentAt == null ? message.withParam(ParamType.RECEIPT_TO_REPLY_NANOS, elapsed)
+                                     : message.withParams(ImmutableMap.of(ParamType.RECEIPT_TO_REPLY_NANOS, elapsed, ParamType.SENT_AT_NANOS, sentAt));
+        }
         Object tracing = respondTo.params().get(ParamType.ACCORD_TRACING);
         if (tracing != null)
         {

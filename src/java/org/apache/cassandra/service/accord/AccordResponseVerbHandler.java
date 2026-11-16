@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.service.accord;
 
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -60,6 +61,8 @@ class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
     @Override
     public void doVerb(Message message)
     {
+        // this handler runs on the IMMEDIATE stage, so this is (approximately) the time of receipt
+        long receivedAtNanos = nanoTime();
         Node.Id from = endpointMapper.mappedIdOrNull(message.from(), message);
         if (from == null)
         {
@@ -83,13 +86,22 @@ class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
             if (cbe == null)
                 return;
 
-            // registeredAt is measured with nanoTime (with micro precision); this handler runs on the IMMEDIATE stage,
-            // so this is (approximately) the time of receipt
-            long latencyNanos = nanoTime() - cbe.registeredAt(NANOSECONDS);
+            // registeredAt is measured with nanoTime (with micro precision)
+            long registeredAtNanos = cbe.registeredAt(NANOSECONDS);
+            long latencyNanos = receivedAtNanos - registeredAtNanos;
             MessagingService.instance().latencySubscribers.add(message.from(), latencyNanos, NANOSECONDS);
+
+            Map<ParamType, Object> params = message.header.params();
+            Long replicaNanos = (Long) params.get(ParamType.RECEIPT_TO_REPLY_NANOS);
+            if (replicaNanos != null)
+            {
+                Long sentAtNanos = (Long) params.get(ParamType.SENT_AT_NANOS);
+                if (sentAtNanos != null)
+                    LinkLatencies.instance.addObserved(message.from(), registeredAtNanos, sentAtNanos, receivedAtNanos, replicaNanos);
+            }
+
             if (remove && cbe.context() != null)
             {
-                Long replicaNanos = (Long) message.header.params().get(ParamType.RECEIPT_TO_REPLY_NANOS);
                 if (replicaNanos != null) AccordCoordinatorMetrics.recordMeasured(cbe.context(), latencyNanos, replicaNanos);
                 else AccordCoordinatorMetrics.recordInferred(cbe.context(), latencyNanos, LinkLatencies.instance.roundTripNanos(message.from()));
             }

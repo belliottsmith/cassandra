@@ -49,7 +49,11 @@ import org.apache.cassandra.metrics.DefaultNameFactory;
 import org.apache.cassandra.metrics.MessagingMetrics;
 import org.apache.cassandra.metrics.MetricNameFactory;
 import org.apache.cassandra.tcm.ClusterMetadata;
+import org.apache.cassandra.tcm.membership.Directory;
 import org.apache.cassandra.tcm.membership.Location;
+import org.apache.cassandra.tcm.membership.NodeId;
+import org.apache.cassandra.tcm.membership.NodeVersion;
+import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -59,44 +63,56 @@ import static org.apache.cassandra.net.Verb.LINK_PROBE_REQ;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 /**
- * Estimates the round-trip latency of the network link between this node and each datacenter (including our own),
+ * Tracks the round-trip latency of the network link between this node and each datacenter (including our own),
  * independently of the time taken by peers to process requests, so that it may be separated out of other latency
- * measurements, e.g. to infer the time a request spent at a replica that does not report it.
+ * measurements, by two means:
  *
+ * <h3>Probes</h3>
  * Every {@link DatabaseDescriptor#getLinkLatencyProbeInterval() probe interval} we send a {@link Verb#LINK_PROBE_REQ}
- * to one live peer chosen at random from each datacenter, and time its round-trip with the monotonic clock. Both the
- * probe and its response are handled on the {@link org.apache.cassandra.concurrent.Stage#IMMEDIATE IMMEDIATE} stage,
- * i.e. on the network event loop as they are received, so the measurement excludes any stage queueing on either node.
- * Probes and their responses are sent on the urgent connection, so the estimate excludes (as far as possible)
- * queueing behind other messages: it estimates the network itself. By contrast, round-trips of real requests whose
- * responder reports its own time ({@link ParamType#RECEIPT_TO_REPLY_NANOS}) yield the link time including queueing
- * on their connections, so the two may be compared to see how much of a link's latency is due to messaging queues.
+ * on the urgent connection to one live peer chosen at random from each datacenter, and time its round-trip with the
+ * monotonic clock. Both the probe and its response are handled on the {@link org.apache.cassandra.concurrent.Stage#IMMEDIATE
+ * IMMEDIATE} stage, i.e. on the network event loop as they are received, so this measures (as far as possible) the
+ * network itself, excluding queueing behind other messages or on any stage. Each datacenter keeps the most recent
+ * {@link DatabaseDescriptor#getLinkLatencyProbeWindow() window} of samples, and its estimate is their median, which is
+ * published as an immutable {@link Snapshot} (whose {@link Snapshot#version} changes whenever any estimate does, so
+ * that derived values may be cached), e.g. to infer the time spent at a replica that does not report it.
  *
- * Each datacenter keeps the most recent {@link DatabaseDescriptor#getLinkLatencyProbeWindow() window} of samples,
- * and its estimate is their median, discarding transient congestion. Only round-trips are estimated, so no
- * assumptions are made about clock synchronisation or link symmetry.
+ * Probing is disabled unless {@code link_latency_probe_interval} is configured, and peers are only probed if their
+ * version supports {@link Verb#LINK_PROBE_REQ} ({@link #MIN_PROBE_VERSION}).
  *
- * Estimates are published as an immutable {@link Snapshot}, whose {@link Snapshot#version} changes whenever any
- * estimate does, so that derived values may be cached. They are also exported as metrics in the {@code Messaging}
- * group:
+ * <h3>Observation</h3>
+ * Requests that carry {@link ParamType#SENT_AT_NANOS}, whose responder reports {@link ParamType#RECEIPT_TO_REPLY_NANOS}
+ * (and echoes the former), yield the {@link #addObserved observed} round-trip on the network of real traffic (from
+ * our serialization of the request to receipt of the response, excluding the responder's time up to its
+ * serialization of the response), and the time each request spent queued here before serialization.
+ *
+ * <h3>Metrics</h3>
+ * In the {@code Messaging} group, per datacenter:
  * <ul>
- *   <li>{@code <dc>-LinkRoundTripLatency}: a timer of the raw round-trip samples</li>
- *   <li>{@code <dc>-LinkRoundTripEstimate}: the current round-trip estimate, in microseconds</li>
+ *   <li>{@code <dc>-LinkProbeRoundTrip}: the probe round-trip samples</li>
+ *   <li>{@code <dc>-LinkProbeEstimate}: the current probe estimate, in microseconds</li>
+ *   <li>{@code <dc>-LinkObservedRoundTrip}: the observed round-trips of real traffic, which unlike probes include
+ *       queueing behind other messages on the connections and on receipt</li>
+ *   <li>{@code <dc>-LinkSendQueue}: the time observed requests spent queued here before being serialized</li>
  * </ul>
- *
- * Probing is disabled unless {@code link_latency_probe_interval} is configured, as nodes that predate
- * {@link Verb#LINK_PROBE_REQ} cannot deserialize it; it must only be configured once every node supports it.
- * While disabled every datacenter is {@link Snapshot#UNKNOWN unknown}. Estimates may also be
- * {@link #unsafeSetRoundTripMicros set directly} for testing.
+ * These are also presented by {@code system_views_debug.link_latencies}.
  */
 public class LinkLatencies
 {
     private static final Logger logger = LoggerFactory.getLogger(LinkLatencies.class);
     private static final MetricNameFactory factory = new DefaultNameFactory(MessagingMetrics.TYPE_NAME);
 
-    public static final String ROUND_TRIP_METRIC = "-LinkRoundTripLatency";
-    public static final String ESTIMATE_METRIC = "-LinkRoundTripEstimate";
+    public static final String PROBE_ROUND_TRIP_METRIC = "-LinkProbeRoundTrip";
+    public static final String PROBE_ESTIMATE_METRIC = "-LinkProbeEstimate";
+    public static final String OBSERVED_ROUND_TRIP_METRIC = "-LinkObservedRoundTrip";
+    public static final String SEND_QUEUE_METRIC = "-LinkSendQueue";
+    private static final String[] METRICS = { PROBE_ROUND_TRIP_METRIC, PROBE_ESTIMATE_METRIC, OBSERVED_ROUND_TRIP_METRIC, SEND_QUEUE_METRIC };
     public static final int DEFAULT_WINDOW = 64;
+
+    /**
+     * The earliest version supporting {@link Verb#LINK_PROBE_REQ}
+     */
+    public static final CassandraVersion MIN_PROBE_VERSION = new CassandraVersion("6.0.0-alpha3");
 
     public static final LinkLatencies instance = new LinkLatencies();
 
@@ -177,16 +193,21 @@ public class LinkLatencies
         }
     }
 
-    private final class Link
+    /**
+     * The metrics for one datacenter
+     */
+    public static final class Link
     {
-        final Window window;
-        final Timer roundTrip;
+        private final Window window;
+        public final Timer probeRoundTrip, observedRoundTrip, sendQueue;
 
-        Link(String dc, int windowSize)
+        private Link(String dc, int windowSize, Gauge<Long> probeEstimate)
         {
             this.window = new Window(windowSize);
-            this.roundTrip = Metrics.timer(factory.createMetricName(dc + ROUND_TRIP_METRIC));
-            Metrics.register(factory.createMetricName(dc + ESTIMATE_METRIC), (Gauge<Long>) () -> snapshot.roundTripMicros(dc));
+            this.probeRoundTrip = Metrics.timer(factory.createMetricName(dc + PROBE_ROUND_TRIP_METRIC));
+            this.observedRoundTrip = Metrics.timer(factory.createMetricName(dc + OBSERVED_ROUND_TRIP_METRIC));
+            this.sendQueue = Metrics.timer(factory.createMetricName(dc + SEND_QUEUE_METRIC));
+            Metrics.register(factory.createMetricName(dc + PROBE_ESTIMATE_METRIC), probeEstimate);
         }
     }
 
@@ -203,6 +224,36 @@ public class LinkLatencies
     public Snapshot snapshot()
     {
         return snapshot;
+    }
+
+    /**
+     * @return the metrics for each datacenter we have measured
+     */
+    public Map<String, Link> links()
+    {
+        return Collections.unmodifiableMap(links);
+    }
+
+    private Link link(String dc)
+    {
+        Link link = links.get(dc);
+        if (link == null)
+            link = links.computeIfAbsent(dc, d -> new Link(d, windowSize, () -> snapshot.roundTripMicros(d)));
+        return link;
+    }
+
+    /**
+     * @return true iff a node of {@code version} supports {@link Verb#LINK_PROBE_REQ}
+     */
+    @VisibleForTesting
+    static boolean supportsProbe(@Nullable NodeVersion version)
+    {
+        if (version == null || version.cassandraVersion == null)
+            return false;
+
+        // treat snapshot builds as the version they are building towards
+        String release = version.cassandraVersion.toString().replaceFirst("(?i)[.-]SNAPSHOT(?=\\+|$)", "");
+        return new CassandraVersion(release).compareTo(MIN_PROBE_VERSION) >= 0;
     }
 
     /**
@@ -259,10 +310,11 @@ public class LinkLatencies
                 return;
 
             InetAddressAndPort self = FBUtilities.getBroadcastAddressAndPort();
-            Map<String, Collection<InetAddressAndPort>> byDc = metadata.directory.allDatacenterEndpoints().asMap();
+            Directory directory = metadata.directory;
+            Map<String, Collection<InetAddressAndPort>> byDc = directory.allDatacenterEndpoints().asMap();
             for (Map.Entry<String, Collection<InetAddressAndPort>> e : byDc.entrySet())
             {
-                InetAddressAndPort peer = pickLivePeer(e.getValue(), self);
+                InetAddressAndPort peer = pickLivePeer(directory, e.getValue(), self);
                 if (peer != null)
                     probe(messaging, e.getKey(), peer);
             }
@@ -287,7 +339,7 @@ public class LinkLatencies
         });
     }
 
-    private static InetAddressAndPort pickLivePeer(Collection<InetAddressAndPort> endpoints, InetAddressAndPort self)
+    private static InetAddressAndPort pickLivePeer(Directory directory, Collection<InetAddressAndPort> endpoints, InetAddressAndPort self)
     {
         // reservoir sample of size one
         InetAddressAndPort pick = null;
@@ -295,6 +347,9 @@ public class LinkLatencies
         for (InetAddressAndPort endpoint : endpoints)
         {
             if (endpoint.equals(self) || !FailureDetector.instance.isAlive(endpoint))
+                continue;
+            NodeId id = directory.peerId(endpoint);
+            if (id == null || !supportsProbe(directory.version(id)))
                 continue;
             if (ThreadLocalRandom.current().nextInt(++live) == 0)
                 pick = endpoint;
@@ -311,10 +366,34 @@ public class LinkLatencies
         if (roundTrip < 0)
             return;
 
-        Link link = links.computeIfAbsent(dc, d -> new Link(d, windowSize));
-        link.roundTrip.update(roundTrip, unit);
+        Link link = link(dc);
+        link.probeRoundTrip.update(roundTrip, unit);
         long medianNanos = link.window.add(unit.toNanos(roundTrip));
         publish(dc, NANOSECONDS.toMicros(medianNanos));
+    }
+
+    /**
+     * Record the observed timing of a request to {@code peer} and its response, all by our monotonic clock, except
+     * {@code responderNanos}, which the responder measured by its own
+     *
+     * @param registeredAtNanos when the request was submitted to be sent
+     * @param sentAtNanos when the request was serialized
+     * @param receivedAtNanos when the response was received
+     * @param responderNanos the time between the responder's receipt of the request and serialization of the response
+     */
+    public void addObserved(InetAddressAndPort peer, long registeredAtNanos, long sentAtNanos, long receivedAtNanos, long responderNanos)
+    {
+        if (peer.equals(FBUtilities.getBroadcastAddressAndPort()))
+            return;
+
+        String dc = datacenter(peer);
+        if (dc == null)
+            return;
+
+        Link link = link(dc);
+        // registeredAt may be measured with only micro precision, so may fractionally exceed sentAt
+        link.sendQueue.update(Math.max(0, sentAtNanos - registeredAtNanos), NANOSECONDS);
+        link.observedRoundTrip.update(Math.max(0, receivedAtNanos - sentAtNanos - responderNanos), NANOSECONDS);
     }
 
     /**
@@ -340,30 +419,27 @@ public class LinkLatencies
 
     private void forgetDatacenters(Set<String> known)
     {
-        Snapshot prev = snapshot;
-        if (!known.containsAll(prev.roundTripMicros.keySet()))
-        {
-            Set<String> remove = new HashSet<>(prev.roundTripMicros.keySet());
-            remove.removeAll(known);
+        Set<String> remove = new HashSet<>(snapshot.roundTripMicros.keySet());
+        remove.addAll(links.keySet());
+        remove.removeAll(known);
+        if (!remove.isEmpty())
             remove(remove);
-        }
     }
 
     private synchronized void remove(Set<String> dcs)
     {
-        Snapshot prev = snapshot;
-        Map<String, Long> next = new HashMap<>(prev.roundTripMicros);
-        if (!next.keySet().removeAll(dcs))
-            return;
-
         for (String dc : dcs)
         {
             if (links.remove(dc) != null)
             {
-                Metrics.remove(factory.createMetricName(dc + ROUND_TRIP_METRIC));
-                Metrics.remove(factory.createMetricName(dc + ESTIMATE_METRIC));
+                for (String metric : METRICS)
+                    Metrics.remove(factory.createMetricName(dc + metric));
             }
         }
-        snapshot = new Snapshot(prev.version + 1, ImmutableMap.copyOf(next));
+
+        Snapshot prev = snapshot;
+        Map<String, Long> next = new HashMap<>(prev.roundTripMicros);
+        if (next.keySet().removeAll(dcs))
+            snapshot = new Snapshot(prev.version + 1, ImmutableMap.copyOf(next));
     }
 }
