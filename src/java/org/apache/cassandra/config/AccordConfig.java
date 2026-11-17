@@ -223,9 +223,35 @@ public class AccordConfig
 
     /**
      * The maximum number of bounds each command store keeps on the latest transaction of the CommandsForKey not in its
-     * cache, which let a sync point avoid scanning parts of its ranges on disk for keys it must load. Zero disables them.
+     * cache, which let a sync point avoid scanning parts of its ranges on disk for keys it must load. Zero disables them,
+     * as for {@link MaxUncachedTxnIdMode#IGNORE}.
      */
     public int max_uncached_txnid_entries = 4096;
+
+    public enum MaxUncachedTxnIdMode
+    {
+        /**
+         * Neither maintain nor consult the bounds: a sync point scans its ranges on disk in full.
+         */
+        IGNORE,
+
+        /**
+         * Maintain the bounds and plan each scan with them, but scan in full and load as without them, reporting via
+         * {@link accord.utils.Invariants#expect} any key we must load that the bounds would have let us skip.
+         */
+        VALIDATE,
+
+        /**
+         * Scan on disk only those parts of our ranges whose bounds may be relevant, or that we know nothing about.
+         */
+        RELY
+    }
+
+    /**
+     * How a command store uses its bounds on the CommandsForKey not in its cache (see max_uncached_txnid_entries).
+     * Read when each command store is created.
+     */
+    public MaxUncachedTxnIdMode max_uncached_txnid_mode = MaxUncachedTxnIdMode.RELY;
 
     /**
      * The number of threads that may be used to execute distributed requests for migration tasks

@@ -105,6 +105,7 @@ public class InstanceConfig implements IInstanceConfig
                 .set("accord.expire_txn", accord.expire_txn)
                 .set("accord.enable_virtual_debug_only_keyspace", "true")
                 .set("enable_virtual_debug_only_keyspace", "true")
+                .set("accord.max_uncached_txnid_mode", "VALIDATE")
                 .set("partitioner", "org.apache.cassandra.dht.Murmur3Partitioner")
                 .set("start_native_transport", true)
                 .set("concurrent_writes", 2)

@@ -23,8 +23,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 import javax.annotation.Nullable;
 
@@ -160,44 +162,84 @@ public class MaxUncachedTxnId extends BTreeReducingRangeMap<MaxUncachedTxnId.Ent
     }
 
     /**
+     * As {@link #evicted(RoutingKey, TxnId)} for each key of {@code evicted}, but in a single rebuild
+     */
+    public MaxUncachedTxnId evicted(SortedMap<RoutingKey, TxnId> evicted)
+    {
+        List<Range> forget = new ArrayList<>();
+        try (Builder raise = new Builder())
+        {
+            boolean raised = false;
+            for (Map.Entry<RoutingKey, TxnId> e : evicted.entrySet())
+            {
+                // keys are distinct, so forgetting one does not change whether another is covered
+                Entry entry = get(e.getKey());
+                if (entry == null)
+                    continue;
+
+                TxnId last = e.getValue();
+                Range range = e.getKey().asRange();
+                if (last == null)
+                {
+                    forget.add(range);
+                }
+                else if (last.compareTo(entry.max) > 0)
+                {
+                    raise.append(new Entry(range.start(), range.end(), plain(last)));
+                    raised = true;
+                }
+            }
+
+            MaxUncachedTxnId result = this;
+            if (!forget.isEmpty())
+                result = result.without(Ranges.ofSortedAndDeoverlapped(forget.toArray(new Range[0])));
+            if (raised)
+                result = merge(result, raise.build(), Entry::max, MaxUncachedTxnId::new);
+            return result;
+        }
+    }
+
+    /**
      * Forget our bounds over {@code range}
      */
     public MaxUncachedTxnId without(Range range)
     {
-        boolean intersects = false;
-        for (Entry entry : this)
-        {
-            if (intersects(entry, range))
-            {
-                intersects = true;
-                break;
-            }
-        }
-        if (!intersects)
+        return without(Ranges.of(range));
+    }
+
+    /**
+     * Forget our bounds over {@code ranges}
+     */
+    public MaxUncachedTxnId without(Ranges ranges)
+    {
+        if (ranges.isEmpty() || isEmpty())
             return this;
 
         try (Builder builder = new Builder())
         {
+            boolean modified = false;
+            int next = 0;
             for (Entry entry : this)
             {
-                if (!intersects(entry, range))
+                while (next < ranges.size() && ranges.get(next).end().compareTo(entry.start()) <= 0)
+                    ++next;
+
+                RoutingKey cursor = entry.start();
+                for (int i = next ; i < ranges.size() && ranges.get(i).start().compareTo(entry.end()) < 0 ; ++i)
                 {
-                    builder.append(entry);
-                    continue;
+                    Range range = ranges.get(i);
+                    modified = true;
+                    if (range.start().compareTo(cursor) > 0)
+                        builder.append(entry.with(cursor, range.start()));
+                    if (range.end().compareTo(cursor) > 0)
+                        cursor = range.end();
                 }
 
-                if (entry.start().compareTo(range.start()) < 0)
-                    builder.append(entry.with(entry.start(), range.start()));
-                if (entry.end().compareTo(range.end()) > 0)
-                    builder.append(entry.with(range.end(), entry.end()));
+                if (cursor.compareTo(entry.end()) < 0)
+                    builder.append(cursor.equals(entry.start()) ? entry : entry.with(cursor, entry.end()));
             }
-            return builder.build();
+            return modified ? builder.build() : this;
         }
-    }
-
-    private static boolean intersects(Entry entry, Range range)
-    {
-        return entry.end().compareTo(range.start()) > 0 && entry.start().compareTo(range.end()) < 0;
     }
 
     /**
@@ -324,6 +366,92 @@ public class MaxUncachedTxnId extends BTreeReducingRangeMap<MaxUncachedTxnId.Ent
             if (pending != null)
                 scan.accept(pending);
             pending = null;
+        }
+    }
+
+    /**
+     * Our current bounds, with evictions buffered so that we may apply many in a single rebuild.
+     * Accessed only with the owning command store's executor lock held.
+     */
+    public static class Holder
+    {
+        private final int maxSize;
+        private final RoutingKey[] pendingKeys;
+        private final TxnId[] pendingLasts;
+        private int pendingCount;
+        private MaxUncachedTxnId current = EMPTY;
+
+        public Holder(int maxSize, int maxPending)
+        {
+            Invariants.requireArgument(maxSize > 0 && maxPending > 0);
+            this.maxSize = maxSize;
+            this.pendingKeys = new RoutingKey[maxPending];
+            this.pendingLasts = new TxnId[maxPending];
+        }
+
+        /**
+         * As {@link MaxUncachedTxnId#evicted(RoutingKey, TxnId)}, applied once we next read our bounds or have buffered
+         * {@code maxPending} keys
+         */
+        public void evicted(RoutingKey key, @Nullable TxnId last)
+        {
+            // applying the buffer only raises or forgets bounds, so it cannot make this eviction matter if it does not now
+            Entry entry = current.get(key);
+            if (entry == null || (last != null && last.compareTo(entry.max) <= 0))
+                return;
+
+            for (int i = 0 ; i < pendingCount ; ++i)
+            {
+                if (pendingKeys[i].equals(key))
+                {
+                    TxnId prev = pendingLasts[i];
+                    pendingLasts[i] = prev == null || last == null ? null : TxnId.max(prev, last);
+                    return;
+                }
+            }
+
+            pendingKeys[pendingCount] = key;
+            pendingLasts[pendingCount] = last;
+            if (++pendingCount == pendingKeys.length)
+                applyPending();
+        }
+
+        public MaxUncachedTxnId get()
+        {
+            applyPending();
+            return current;
+        }
+
+        /**
+         * Replace our bounds with {@code update} of them, which must not itself evict anything
+         */
+        public void update(UnaryOperator<MaxUncachedTxnId> update)
+        {
+            applyPending();
+            MaxUncachedTxnId updated = update.apply(current);
+            Invariants.require(pendingCount == 0);
+            current = updated.bound(maxSize);
+        }
+
+        int pendingCount()
+        {
+            return pendingCount;
+        }
+
+        private void applyPending()
+        {
+            if (pendingCount == 0)
+                return;
+
+            TreeMap<RoutingKey, TxnId> evicted = new TreeMap<>();
+            for (int i = 0 ; i < pendingCount ; ++i)
+            {
+                evicted.put(pendingKeys[i], pendingLasts[i]);
+                pendingKeys[i] = null;
+                pendingLasts[i] = null;
+            }
+            pendingCount = 0;
+            current = current.evicted(evicted).bound(maxSize);
         }
     }
 

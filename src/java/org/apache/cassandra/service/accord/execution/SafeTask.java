@@ -73,6 +73,7 @@ import accord.utils.async.AsyncChains;
 import accord.utils.async.Cancellable;
 
 import org.apache.cassandra.concurrent.DebuggableTask;
+import org.apache.cassandra.config.AccordConfig.MaxUncachedTxnIdMode;
 import org.apache.cassandra.metrics.LogLinearDecayingHistograms;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
@@ -101,7 +102,6 @@ import static accord.utils.Invariants.Paranoia.SUPERLINEAR;
 import static accord.utils.Invariants.ParanoiaCostFactor.LOW;
 import static accord.utils.Invariants.isParanoid;
 import static accord.utils.Invariants.testParanoia;
-import static org.apache.cassandra.config.DatabaseDescriptor.getAccord;
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DEBUG_EXECUTION;
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DebugTask.SANITY_CHECK;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode.HOLD_QUEUE;
@@ -2108,7 +2108,11 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 if (cancelled)
                     return;
 
-                MaxUncachedTxnId bounds = commandStore.unsafeGetMaxUncachedTxnId();
+                commandStore.unsafeUpdateMaxUncachedTxnId(this::establish);
+            }
+
+            private MaxUncachedTxnId establish(MaxUncachedTxnId bounds)
+            {
                 for (int i = 0 ; i < ranges.size() ; ++i)
                 {
                     if (unknown[i])
@@ -2123,7 +2127,86 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     }
                     bounds = bounds.establish(range, TxnId.max(diskMax[i], evictedMax[i]), keys);
                 }
-                commandStore.unsafeSetMaxUncachedTxnId(bounds);
+                return bounds;
+            }
+        }
+
+        /**
+         * For {@link MaxUncachedTxnIdMode#VALIDATE}: scans on disk the parts of our ranges that {@link MaxUncachedTxnId}
+         * let us skip, loading every key it finds relevant as though we had not skipped them, and reports any such key
+         * we would not otherwise have loaded.
+         * <p>
+         * We would load any key we found in the cache when we started, or loaded directly for its own bound, or that
+         * {@link KeyWatcher} referenced as it was updated while we scanned. Any other key not in the cache has been on
+         * disk, unchanged, since we planned the scan, so its bound should have covered it.
+         */
+        class Validate
+        {
+            final Ranges skipped;
+            // the keys we found in the cache when we started, and those we loaded directly
+            final Set<TokenKey> planned;
+            final List<TokenKey> relevant = new ArrayList<>();
+
+            Validate(Ranges skipped, Set<TokenKey> planned)
+            {
+                this.skipped = skipped;
+                this.planned = planned;
+            }
+
+            void scan()
+            {
+                for (Range range : skipped)
+                {
+                    loader.findKeysAndLastBetween((TokenKey) range.start(), range.startInclusive(),
+                                                  (TokenKey) range.end(), range.endInclusive(),
+                                                  (key, last) -> {
+                                                      if (cancelled)
+                                                          throw new CancellationException();
+                                                      onDisk(key, last);
+                                                  });
+                }
+            }
+
+            private void onDisk(TokenKey key, @Nullable TxnId last)
+            {
+                if (last != null && (last.equals(TxnId.NONE) || !loader.isRelevant(key, last)))
+                    return;
+
+                intersectingKeys.add(key);
+                if (planned.contains(key))
+                    return;
+
+                // our bounds cover a CommandsForKey as loaded, which may omit transactions it has on disk
+                CommandsForKey cfk = loader.loadCommandsForKey(key);
+                if (cfk != null && loader.isRelevant(cfk))
+                    relevant.add(key);
+            }
+
+            /**
+             * Must be invoked once we have scanned, before we set up the keys we must load
+             *
+             * @return the failure to fail our task with, if {@link Invariants#expect} throws (in which case we also log
+             *         it, as our task may be one whose failure is otherwise only retried)
+             */
+            @Nullable Throwable check()
+            {
+                if (cancelled)
+                    return null;
+
+                try
+                {
+                    for (TokenKey key : relevant)
+                    {
+                        Invariants.expect(refs.containsKey(key), "%s would not have loaded relevant key %s, as its bound was %s",
+                                          SafeTask.this, key, commandStore.unsafeGetMaxUncachedTxnId().get(key));
+                    }
+                    return null;
+                }
+                catch (Throwable t)
+                {
+                    commandStore.agent().onException(t);
+                    return t;
+                }
             }
         }
 
@@ -2135,6 +2218,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         KeyWatcher keyWatcher = new KeyWatcher();
         // null if we do not use MaxUncachedTxnId, in which case we scan all of our ranges on disk, for keys only
         @Nullable DiskScan diskScan;
+        // non-null only if we validate MaxUncachedTxnId
+        @Nullable Validate validate;
 
         public RangeTxnAndKeyScanner(AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance commandsForKeyCache)
         {
@@ -2148,6 +2233,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             if (diskScan != null)
             {
                 diskScan.scan();
+                if (validate != null)
+                    validate.scan();
             }
             else
             {
@@ -2240,7 +2327,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 }
             }
 
-            if (getAccord().max_uncached_txnid_entries > 0)
+            MaxUncachedTxnIdMode mode = commandStore.maxUncachedTxnIdMode();
+            if (mode != MaxUncachedTxnIdMode.IGNORE)
             {
                 // scan on disk only those parts of our ranges we know nothing of, or whose bounds may be relevant
                 List<Range> scan = new ArrayList<>();
@@ -2248,8 +2336,28 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                             .forEachMaybeRelevant(ranges, bound -> loader.isRelevant(bound, bound.max),
                                                   scan::add, key -> intersectingKeys.add((TokenKey) key));
                 diskScan = new DiskScan(Ranges.of(scan.toArray(new Range[0])));
+                if (mode == MaxUncachedTxnIdMode.VALIDATE)
+                {
+                    Ranges skipped = ranges.without(diskScan.ranges);
+                    if (!skipped.isEmpty())
+                    {
+                        Set<TokenKey> planned = new ObjectHashSet<>();
+                        planned.addAll(intersectingKeys);
+                        planned.addAll(irrelevantKeys);
+                        validate = new Validate(skipped, planned);
+                    }
+                }
             }
             cache.register(keyWatcher);
+        }
+
+        @Override
+        protected void postRunExclusive()
+        {
+            // fail before we begin to set up our loads (see AccordExecutor.onScannedRangesExclusive)
+            if (failure == null && validate != null)
+                failure = validate.check();
+            super.postRunExclusive();
         }
 
         void scannedInternal()

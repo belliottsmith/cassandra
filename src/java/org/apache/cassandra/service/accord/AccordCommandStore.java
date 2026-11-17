@@ -34,6 +34,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 import javax.annotation.Nullable;
 
@@ -90,6 +91,7 @@ import accord.utils.async.AsyncResults.CountingResult;
 import accord.utils.async.Cancellable;
 
 import org.apache.cassandra.config.AccordConfig;
+import org.apache.cassandra.config.AccordConfig.MaxUncachedTxnIdMode;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.util.File;
@@ -226,6 +228,8 @@ public class AccordCommandStore extends CommandStore
     static final AtomicReferenceFieldUpdater<AccordCommandStore, Termination> terminatedUpdater
         = AtomicReferenceFieldUpdater.newUpdater(AccordCommandStore.class, Termination.class, "terminated");
     static final AtomicLong nextSafeRedundantBeforeTicket = new AtomicLong();
+    // the evictions we buffer before applying them to MaxUncachedTxnId, each application rebuilding it
+    private static final int MAX_PENDING_UNCACHED_EVICTIONS = 32;
 
     public volatile String loggingId;
     public final Journal journal;
@@ -235,8 +239,9 @@ public class AccordCommandStore extends CommandStore
     private final ExclusiveExecutor exclusiveExecutor;
     private final ExclusiveCaches caches;
     private final RangeIndex rangeIndex;
-    // bounds the CommandsForKey not in our cache, for range scans; accessed only with our executor lock held
-    private MaxUncachedTxnId maxUncachedTxnId = MaxUncachedTxnId.EMPTY;
+    private final MaxUncachedTxnIdMode maxUncachedTxnIdMode;
+    // bounds the CommandsForKey not in our cache, for range scans; null if IGNORE; accessed only with our executor lock held
+    private final @Nullable MaxUncachedTxnId.Holder maxUncachedTxnId;
     private final TableId tableId;
     private TableMetadataRef metadata;
 
@@ -277,6 +282,11 @@ public class AccordCommandStore extends CommandStore
             return a;
         }).orElseThrow(() -> Invariants.illegalState("CommandStore %d created with no ranges", id));
 
+        int maxUncachedTxnIdEntries = getAccord().max_uncached_txnid_entries;
+        this.maxUncachedTxnIdMode = maxUncachedTxnIdEntries > 0 ? getAccord().max_uncached_txnid_mode : MaxUncachedTxnIdMode.IGNORE;
+        this.maxUncachedTxnId = maxUncachedTxnIdMode == MaxUncachedTxnIdMode.IGNORE ? null
+                                : new MaxUncachedTxnId.Holder(maxUncachedTxnIdEntries, MAX_PENDING_UNCACHED_EVICTIONS);
+
         final AccordCache.Type<TxnId, Command, SaferCommand>.Instance commands;
         final AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance commandsForKey;
         try (AccordExecutor.ExclusiveGlobalCaches exclusive = sharedExecutor.lockCaches())
@@ -284,14 +294,14 @@ public class AccordCommandStore extends CommandStore
             commands = exclusive.commands.newInstance(this);
             commandsForKey = exclusive.commandsForKey.newInstance(this);
             this.caches = new ExclusiveCaches(sharedExecutor, exclusive.global, commands, commandsForKey);
-            if (getAccord().max_uncached_txnid_entries > 0)
+            if (maxUncachedTxnId != null)
             {
                 commandsForKey.register(new AccordCache.Listener<>()
                 {
                     @Override
                     public void onEvict(AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry)
                     {
-                        unsafeSetMaxUncachedTxnId(maxUncachedTxnId.evicted(entry.key(), evictedLast(entry)));
+                        maxUncachedTxnId.evicted(entry.key(), evictedLast(entry));
                     }
                 });
             }
@@ -336,19 +346,28 @@ public class AccordCommandStore extends CommandStore
     }
 
     /**
-     * See {@link MaxUncachedTxnId}; may only be invoked with our executor lock held
+     * How we use {@link MaxUncachedTxnId}; if {@link MaxUncachedTxnIdMode#IGNORE} we do not maintain it
      */
-    public MaxUncachedTxnId unsafeGetMaxUncachedTxnId()
+    public MaxUncachedTxnIdMode maxUncachedTxnIdMode()
     {
-        return maxUncachedTxnId;
+        return maxUncachedTxnIdMode;
     }
 
     /**
      * See {@link MaxUncachedTxnId}; may only be invoked with our executor lock held
      */
-    public void unsafeSetMaxUncachedTxnId(MaxUncachedTxnId newMaxUncachedTxnId)
+    public MaxUncachedTxnId unsafeGetMaxUncachedTxnId()
     {
-        maxUncachedTxnId = newMaxUncachedTxnId.bound(getAccord().max_uncached_txnid_entries);
+        return maxUncachedTxnId == null ? MaxUncachedTxnId.EMPTY : maxUncachedTxnId.get();
+    }
+
+    /**
+     * See {@link MaxUncachedTxnId}; may only be invoked with our executor lock held
+     */
+    public void unsafeUpdateMaxUncachedTxnId(UnaryOperator<MaxUncachedTxnId> update)
+    {
+        if (maxUncachedTxnId != null)
+            maxUncachedTxnId.update(update);
     }
 
     /**

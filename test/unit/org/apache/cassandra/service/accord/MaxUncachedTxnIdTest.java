@@ -120,60 +120,212 @@ public class MaxUncachedTxnIdTest
         assertEquals(List.of(key(30)), loads);
     }
 
+    /**
+     * Forgetting many ranges at once is the same as forgetting each in turn
+     */
+    @Test
+    public void testWithoutRanges()
+    {
+        for (long seed = 0 ; seed < 200 ; ++seed)
+        {
+            Random random = new Random(seed);
+            MaxUncachedTxnId bounds = randomBounds(random);
+            List<Range> ranges = new ArrayList<>();
+            int from = random.nextInt(10);
+            while (from < KEYS - 1)
+            {
+                int to = Math.min(KEYS - 1, from + 1 + random.nextInt(random.nextBoolean() ? 2 : 30));
+                ranges.add(range(from, to));
+                from = to + random.nextInt(30);
+            }
+
+            MaxUncachedTxnId expect = bounds;
+            for (Range range : ranges)
+                expect = expect.without(range);
+            MaxUncachedTxnId actual = bounds.without(Ranges.of(ranges.toArray(new Range[0])));
+            assertSameBounds("seed " + seed, expect, actual);
+        }
+    }
+
+    /**
+     * Applying many evictions at once is the same as applying each in turn
+     */
+    @Test
+    public void testBatchedEvictions()
+    {
+        for (long seed = 0 ; seed < 200 ; ++seed)
+        {
+            Random random = new Random(seed);
+            MaxUncachedTxnId bounds = randomBounds(random);
+            TreeMap<RoutingKey, TxnId> evicted = new TreeMap<>();
+            MaxUncachedTxnId expect = bounds;
+            for (int i = random.nextInt(40) ; i >= 0 ; --i)
+            {
+                int k = random.nextInt(KEYS);
+                if (evicted.containsKey(key(k)))
+                    continue;
+                TxnId last = random.nextInt(5) == 0 ? null : txnId(random.nextInt(100));
+                evicted.put(key(k), last);
+                expect = expect.evicted(key(k), last);
+            }
+            assertSameBounds("seed " + seed, expect, bounds.evicted(evicted));
+        }
+    }
+
+    /**
+     * Buffered evictions are applied before each read or update, coalescing evictions of the same key
+     */
+    @Test
+    public void testHolder()
+    {
+        MaxUncachedTxnId.Holder holder = new MaxUncachedTxnId.Holder(100, 3);
+        holder.update(ignore -> MaxUncachedTxnId.EMPTY.establish(range(0, 100), txnId(10), new TreeMap<>()));
+
+        // ignored as no higher than the current bound
+        holder.evicted(key(1), txnId(5));
+        assertEquals(0, holder.pendingCount());
+
+        // coalesced
+        holder.evicted(key(1), txnId(20));
+        holder.evicted(key(1), txnId(15));
+        holder.evicted(key(2), txnId(20));
+        holder.evicted(key(2), null);
+        assertEquals(2, holder.pendingCount());
+
+        // applied when full
+        holder.evicted(key(3), txnId(30));
+        assertEquals(0, holder.pendingCount());
+        MaxUncachedTxnId bounds = holder.get();
+        assertEquals(txnId(20), bounds.get(key(1)).max);
+        assertNull(bounds.get(key(2)));
+        assertEquals(txnId(30), bounds.get(key(3)).max);
+
+        // applied on read
+        holder.evicted(key(4), txnId(40));
+        assertEquals(1, holder.pendingCount());
+        assertEquals(txnId(40), holder.get().get(key(4)).max);
+        assertEquals(0, holder.pendingCount());
+
+        // applied before an update
+        holder.evicted(key(5), txnId(50));
+        holder.update(bounds5 -> {
+            assertEquals(txnId(50), bounds5.get(key(5)).max);
+            return bounds5.establish(range(0, 100), txnId(10), new TreeMap<>());
+        });
+        assertEquals(0, holder.pendingCount());
+        assertEquals(txnId(10), holder.get().get(key(5)).max);
+    }
+
+    private static MaxUncachedTxnId randomBounds(Random random)
+    {
+        MaxUncachedTxnId bounds = MaxUncachedTxnId.EMPTY;
+        for (int i = random.nextInt(10) ; i >= 0 ; --i)
+        {
+            int from = random.nextInt(KEYS - 1), to = from + 1 + random.nextInt(KEYS - from - 1);
+            TreeMap<RoutingKey, TxnId> keys = new TreeMap<>();
+            for (int j = random.nextInt(5) ; j > 0 ; --j)
+                keys.put(key(from + 1 + random.nextInt(to - from)), txnId(random.nextInt(100)));
+            bounds = bounds.establish(range(from, to), txnId(random.nextInt(100)), keys);
+        }
+        return bounds;
+    }
+
+    private static void assertSameBounds(String desc, MaxUncachedTxnId expect, MaxUncachedTxnId actual)
+    {
+        assertTrue(desc + ": malformed " + actual, BTreeReducingRangeMap.isWellFormed(actual));
+        for (int k = 0 ; k < KEYS ; ++k)
+        {
+            MaxUncachedTxnId.Entry e = expect.get(key(k)), a = actual.get(key(k));
+            assertEquals(desc + ": key " + k + " expected " + expect + " but was " + actual,
+                         e == null ? null : e.max, a == null ? null : a.max);
+        }
+    }
+
     @Test
     public void testRandom()
     {
         for (long seed = 0 ; seed < 200 ; ++seed)
-            testRandom(seed);
+        {
+            testRandom(seed, false);
+            testRandom(seed, true);
+        }
     }
 
-    private static void testRandom(long seed)
+    private static MaxUncachedTxnId update(Random random, int kind, MaxUncachedTxnId bounds, int[] last, int hlc, int maxSize)
+    {
+        switch (kind)
+        {
+            default: throw new AssertionError();
+            case 2:
+            {
+                // a range is scanned: bound the keys we judge irrelevant together, and the rest alone
+                int from = random.nextInt(KEYS - 1), to = from + 1 + random.nextInt(KEYS - from - 1);
+                int threshold = random.nextInt(hlc + 1);
+                int max = 0;
+                TreeMap<RoutingKey, TxnId> keys = new TreeMap<>();
+                for (int k = from + 1 ; k <= to ; ++k)
+                {
+                    if (last[k] < threshold) max = Math.max(max, last[k]);
+                    else keys.put(key(k), txnId(last[k]));
+                }
+                return bounds.establish(range(from, to), txnId(max), keys);
+            }
+            case 3:
+            {
+                int from = random.nextInt(KEYS - 1), to = from + 1 + random.nextInt(Math.min(10, KEYS - from - 1));
+                return bounds.without(range(from, to));
+            }
+            case 4:
+            {
+                bounds = bounds.bound(maxSize);
+                assertTrue(String.valueOf(bounds.size()), bounds.size() <= maxSize);
+                return bounds;
+            }
+        }
+    }
+
+    /**
+     * @param buffered whether to maintain the bounds via a {@link MaxUncachedTxnId.Holder}, reading them only sometimes
+     */
+    private static void testRandom(long seed, boolean buffered)
     {
         Random random = new Random(seed);
         // the latest TxnId of each key, as hlc; every key is treated as uncached
         int[] last = new int[KEYS];
         MaxUncachedTxnId bounds = MaxUncachedTxnId.EMPTY;
         int maxSize = 1 + random.nextInt(32);
+        MaxUncachedTxnId.Holder holder = buffered ? new MaxUncachedTxnId.Holder(maxSize, 1 + random.nextInt(8)) : null;
         int hlc = 1;
         for (int op = 0 ; op < 500 ; ++op)
         {
-            String desc = "seed " + seed + " op " + op;
-            switch (random.nextInt(5))
+            String desc = "seed " + seed + " op " + op + (buffered ? " (buffered)" : "");
+            int kind = random.nextInt(5);
+            if (kind <= 1)
             {
-                case 0:
-                case 1:
-                {
-                    // a key is written and evicted
-                    int k = random.nextInt(KEYS);
-                    last[k] = Math.max(last[k], hlc += 1 + random.nextInt(3));
-                    bounds = bounds.evicted(key(k), random.nextInt(10) == 0 ? null : txnId(last[k]));
-                    break;
-                }
-                case 2:
-                {
-                    // a range is scanned: bound the keys we judge irrelevant together, and the rest alone
-                    int from = random.nextInt(KEYS - 1), to = from + 1 + random.nextInt(KEYS - from - 1);
-                    int threshold = random.nextInt(hlc + 1);
-                    int max = 0;
-                    TreeMap<RoutingKey, TxnId> keys = new TreeMap<>();
-                    for (int k = from + 1 ; k <= to ; ++k)
-                    {
-                        if (last[k] < threshold) max = Math.max(max, last[k]);
-                        else keys.put(key(k), txnId(last[k]));
-                    }
-                    bounds = bounds.establish(range(from, to), txnId(max), keys);
-                    break;
-                }
-                case 3:
-                {
-                    int from = random.nextInt(KEYS - 1), to = from + 1 + random.nextInt(Math.min(10, KEYS - from - 1));
-                    bounds = bounds.without(range(from, to));
-                    break;
-                }
-                case 4:
-                    bounds = bounds.bound(maxSize);
-                    assertTrue(desc + ": " + bounds.size(), bounds.size() <= maxSize);
-                    break;
+                // a key is written and evicted
+                int k = random.nextInt(KEYS);
+                last[k] = Math.max(last[k], hlc += 1 + random.nextInt(3));
+                TxnId evicted = random.nextInt(10) == 0 ? null : txnId(last[k]);
+                if (holder == null) bounds = bounds.evicted(key(k), evicted);
+                else holder.evicted(key(k), evicted);
+                // with a holder, only sometimes read our bounds, so that evictions accumulate
+                if (holder != null && random.nextInt(4) > 0)
+                    continue;
+            }
+            else if (holder == null)
+            {
+                bounds = update(random, kind, bounds, last, hlc, maxSize);
+            }
+            else
+            {
+                int now = hlc;
+                holder.update(b -> update(random, kind, b, last, now, maxSize));
+            }
+
+            if (holder != null)
+            {
+                bounds = holder.get();
+                assertTrue(desc + ": " + bounds.size(), bounds.size() <= maxSize);
             }
 
             assertTrue(desc + ": malformed " + bounds, BTreeReducingRangeMap.isWellFormed(bounds));

@@ -198,12 +198,60 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
                 // without bounds (as after a restart) a sync point must read the keys on disk, and load only those relevant
                 instance.runOnInstance(() -> {
                     evictCommandsForKeys(tableId, touched);
-                    forEachStoreExclusive(store -> store.unsafeSetMaxUncachedTxnId(MaxUncachedTxnId.EMPTY));
+                    forEachStoreExclusive(store -> store.unsafeUpdateMaxUncachedTxnId(ignore -> MaxUncachedTxnId.EMPTY));
                 });
                 assertOnlyTouchedLoaded(node, synced, retained, instance.callOnInstance(() -> loadedKeys(tableId, Txn.Kind.ExclusiveSyncPoint)));
                 // ... and bound those it found irrelevant, so that a later sync point need not read disk
                 assertEquals(node + " would scan on disk", Map.of(), instance.callOnInstance(() -> rangesToScan(tableId)));
             }
+        }
+    }
+
+    /**
+     * With max_uncached_txnid_mode VALIDATE (as for all dtests), a sync point that the bounds would have let skip a key
+     * it must load should fail, rather than silently omit the key.
+     */
+    @Test
+    public void validateReportsSkippedKey() throws Throwable
+    {
+        try (Cluster cluster = cluster(Mode.QUORUM_APPLIED))
+        {
+            Synced synced = setup(cluster, Mode.QUORUM_APPLIED);
+            String tableId = synced.tableId, touched = synced.touched;
+            IInvokableInstance instance = cluster.get(1);
+            // a visibility sync point does not filter by MaxDecidedRX, so must load every key with a write
+            instance.runOnInstance(() -> {
+                evictCommandsForKeys(tableId, touched);
+                assertTrue(loadedKeys(tableId, Txn.Kind.VisibilitySyncPoint).values().stream().mapToInt(List::size).sum() > 1);
+            });
+
+            // pretend that no key outside the cache has a transaction
+            instance.runOnInstance(() -> {
+                evictCommandsForKeys(tableId, touched);
+                Ranges ranges = ranges(tableId);
+                forEachStoreExclusive(store -> store.unsafeUpdateMaxUncachedTxnId(bounds -> {
+                    for (Range range : store.unsafeGetRangesForEpoch().all().slice(ranges, Minimal))
+                        bounds = bounds.establish(range, TxnId.NONE, new TreeMap<>());
+                    return bounds;
+                }));
+            });
+            String failure = instance.callOnInstance(() -> {
+                try
+                {
+                    loadedKeys(tableId, Txn.Kind.VisibilitySyncPoint);
+                    return null;
+                }
+                catch (Throwable t)
+                {
+                    StringBuilder messages = new StringBuilder();
+                    for (Throwable cause = t ; cause != null ; cause = cause.getCause())
+                        messages.append(cause).append('\n');
+                    return messages.toString();
+                }
+            });
+            assertTrue("expected the skipped keys to be reported; found " + failure,
+                       failure != null && failure.contains("would not have loaded relevant key"));
+            instance.runOnInstance(() -> forEachStoreExclusive(store -> store.unsafeUpdateMaxUncachedTxnId(ignore -> MaxUncachedTxnId.EMPTY)));
         }
     }
 

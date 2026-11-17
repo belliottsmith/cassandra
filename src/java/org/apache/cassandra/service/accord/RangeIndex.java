@@ -25,6 +25,8 @@ import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
+import javax.annotation.Nullable;
+
 import accord.local.Command;
 import accord.local.CommandSummaries;
 import accord.local.FindKeys;
@@ -32,6 +34,7 @@ import accord.local.MaxDecidedRX;
 import accord.local.MinimalCommand;
 import accord.local.MinimalCommand.MinimalWithDeps;
 import accord.local.RedundantBefore;
+import accord.local.cfk.CommandsForKey;
 import accord.primitives.Ranges;
 import accord.primitives.Routable;
 import accord.primitives.Timestamp;
@@ -46,6 +49,7 @@ import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.File;
 import org.apache.cassandra.service.accord.AccordKeyspace.CommandsForKeyAccessor;
 import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.service.accord.execution.AccordCache;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry;
 import org.apache.cassandra.service.accord.journal.CommandChanges;
 import org.apache.cassandra.service.accord.serializers.Version;
@@ -86,6 +90,14 @@ public interface RangeIndex
             AccordCommandStore commandStore = commandStore();
             CommandsForKeyAccessor.findAllKeysAndLastBetween(commandStore.id(), commandStore.tableId(), DatabaseDescriptor.getPartitioner(),
                                                             start, startInclusive, end, endInclusive, consumer);
+        }
+
+        /**
+         * The {@code CommandsForKey} of {@code key} on disk, as it would be loaded into the cache, or null if it has none
+         */
+        public @Nullable CommandsForKey loadCommandsForKey(TokenKey key)
+        {
+            return AccordCache.CommandsForKeyAdapter.CFK_ADAPTER.load(commandStore(), key);
         }
 
         protected CommandSummaries.Summary loadFromDisk(TxnId txnId)

@@ -82,6 +82,8 @@ accord:
     # tests are near-idle, so nothing else flushes system_accord.commands_for_key; without a short interval here any
     # operation that waits for local durability (e.g. DROP TABLE of an accord table) waits for an incidental flush
     durability_flush_interval: 5s
+    # check that the bounds on CommandsForKey not in the cache never let a sync point skip a key it must load
+    max_uncached_txnid_mode: VALIDATE
 
 memtable:
     configurations:
