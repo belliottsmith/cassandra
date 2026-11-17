@@ -26,7 +26,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
-import org.junit.Ignore;
 import org.junit.Test;
 
 import accord.api.RoutingKey;
@@ -135,7 +134,6 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
      * {@code CommandsForKey} of keys with new work, whether they are found in the cache or on disk.
      */
     @Test
-    @Ignore("SafeTask.RangeTxnAndKeyScanner loads every CommandsForKey found in the cache or on disk without consulting SummaryLoader.isRelevant")
     public void syncPointDoesNotLoadSyncedKeys() throws Throwable
     {
         try (Cluster cluster = cluster(Mode.QUORUM_APPLIED))
