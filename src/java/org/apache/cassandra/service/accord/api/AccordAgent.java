@@ -73,6 +73,7 @@ import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
 import org.apache.cassandra.metrics.AccordReplicaMetrics;
 import org.apache.cassandra.metrics.AccordSystemMetrics;
+import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.RetryStrategy;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.debug.AccordTracing;
@@ -96,6 +97,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.apache.cassandra.config.DatabaseDescriptor.getAccordScheduleDurabilityTxnIdLag;
 import static org.apache.cassandra.config.DatabaseDescriptor.getReadRpcTimeout;
+import static org.apache.cassandra.net.LinkLatencies.SELF;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireEpochWait;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireSyncPoint;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireTxn;
@@ -504,15 +506,21 @@ public class AccordAgent implements Agent, OwnershipEventListener
         {
             switch ((MessageType.StandardMessage)type)
             {
+                // judged against the recent latency of local delivery of the same kind of message
                 case PRE_ACCEPT_REQ:
-                    return unit.convert(slowTxnPreaccept.computeWaitUntil(1), NANOSECONDS);
+                    return unit.convert(slowTxnPreaccept(verb(type), SELF).computeWaitUntil(1), NANOSECONDS);
                 case READ_EPHEMERAL_REQ:
                 case READ_REQ:
                 case STABLE_THEN_READ_REQ:
-                    return unit.convert(slowRead.computeWaitUntil(1), NANOSECONDS);
+                    return unit.convert(slowRead(verb(type), SELF).computeWaitUntil(1), NANOSECONDS);
             }
         }
         return -1;
+    }
+
+    private static Verb verb(MessageType type)
+    {
+        return (Verb) ((MessageType.StandardMessage) type).mapToImplementation();
     }
 
     @Override

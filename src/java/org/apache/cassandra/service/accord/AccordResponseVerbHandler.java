@@ -91,19 +91,21 @@ class AccordResponseVerbHandler<T extends Reply> implements IVerbHandler<T>
             long latencyNanos = receivedAtNanos - registeredAtNanos;
             MessagingService.instance().latencySubscribers.add(message.from(), latencyNanos, NANOSECONDS);
 
+            // a datacenter, or ourselves (by loopback)
+            String destination = LinkLatencies.destination(message.from());
             Map<ParamType, Object> params = message.header.params();
             Long replicaNanos = (Long) params.get(ParamType.RECEIPT_TO_REPLY_NANOS);
-            if (replicaNanos != null)
+            if (replicaNanos != null && destination != null && !LinkLatencies.SELF.equals(destination))
             {
                 Long sentAtNanos = (Long) params.get(ParamType.SENT_AT_NANOS);
                 if (sentAtNanos != null)
-                    LinkLatencies.instance.addObserved(message.from(), registeredAtNanos, sentAtNanos, receivedAtNanos, replicaNanos);
+                    LinkLatencies.instance.addObserved(destination, registeredAtNanos, sentAtNanos, receivedAtNanos, replicaNanos);
             }
 
             if (remove && cbe.context() != null)
             {
-                if (replicaNanos != null) AccordCoordinatorMetrics.recordMeasured(cbe.context(), latencyNanos, replicaNanos);
-                else AccordCoordinatorMetrics.recordInferred(cbe.context(), latencyNanos, LinkLatencies.instance.roundTripNanos(message.from()));
+                if (replicaNanos != null) AccordCoordinatorMetrics.recordMeasured(cbe.context(), destination, latencyNanos, replicaNanos);
+                else AccordCoordinatorMetrics.recordInferred(cbe.context(), destination, latencyNanos, LinkLatencies.instance.roundTripNanos(message.from()));
             }
         }
     }

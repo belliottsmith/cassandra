@@ -315,14 +315,16 @@ public class AccordMetricsTest extends AccordTestBase
         assertThat(metric.apply(AccordCoordinatorMetrics.RECOVERY_TIME)).isEqualTo(recoveries);
         assertThat(metric.apply(AccordCoordinatorMetrics.COORDINATOR_DEPENDENCIES)).isEqualTo(fastPaths + slowPaths);
 
-        // Verify that coordinator metrics are published to the appropriate virtual table:
+        // Verify that coordinator metrics are published to the appropriate virtual table; compare with the metrics that
+        // exist now, rather than those that changed, as some are created on first use (e.g. per message and destination)
+        Map<String, Long> current = getMetrics().get(node);
         SimpleQueryResult res = SHARED_CLUSTER.get(node + 1)
                                               .executeInternalWithResult("SELECT * FROM system_metrics.accord_coordinator_group WHERE scope = ?", scope);
         while (res.hasNext())
         {
             Row metricRow = res.next();
             String name = metricRow.getString("name");
-            assertThat(metrics).containsKey(name);
+            assertThat(current).containsKey(name);
         }
 
         if ((fastPaths + slowPaths) > 0)

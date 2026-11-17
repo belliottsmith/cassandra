@@ -28,6 +28,11 @@ import org.junit.Test;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Snapshot;
 
+import accord.local.Node;
+import accord.primitives.Routable;
+import accord.primitives.Txn;
+import accord.primitives.TxnId;
+
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.concurrent.Stage;
 import org.apache.cassandra.distributed.Cluster;
@@ -41,6 +46,7 @@ import org.apache.cassandra.net.LinkLatencies;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.service.accord.api.AccordWaitStrategies;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -84,6 +90,25 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
             System.out.println("### node1 Apply " + STATS + ": " + Arrays.toString(apply));
             assertThat(apply[1]).isEqualTo(apply[0]);
             assertThat(apply[4]).isEqualTo(0);
+
+            // round-trips are also tracked per destination, and judged slow against those of the same message to the
+            // same destination: Apply round-trips to ourselves are short, and to datacenter2 at least the link
+            long[] perDestination = cluster.get(1).callOnInstance(() -> {
+                AccordCoordinatorMetrics.MessageLatency applies = AccordCoordinatorMetrics.writeMetrics.messageLatency(Verb.ACCORD_APPLY_REQ);
+                TxnId txnId = new TxnId(1, 1, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(1));
+                return new long[]{ applies.roundTrip(LinkLatencies.SELF).getCount(), (long) applies.roundTrip(LinkLatencies.SELF).getSnapshot().getMedian(),
+                                   applies.roundTrip("datacenter2").getCount(), (long) applies.roundTrip("datacenter2").getSnapshot().getMedian(),
+                                   AccordWaitStrategies.slowPreaccept(txnId, Verb.ACCORD_APPLY_REQ, LinkLatencies.SELF).computeWait(1, TimeUnit.MICROSECONDS),
+                                   AccordWaitStrategies.slowPreaccept(txnId, Verb.ACCORD_APPLY_REQ, "datacenter2").computeWait(1, TimeUnit.MICROSECONDS) };
+            });
+            System.out.println("### node1 Apply {self count, median; datacenter2 count, median; slow wait self, datacenter2}: " + Arrays.toString(perDestination));
+            assertThat(perDestination[0]).isGreaterThanOrEqualTo(TXNS);
+            assertThat(perDestination[2]).isGreaterThanOrEqualTo(TXNS);
+            assertThat(perDestination[1]).isLessThan((long) (0.25 * estimate));
+            assertThat(perDestination[3]).isBetween((long) (0.8 * estimate), (long) (1.5 * estimate));
+            // slow_txn_preaccept defaults to 30ms <= p50*2 <= 1000ms
+            assertThat(perDestination[4]).isLessThan(perDestination[5]);
+            assertThat(perDestination[5]).isBetween(2 * perDestination[3] * 8 / 10, 2 * perDestination[3] * 12 / 10);
 
             // the round-trips observed on the network to datacenter2 agree with the probes, and spent little time queued
             // to be sent; there are none to datacenter1, as we were its only replica
@@ -237,7 +262,7 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
         while (true)
         {
             double[] stats = instance.callOnInstance(() -> {
-                AccordCoordinatorMetrics.ReplicaRoundTrip metrics = AccordCoordinatorMetrics.writeMetrics.replicaRoundTrip(verb);
+                AccordCoordinatorMetrics.MessageLatency metrics = AccordCoordinatorMetrics.writeMetrics.messageLatency(verb);
                 return new double[]{ metrics.roundTrip.getCount(), metrics.atReplica.getCount(),
                                      metrics.roundTrip.getSnapshot().getMean(), metrics.atReplica.getSnapshot().getMean(),
                                      metrics.inferred.getCount() };

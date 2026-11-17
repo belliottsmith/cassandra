@@ -51,8 +51,9 @@ import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessageDelivery;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.ParamType;
-import org.apache.cassandra.net.SerializationTime;
+import org.apache.cassandra.net.LinkLatencies;
 import org.apache.cassandra.net.ResponseContext;
+import org.apache.cassandra.net.SerializationTime;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.TimeoutStrategy;
 import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
@@ -247,47 +248,39 @@ public class AccordMessageSink implements MessageSink
         Verb verb = VerbMapping.getVerb(request);
         Preconditions.checkNotNull(verb, "Verb is null for type %s", request.type());
 
+        InetAddressAndPort endpoint = endpointMapper.mappedEndpointOrNull(to, request);
+        if (endpoint == null)
+        {
+            executor.execute(() -> callback.onFailure(to, null));
+            return null;
+        }
+
         long nowNanos = nanoTime();
         TxnId txnId = request.primaryTxnId();
         long slowAtNanos = Long.MAX_VALUE;
         long expiresAtNanos = nowNanos + expire(txnId, verb).computeWait(attempt, NANOSECONDS);
 
+        // slowness is judged against the recent round-trips of this kind of message to the same destination
+        TimeoutStrategy slow = null;
         switch (verb)
         {
             case ACCORD_READ_REQ:
             case ACCORD_STABLE_THEN_READ_REQ:
-            {
-                TimeoutStrategy slow = slowRead(txnId);
-                if (slow != null)
-                    slowAtNanos = nowNanos + slow.computeWait(attempt, NANOSECONDS);
+                slow = slowRead(txnId, verb, LinkLatencies.destination(endpoint));
                 break;
-            }
 
             case ACCORD_CHECK_STATUS_REQ:
             case ACCORD_AWAIT_REQ:
-            {
-                TimeoutStrategy slow = slowStatusCheck();
-                if (slow != null)
-                    slowAtNanos = nowNanos + slow.computeWait(attempt, NANOSECONDS);
+                slow = slowStatusCheck(verb, LinkLatencies.destination(endpoint));
                 break;
-            }
 
             case ACCORD_PRE_ACCEPT_REQ:
-            {
-                TimeoutStrategy slow = slowPreaccept(txnId);
-                if (slow != null)
-                    slowAtNanos = nowNanos + slow.computeWait(attempt, NANOSECONDS);
-                break;
-            }
-
             case ACCORD_WAIT_UNTIL_APPLIED_REQ:
-            {
-                TimeoutStrategy slow = slowPreaccept(txnId);
-                if (slow != null)
-                    slowAtNanos = nowNanos + slow.computeWait(attempt, NANOSECONDS);
+                slow = slowPreaccept(txnId, verb, LinkLatencies.destination(endpoint));
                 break;
-            }
         }
+        if (slow != null)
+            slowAtNanos = nowNanos + slow.computeWait(attempt, NANOSECONDS);
 
         // stamped on serialization, and echoed by the replica, so we can separate time queued to be sent from the network
         Message<Request> message = Message.out(verb, request, expiresAtNanos, ParamType.SENT_AT_NANOS, SerializationTime.NOW);
@@ -298,15 +291,8 @@ public class AccordMessageSink implements MessageSink
             if (tracing != null) message = message.withParam(ParamType.ACCORD_TRACING, tracing);
         }
 
-        InetAddressAndPort endpoint = endpointMapper.mappedEndpointOrNull(to, message);
-        if (endpoint == null)
-        {
-            executor.execute(() -> callback.onFailure(to, null));
-            return null;
-        }
-
         // the metrics to record this request's round-trip into on reply (see AccordResponseVerbHandler)
-        Object context = AccordCoordinatorMetrics.replicaRoundTrip(verb, txnId);
+        Object context = AccordCoordinatorMetrics.messageLatency(verb, txnId);
         Cancellable cancellable = callbacks.registerAt(message.id(), executor, callback, to, nowNanos, slowAtNanos, expiresAtNanos, NANOSECONDS, context);
         if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onSend(to, request, message.id(), true);
         messaging.send(message, endpoint);
@@ -318,7 +304,7 @@ public class AccordMessageSink implements MessageSink
     {
         // there is no link for local delivery: the whole round-trip is spent at the replica
         long elapsedNanos = units.toNanos(elapsed);
-        AccordCoordinatorMetrics.recordMeasured(AccordCoordinatorMetrics.replicaRoundTrip(VerbMapping.getVerbOrNull(requestType), txnId), elapsedNanos, elapsedNanos);
+        AccordCoordinatorMetrics.recordMeasured(AccordCoordinatorMetrics.messageLatency(VerbMapping.getVerbOrNull(requestType), txnId), LinkLatencies.SELF, elapsedNanos, elapsedNanos);
     }
 
     public void reply(Node.Id replyingTo, ReplyContext replyContext, Reply reply, Throwable failure)

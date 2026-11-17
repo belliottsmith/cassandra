@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.service.accord.api;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import javax.annotation.Nullable;
 
 import accord.primitives.TxnId;
@@ -25,6 +27,8 @@ import accord.primitives.TxnId;
 import org.apache.cassandra.config.AccordConfig;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.StringRetryStrategy;
+import org.apache.cassandra.metrics.AccordCoordinatorMetrics;
+import org.apache.cassandra.net.LinkLatencies;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.RetryStrategy;
 import org.apache.cassandra.service.TimeoutStrategy;
@@ -33,22 +37,65 @@ import static accord.primitives.Txn.Kind.ExclusiveSyncPoint;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.accordReadMetrics;
 import static org.apache.cassandra.metrics.ClientRequestsMetricsHolder.accordWriteMetrics;
 import static org.apache.cassandra.service.TimeoutStrategy.LatencySourceFactory.none;
-import static org.apache.cassandra.service.TimeoutStrategy.LatencySourceFactory.of;
 import static org.apache.cassandra.service.TimeoutStrategy.LatencySourceFactory.rw;
 
 public class AccordWaitStrategies
 {
-    static TimeoutStrategy slowTxnPreaccept, slowSyncPointPreaccept, slowRead, slowStatusCheck;
+    /**
+     * A {@link TimeoutStrategy} specification that is evaluated separately for each kind of message and destination,
+     * so that its percentiles ({@code pX}) refer to the recent round-trips of that message to that destination
+     * (see {@link AccordCoordinatorMetrics#latencies}): e.g. {@code p50*2} is twice the median round-trip of a
+     * PreAccept to the datacenter it is being sent to (or of local delivery).
+     */
+    public static final class MessageTimeoutStrategy
+    {
+        private static final String ANY_DESTINATION = "";
+
+        final String spec;
+        private final ConcurrentHashMap<Verb, ConcurrentHashMap<String, TimeoutStrategy>> byVerb = new ConcurrentHashMap<>();
+
+        MessageTimeoutStrategy(String spec)
+        {
+            this.spec = spec;
+            TimeoutStrategy.parse(spec, none()); // validate
+        }
+
+        /**
+         * @param verb the request's verb
+         * @param destination the request's destination: a datacenter, {@link LinkLatencies#SELF}, or null if unknown
+         */
+        public TimeoutStrategy get(Verb verb, @Nullable String destination)
+        {
+            ConcurrentHashMap<String, TimeoutStrategy> byDestination = byVerb.get(verb);
+            if (byDestination == null)
+                byDestination = byVerb.computeIfAbsent(verb, ignore -> new ConcurrentHashMap<>());
+
+            String key = destination == null ? ANY_DESTINATION : destination;
+            TimeoutStrategy result = byDestination.get(key);
+            if (result == null)
+                result = byDestination.computeIfAbsent(key, ignore -> TimeoutStrategy.parse(spec, AccordCoordinatorMetrics.latencies(verb, destination)));
+            return result;
+        }
+
+        @Override
+        public String toString()
+        {
+            return spec;
+        }
+    }
+
+    static MessageTimeoutStrategy slowTxnPreaccept, slowRead, slowStatusCheck;
+    static TimeoutStrategy slowSyncPointPreaccept;
     static TimeoutStrategy expireTxn, expireSyncPoint, expireDurability, expireEpochWait;
     static TimeoutStrategy fetchTxn, fetchSyncPoint;
     static RetryStrategy recoverTxn, recoverSyncPoint, retrySyncPoint, retryBackgroundSyncPoint, retryDurability, retryBootstrap, retryJoinBootstrap;
     static RetryStrategy retryFetchMinEpoch, retryFetchTopology;
 
-    public static @Nullable TimeoutStrategy slowRead(@Nullable TxnId txnId)
+    public static @Nullable TimeoutStrategy slowRead(@Nullable TxnId txnId, Verb verb, @Nullable String destination)
     {
         if (txnId != null && txnId.isSyncPoint())
             return null;
-        return slowRead;
+        return slowRead.get(verb, destination);
     }
 
     public static TimeoutStrategy expire(@Nullable TxnId txnId, Verb verb)
@@ -66,9 +113,9 @@ public class AccordWaitStrategies
         return verb == Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ ? expireDurability : expireSyncPoint;
     }
 
-    public static @Nullable TimeoutStrategy slowStatusCheck()
+    public static @Nullable TimeoutStrategy slowStatusCheck(Verb verb, @Nullable String destination)
     {
-        return slowRead;
+        return slowStatusCheck.get(verb, destination);
     }
 
     public static TimeoutStrategy fetch(@Nullable TxnId txnId)
@@ -78,11 +125,21 @@ public class AccordWaitStrategies
         return fetchSyncPoint;
     }
 
-    public static TimeoutStrategy slowPreaccept(TxnId txnId)
+    public static TimeoutStrategy slowPreaccept(TxnId txnId, Verb verb, @Nullable String destination)
     {
         if (txnId.isSyncPoint())
             return expireSyncPoint;
-        return slowTxnPreaccept;
+        return slowTxnPreaccept.get(verb, destination);
+    }
+
+    static TimeoutStrategy slowTxnPreaccept(Verb verb, @Nullable String destination)
+    {
+        return slowTxnPreaccept.get(verb, destination);
+    }
+
+    static TimeoutStrategy slowRead(Verb verb, @Nullable String destination)
+    {
+        return slowRead.get(verb, destination);
     }
 
     public static RetryStrategy retryFetchWatermarks()
@@ -121,18 +178,17 @@ public class AccordWaitStrategies
 
     public static void setSlowRead(String spec)
     {
-        // TODO (expected): track raw inter-DC link latencies and use some simple offset from these by default
-        slowRead = TimeoutStrategy.parse(spec, of(accordReadMetrics));
+        slowRead = new MessageTimeoutStrategy(spec);
     }
 
     public static void setSlowStatusCheck(String spec)
     {
-        slowStatusCheck = TimeoutStrategy.parse(spec, of(accordReadMetrics));
+        slowStatusCheck = new MessageTimeoutStrategy(spec);
     }
 
     public static void setSlowTxnPreaccept(String spec)
     {
-        slowTxnPreaccept = TimeoutStrategy.parse(spec, rw(accordReadMetrics, accordWriteMetrics));
+        slowTxnPreaccept = new MessageTimeoutStrategy(spec);
     }
 
     public static void setSlowSyncPointPreaccept(String spec)

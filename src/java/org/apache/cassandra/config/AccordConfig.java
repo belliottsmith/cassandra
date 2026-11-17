@@ -276,6 +276,13 @@ public class AccordConfig
     // we don't want to wait ages for durability as it blocks other durability progress; even this might be too long, as we can always retry
     public String expire_durability = "10s*attempts <= 30s";
     public String slow_syncpoint_preaccept = "10s";
+    /*
+     * slow_txn_preaccept, slow_read and slow_status_check are evaluated separately for each kind of message and
+     * destination: their percentiles (pX) refer to the recent round-trips of the message being sent (e.g. PreAccept)
+     * to the datacenter it is being sent to (or of local delivery), as recorded by the AccordCoordinator
+     * <Request>Message-<destination> metrics (falling back to all destinations until there are samples), with (r)
+     * selecting those of read transactions, (w) writes, and (rw) the larger.
+     */
     public String slow_txn_preaccept = "30ms <= p50*2 <= 1000ms";
     public String slow_read = "30ms <= p50*2 <= 1000ms";
     public String slow_status_check = "30ms <= p50*2 <= 1000ms";

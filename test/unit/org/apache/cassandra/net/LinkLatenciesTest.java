@@ -142,10 +142,24 @@ public class LinkLatenciesTest
     public void testObserved() throws Exception
     {
         LinkLatencies latencies = new LinkLatencies();
-        // ignored: ourselves, and peers with no known datacenter
-        latencies.addObserved(FBUtilities.getBroadcastAddressAndPort(), 0, 10, 100, 5);
-        latencies.addObserved(InetAddressAndPort.getByName("127.0.0.99"), 0, 10, 100, 5);
-        assertThat(latencies.links()).isEmpty();
+        // registered at 0, serialized at 2ms, response received at 70ms, of which 8ms at the responder
+        latencies.addObserved("observedDc", 0, MILLISECONDS.toNanos(2), MILLISECONDS.toNanos(70), MILLISECONDS.toNanos(8));
+        LinkLatencies.Link link = latencies.links().get("observedDc");
+        assertThat(link.sendQueue.getCount()).isEqualTo(1);
+        assertThat(link.observedRoundTrip.getCount()).isEqualTo(1);
+        assertThat(link.probeRoundTrip.getCount()).isEqualTo(0);
+        // timers record micros; histogram buckets are ~20% wide
+        assertThat(link.sendQueue.getSnapshot().getMax()).isBetween(1600L, 2400L);
+        assertThat(link.observedRoundTrip.getSnapshot().getMax()).isBetween(48_000L, 72_000L);
+        // no estimate is derived from observations
+        assertThat(latencies.snapshot().roundTripMicros("observedDc")).isEqualTo(Snapshot.UNKNOWN);
+    }
+
+    @Test
+    public void testDestination() throws Exception
+    {
+        assertThat(LinkLatencies.destination(FBUtilities.getBroadcastAddressAndPort())).isEqualTo(LinkLatencies.SELF);
+        assertThat(LinkLatencies.destination(InetAddressAndPort.getByName("127.0.0.99"))).isNull();
     }
 
     @Test

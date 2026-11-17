@@ -110,6 +110,11 @@ public class LinkLatencies
     public static final int DEFAULT_WINDOW = 64;
 
     /**
+     * The destination of messages delivered to ourselves (see {@link #destination})
+     */
+    public static final String SELF = "self";
+
+    /**
      * The earliest version supporting {@link Verb#LINK_PROBE_REQ}
      */
     public static final CassandraVersion MIN_PROBE_VERSION = new CassandraVersion("6.0.0-alpha3");
@@ -267,6 +272,16 @@ public class LinkLatencies
     }
 
     /**
+     * @return {@link #SELF} if {@code endpoint} is this node, otherwise its datacenter (or null if unknown); i.e.
+     *         the distinct destinations whose latencies are worth tracking separately
+     */
+    @Nullable
+    public static String destination(InetAddressAndPort endpoint)
+    {
+        return endpoint.equals(FBUtilities.getBroadcastAddressAndPort()) ? SELF : datacenter(endpoint);
+    }
+
+    /**
      * @return the estimated round-trip in nanos to {@code peer}'s datacenter, zero if {@code peer} is this node,
      *         or {@link Snapshot#UNKNOWN} if unknown
      */
@@ -373,23 +388,16 @@ public class LinkLatencies
     }
 
     /**
-     * Record the observed timing of a request to {@code peer} and its response, all by our monotonic clock, except
-     * {@code responderNanos}, which the responder measured by its own
+     * Record the observed timing of a request to a peer in {@code dc} and its response, all by our monotonic clock,
+     * except {@code responderNanos}, which the responder measured by its own
      *
      * @param registeredAtNanos when the request was submitted to be sent
      * @param sentAtNanos when the request was serialized
      * @param receivedAtNanos when the response was received
      * @param responderNanos the time between the responder's receipt of the request and serialization of the response
      */
-    public void addObserved(InetAddressAndPort peer, long registeredAtNanos, long sentAtNanos, long receivedAtNanos, long responderNanos)
+    public void addObserved(String dc, long registeredAtNanos, long sentAtNanos, long receivedAtNanos, long responderNanos)
     {
-        if (peer.equals(FBUtilities.getBroadcastAddressAndPort()))
-            return;
-
-        String dc = datacenter(peer);
-        if (dc == null)
-            return;
-
         Link link = link(dc);
         // registeredAt may be measured with only micro precision, so may fractionally exceed sentAt
         link.sendQueue.update(Math.max(0, sentAtNanos - registeredAtNanos), NANOSECONDS);

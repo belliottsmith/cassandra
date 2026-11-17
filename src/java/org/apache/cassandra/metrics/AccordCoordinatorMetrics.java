@@ -27,6 +27,7 @@ import com.codahale.metrics.Counter;
 import com.codahale.metrics.Counting;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Meter;
+import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.Timer;
 
 import accord.api.CoordinatorEventListener;
@@ -38,7 +39,9 @@ import accord.primitives.Deps;
 import accord.primitives.TxnId;
 import accord.utils.UnhandledEnum;
 
+import org.apache.cassandra.net.LinkLatencies;
 import org.apache.cassandra.net.Verb;
+import org.apache.cassandra.service.TimeoutStrategy;
 import org.apache.cassandra.service.accord.api.AccordTimeService;
 import org.apache.cassandra.tracing.Tracing;
 
@@ -72,65 +75,104 @@ public class AccordCoordinatorMetrics
     public static final String RECOVERY_DELAY = "RecoveryDelay";
     public static final String RECOVERY_TIME = "RecoveryTime";
     public static final String FAST_PATH_TO_TOTAL = "FastPathToTotal";
-    public static final String REPLICA_ROUND_TRIP = "ReplicaRoundTrip";
+    public static final String MESSAGE = "Message";
     public static final String REPLICA_TIME = "ReplicaTime";
     public static final String REPLICA_TIME_INFERRED = "ReplicaTimeInferred";
 
     /**
-     * The round-trips of one kind of request (by request verb) sent by this node to replicas, for one kind of
-     * transaction, measured with the monotonic clock from submitting the request to receipt of its final reply:
+     * The latency of one kind of message (by request verb) sent by this node to replicas, for one kind of transaction,
+     * i.e. its round-trip, measured with the monotonic clock from submitting the request to receipt of its final reply:
      * <ul>
-     *   <li>{@code ReplicaRoundTrip.<Request>}: the total round-trip</li>
-     *   <li>{@code ReplicaTime.<Request>}: the time spent at the replica, i.e. from its receipt of the request to its
+     *   <li>{@code <Request>Message}: the round-trip, to any replica (e.g. {@code PreAcceptMessage})</li>
+     *   <li>{@code <Request>Message-<destination>}: the round-trip to replicas in datacenter {@code <destination>},
+     *       or to ourselves ({@link LinkLatencies#SELF}) by local delivery or loopback. These inform decisions about
+     *       whether a message to a given replica is slow ({@link #latencies}).</li>
+     *   <li>{@code <Request>ReplicaTime}: the time spent at the replica, i.e. from its receipt of the request to its
      *       serialization of the reply, as reported by the replica ({@link org.apache.cassandra.net.ParamType#RECEIPT_TO_REPLY_NANOS});
      *       for requests delivered to ourselves this is the whole round-trip</li>
-     *   <li>{@code ReplicaTimeInferred.<Request>}: the number of samples for which the replica did not report its
+     *   <li>{@code <Request>ReplicaTimeInferred}: the number of samples for which the replica did not report its
      *       time (e.g. it runs an older version), so that it was instead inferred by subtracting the estimated
-     *       {@link org.apache.cassandra.net.LinkLatencies link round-trip} to its datacenter; if there is no
-     *       estimate either, only the total round-trip is recorded</li>
+     *       {@link LinkLatencies link round-trip} to its datacenter; if there is no estimate either, the replica
+     *       time is not recorded</li>
      * </ul>
      * The remainder of each round-trip (time queued here to be sent, and on the network) is recorded per datacenter by
-     * {@link org.apache.cassandra.net.LinkLatencies}.
+     * {@link LinkLatencies}.
      */
-    public static final class ReplicaRoundTrip
+    public static final class MessageLatency
     {
+        private final DefaultNameFactory factory;
+        private final String name;
         public final Timer roundTrip, atReplica;
         public final Counter inferred;
+        private final ConcurrentHashMap<String, Timer> roundTripByDestination = new ConcurrentHashMap<>();
 
-        private ReplicaRoundTrip(DefaultNameFactory factory, String request)
+        private MessageLatency(DefaultNameFactory factory, String request)
         {
-            roundTrip = Metrics.timer(factory.createMetricName(REPLICA_ROUND_TRIP + '.' + request));
-            atReplica = Metrics.timer(factory.createMetricName(REPLICA_TIME + '.' + request));
-            inferred = Metrics.counter(factory.createMetricName(REPLICA_TIME_INFERRED + '.' + request));
+            this.factory = factory;
+            this.name = request + MESSAGE;
+            roundTrip = Metrics.timer(factory.createMetricName(name));
+            atReplica = Metrics.timer(factory.createMetricName(request + REPLICA_TIME));
+            inferred = Metrics.counter(factory.createMetricName(request + REPLICA_TIME_INFERRED));
         }
 
         /**
+         * @param destination a datacenter, or {@link LinkLatencies#SELF}
+         * @return the round-trips to {@code destination}
+         */
+        public Timer roundTrip(String destination)
+        {
+            Timer timer = roundTripByDestination.get(destination);
+            if (timer == null)
+                timer = roundTripByDestination.computeIfAbsent(destination, d -> Metrics.timer(factory.createMetricName(name + '-' + d)));
+            return timer;
+        }
+
+        /**
+         * @return the recent distribution of round-trips to {@code destination} (or to any replica, if we have no
+         *         samples for {@code destination}, or it is null)
+         */
+        public Snapshot roundTripSnapshot(@Nullable String destination)
+        {
+            Timer timer = destination == null ? null : roundTripByDestination.get(destination);
+            return timer != null && timer.getCount() > 0 ? timer.getSnapshot() : roundTrip.getSnapshot();
+        }
+
+        /**
+         * @param destination a datacenter, {@link LinkLatencies#SELF}, or null if unknown
          * @param replicaNanos the time spent at the replica, as reported by the replica
          */
-        public void recordMeasured(long roundTripNanos, long replicaNanos)
+        public void recordMeasured(@Nullable String destination, long roundTripNanos, long replicaNanos)
         {
             if (roundTripNanos < 0 || replicaNanos < 0)
                 return;
 
-            roundTrip.update(roundTripNanos, NANOSECONDS);
+            recordRoundTrip(destination, roundTripNanos);
             // the round-trip may be measured with only micro precision, so may be fractionally less than the replica's time
             atReplica.update(Math.min(replicaNanos, roundTripNanos), NANOSECONDS);
         }
 
         /**
+         * @param destination a datacenter, {@link LinkLatencies#SELF}, or null if unknown
          * @param linkNanos the estimated link round-trip, or negative if unknown
          */
-        public void recordInferred(long roundTripNanos, long linkNanos)
+        public void recordInferred(@Nullable String destination, long roundTripNanos, long linkNanos)
         {
             if (roundTripNanos < 0)
                 return;
 
-            roundTrip.update(roundTripNanos, NANOSECONDS);
+            recordRoundTrip(destination, roundTripNanos);
             if (linkNanos >= 0)
             {
                 inferred.inc();
                 atReplica.update(Math.max(0, roundTripNanos - linkNanos), NANOSECONDS);
             }
+        }
+
+        private void recordRoundTrip(@Nullable String destination, long roundTripNanos)
+        {
+            roundTrip.update(roundTripNanos, NANOSECONDS);
+            if (destination != null)
+                roundTrip(destination).update(roundTripNanos, NANOSECONDS);
         }
 
         /**
@@ -152,7 +194,7 @@ public class AccordCoordinatorMetrics
     }
 
     private final DefaultNameFactory nameFactory;
-    private final ConcurrentHashMap<Verb, ReplicaRoundTrip> replicaRoundTrips = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Verb, MessageLatency> messageLatencies = new ConcurrentHashMap<>();
 
     /**
      * A histogram of the number of dependencies per transaction at this coordinator.
@@ -275,11 +317,11 @@ public class AccordCoordinatorMetrics
         fastPathToTotal = new RatioGaugeSet(fastPaths, RatioGaugeSet.sum(ephemeral, fastPaths, mediumPaths, slowPaths), coordinator, FAST_PATH_TO_TOTAL + ".%s");
     }
 
-    public ReplicaRoundTrip replicaRoundTrip(Verb requestVerb)
+    public MessageLatency messageLatency(Verb requestVerb)
     {
-        ReplicaRoundTrip result = replicaRoundTrips.get(requestVerb);
+        MessageLatency result = messageLatencies.get(requestVerb);
         if (result == null)
-            result = replicaRoundTrips.computeIfAbsent(requestVerb, v -> new ReplicaRoundTrip(nameFactory, ReplicaRoundTrip.requestName(v)));
+            result = messageLatencies.computeIfAbsent(requestVerb, v -> new MessageLatency(nameFactory, MessageLatency.requestName(v)));
         return result;
     }
 
@@ -287,11 +329,23 @@ public class AccordCoordinatorMetrics
      * @return the metrics to record round-trips of {@code requestVerb} for {@code txnId} into, or null if none
      */
     @Nullable
-    public static ReplicaRoundTrip replicaRoundTrip(@Nullable Verb requestVerb, @Nullable TxnId txnId)
+    public static MessageLatency messageLatency(@Nullable Verb requestVerb, @Nullable TxnId txnId)
     {
         if (requestVerb == null) return null;
         AccordCoordinatorMetrics metrics = forTransaction(txnId);
-        return metrics == null ? null : metrics.replicaRoundTrip(requestVerb);
+        return metrics == null ? null : metrics.messageLatency(requestVerb);
+    }
+
+    /**
+     * @return the recent round-trip latencies of {@code requestVerb} to {@code destination}, for use by a
+     *         {@link TimeoutStrategy}: {@code r} selects those of read transactions, {@code w} those of writes,
+     *         and {@code rw} the larger of the two
+     */
+    public static TimeoutStrategy.LatencySourceFactory latencies(Verb requestVerb, @Nullable String destination)
+    {
+        MessageLatency reads = readMetrics.messageLatency(requestVerb), writes = writeMetrics.messageLatency(requestVerb);
+        return new TimeoutStrategy.ReadWriteLatencySourceFactory(() -> reads.roundTripSnapshot(destination),
+                                                                 () -> writes.roundTripSnapshot(destination));
     }
 
     @Nullable
@@ -310,23 +364,23 @@ public class AccordCoordinatorMetrics
     }
 
     /**
-     * Record a round-trip of a request registered with {@code context} (if it is a {@link ReplicaRoundTrip}), for
+     * Record a round-trip of a request registered with {@code context} (if it is a {@link MessageLatency}), for
      * which the replica reported its time
      */
-    public static void recordMeasured(@Nullable Object context, long roundTripNanos, long replicaNanos)
+    public static void recordMeasured(@Nullable Object context, @Nullable String destination, long roundTripNanos, long replicaNanos)
     {
-        if (context instanceof ReplicaRoundTrip)
-            ((ReplicaRoundTrip) context).recordMeasured(roundTripNanos, replicaNanos);
+        if (context instanceof MessageLatency)
+            ((MessageLatency) context).recordMeasured(destination, roundTripNanos, replicaNanos);
     }
 
     /**
-     * Record a round-trip of a request registered with {@code context} (if it is a {@link ReplicaRoundTrip}), for
+     * Record a round-trip of a request registered with {@code context} (if it is a {@link MessageLatency}), for
      * which the replica did not report its time, given the estimated link round-trip (negative if unknown)
      */
-    public static void recordInferred(@Nullable Object context, long roundTripNanos, long linkNanos)
+    public static void recordInferred(@Nullable Object context, @Nullable String destination, long roundTripNanos, long linkNanos)
     {
-        if (context instanceof ReplicaRoundTrip)
-            ((ReplicaRoundTrip) context).recordInferred(roundTripNanos, linkNanos);
+        if (context instanceof MessageLatency)
+            ((MessageLatency) context).recordInferred(destination, roundTripNanos, linkNanos);
     }
 
     @Override
