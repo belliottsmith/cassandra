@@ -25,11 +25,14 @@ import accord.coordinate.ExecuteFlag.ExecuteFlags;
 import accord.messages.ApplyThenWaitUntilApplied;
 import accord.messages.Commit;
 import accord.messages.ReadData;
+import accord.api.RoutingKey;
+import accord.local.Node;
 import accord.messages.ReadData.CommitOrReadNack;
 import accord.messages.ReadData.ReadOk;
 import accord.messages.ReadData.ReadOkWithFutureEpoch;
 import accord.messages.ReadData.ReadReply;
 import accord.messages.ReadData.ReadyWithDefinition;
+import accord.messages.ReadData.WaitingWithOwners;
 import accord.messages.ReadData.ReadType;
 import accord.messages.ReadEphemeralTxnData;
 import accord.messages.ReadTxnData;
@@ -320,6 +323,8 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
     {
         // 0-2 are ReadOk variants; 3+ are CommitOrReadNack kinds; leave room for more of these
         private static final int READY_WITH_DEFINITION = 0x40;
+        // a Waiting reply that reports the owners of keys' chains; only sent with coordinator_backlog_execution_follow
+        private static final int WAITING_WITH_OWNERS = 0x41;
 
         private final VersionedSerializer<D, Version> dataSerializer;
 
@@ -337,6 +342,19 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
                 out.writeByte(READY_WITH_DEFINITION);
                 CommandSerializers.nullablePartialTxn.serialize(definition.partialTxn, out, version);
                 DepsSerializers.nullablePartialDeps.serialize(definition.partialDeps, out);
+                return;
+            }
+
+            if (reply instanceof WaitingWithOwners)
+            {
+                WaitingWithOwners waiting = (WaitingWithOwners) reply;
+                out.writeByte(WAITING_WITH_OWNERS);
+                out.writeUnsignedVInt32(waiting.keys.length);
+                for (int i = 0 ; i < waiting.keys.length ; ++i)
+                {
+                    KeySerializers.routingKey.serialize(waiting.keys[i], out);
+                    TopologySerializers.nodeId.serialize(waiting.executors[i], out);
+                }
                 return;
             }
 
@@ -372,6 +390,19 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
                 return new ReadyWithDefinition(partialTxn, partialDeps);
             }
 
+            if (flags == WAITING_WITH_OWNERS)
+            {
+                int count = in.readUnsignedVInt32();
+                RoutingKey[] keys = new RoutingKey[count];
+                Node.Id[] executors = new Node.Id[count];
+                for (int i = 0 ; i < count ; ++i)
+                {
+                    keys[i] = KeySerializers.routingKey.deserialize(in);
+                    executors[i] = TopologySerializers.nodeId.deserialize(in);
+                }
+                return new WaitingWithOwners(keys, executors);
+            }
+
             if (flags > 2)
             {
                 CommitOrReadNack.Kind kind = CommitOrReadNack.Kind.lookupByOrdinal(flags - 3);
@@ -399,6 +430,15 @@ public class ReadDataSerializer implements IVersionedSerializer<ReadData>
                 return TypeSizes.BYTE_SIZE
                        + CommandSerializers.nullablePartialTxn.serializedSize(definition.partialTxn, version)
                        + DepsSerializers.nullablePartialDeps.serializedSize(definition.partialDeps);
+            }
+
+            if (reply instanceof WaitingWithOwners)
+            {
+                WaitingWithOwners waiting = (WaitingWithOwners) reply;
+                long size = TypeSizes.BYTE_SIZE + VIntCoding.computeUnsignedVIntSize(waiting.keys.length);
+                for (int i = 0 ; i < waiting.keys.length ; ++i)
+                    size += KeySerializers.routingKey.serializedSize(waiting.keys[i]) + TopologySerializers.nodeId.serializedSize(waiting.executors[i]);
+                return size;
             }
 
             if (!reply.isOk())

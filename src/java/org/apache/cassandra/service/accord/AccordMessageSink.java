@@ -61,6 +61,7 @@ import org.apache.cassandra.service.accord.topology.AccordEndpointMap;
 import static accord.messages.MessageType.StandardMessage.ACCEPT_REQ;
 import static accord.messages.MessageType.StandardMessage.ACCEPT_RSP;
 import static accord.messages.MessageType.StandardMessage.APPLY_RELAY_REQ;
+import static accord.messages.MessageType.StandardMessage.BACKLOG_DELEGATE_REQ;
 import static accord.messages.MessageType.StandardMessage.APPLY_RELAY_RSP;
 import static accord.messages.MessageType.StandardMessage.APPLY_REQ;
 import static accord.messages.MessageType.StandardMessage.APPLY_RSP;
@@ -188,6 +189,7 @@ public class AccordMessageSink implements MessageSink
             builder.put(BACKLOG_APPLIED_REQ,                      Verb.ACCORD_BACKLOG_APPLIED_REQ);
             builder.put(APPLY_RELAY_REQ,                          Verb.ACCORD_APPLY_RELAY_REQ);
             builder.put(APPLY_RELAY_RSP,                          Verb.ACCORD_APPLY_RELAY_RSP);
+            builder.put(BACKLOG_DELEGATE_REQ,                     Verb.ACCORD_BACKLOG_DELEGATE_REQ);
             builder.put(FAILURE_RSP,                              Verb.FAILURE_RSP);
             Map<StandardMessage, Verb> mapping = builder.build();
             StandardMessage.initialise(mapping);

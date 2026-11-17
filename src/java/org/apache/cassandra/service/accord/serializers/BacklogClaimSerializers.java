@@ -22,11 +22,16 @@ import java.io.IOException;
 import accord.local.Node;
 import accord.messages.BacklogApplied;
 import accord.messages.BacklogClaim;
+import accord.messages.BacklogDelegate;
+import accord.primitives.FullRoute;
+import accord.primitives.Timestamp;
+import accord.primitives.TxnId;
 import accord.utils.SortedArrays.SortedArrayList;
 
 import org.apache.cassandra.io.VersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.service.accord.serializers.CommandSerializers.ExecuteAtSerializer;
 import org.apache.cassandra.utils.CollectionSerializers;
 
 public class BacklogClaimSerializers
@@ -79,6 +84,34 @@ public class BacklogClaimSerializers
                    + CollectionSerializers.serializedListSize(msg.appliedAt, TopologySerializers.nodeId)
                    + CollectionSerializers.serializedListSize(msg.failedAt, TopologySerializers.nodeId)
                    + CollectionSerializers.serializedListSize(msg.unsentAt, TopologySerializers.nodeId);
+        }
+    };
+
+    public static final VersionedSerializer<BacklogDelegate, Version> delegate = new VersionedSerializer<>()
+    {
+        @Override
+        public void serialize(BacklogDelegate msg, DataOutputPlus out, Version version) throws IOException
+        {
+            CommandSerializers.txnId.serialize(msg.txnId, out);
+            KeySerializers.fullRoute.serialize(msg.route, out);
+            ExecuteAtSerializer.serialize(msg.txnId, msg.executeAt, out);
+        }
+
+        @Override
+        public BacklogDelegate deserialize(DataInputPlus in, Version version) throws IOException
+        {
+            TxnId txnId = CommandSerializers.txnId.deserialize(in);
+            FullRoute<?> route = KeySerializers.fullRoute.deserialize(in);
+            Timestamp executeAt = ExecuteAtSerializer.deserialize(txnId, in);
+            return new BacklogDelegate(txnId, route, executeAt);
+        }
+
+        @Override
+        public long serializedSize(BacklogDelegate msg, Version version)
+        {
+            return CommandSerializers.txnId.serializedSize(msg.txnId)
+                   + KeySerializers.fullRoute.serializedSize(msg.route)
+                   + ExecuteAtSerializer.serializedSize(msg.txnId, msg.executeAt);
         }
     };
 }

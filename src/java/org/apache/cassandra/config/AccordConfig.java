@@ -24,6 +24,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import accord.api.ProtocolModifiers.CleanCfkBefore;
 import accord.api.ProtocolModifiers.CoordinatorBacklogExecution;
+import accord.api.ProtocolModifiers.CoordinatorBacklogExecutionFollowDelegation;
 import accord.api.ProtocolModifiers.FastExecution;
 import accord.api.ProtocolModifiers.ReplicaExecution;
 import accord.api.ProtocolModifiers.SendMinimal;
@@ -442,6 +443,15 @@ public class AccordConfig
     public Boolean coordinator_backlog_execution_per_dc; // with coordinator_backlog_execution: DESIGNATED
     public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_grace; // with coordinator_backlog_execution: DESIGNATED
     public Boolean relay_remote_apply; // must not be enabled until all nodes support ApplyRelay
+    // with coordinator_backlog_execution: DESIGNATED and not per_dc: contended transactions execute in the DC executing their
+    // predecessors, to which their coordinator delegates; must not be enabled until all nodes support BacklogDelegate
+    public Boolean coordinator_backlog_execution_follow;
+    // with coordinator_backlog_execution_follow: how readily a coordinator delegates to another DC (PRECEDENCE: a single DC
+    // where chains of conflicting transactions meet; UNLESS_HOME_KEY_LOCAL, UNLESS_ANY_KEY_LOCAL: execute locally if our DC
+    // executes the home key's (any key's) chain)
+    public CoordinatorBacklogExecutionFollowDelegation coordinator_backlog_execution_follow_delegation;
+    // with coordinator_backlog_execution_follow: for how long after applying a transaction a replica reports where it executed
+    public DurationSpec.IntMillisecondsBound coordinator_backlog_execution_follow_window;
     public Boolean coordinator_backlog_execution_persist_locally; // with coordinator_backlog_execution: DESIGNATED and per_dc; must not be enabled until all nodes support BacklogApplied
     // with coordinator_backlog_execution_persist_locally: how long the original coordinator waits for designated replicas in
     // other DCs to report they have applied a transaction before sending its own Apply; latencies are PreAccept latencies

@@ -32,10 +32,12 @@ import accord.messages.ApplyRelay;
 import accord.messages.ApplyRelay.ApplyRelayReply;
 import accord.messages.BacklogApplied;
 import accord.messages.BacklogClaim;
+import accord.messages.BacklogDelegate;
 import accord.messages.ReadData;
 import accord.messages.ReadData.CommitOrReadNack;
 import accord.messages.ReadData.ReadReply;
 import accord.messages.ReadData.ReadyWithDefinition;
+import accord.messages.ReadData.WaitingWithOwners;
 import accord.messages.ReadTxnDataIfReady;
 import accord.primitives.Ballot;
 import accord.primitives.FullKeyRoute;
@@ -58,6 +60,7 @@ import org.apache.cassandra.utils.AccordGenerators;
 import org.apache.cassandra.utils.CassandraGenerators;
 
 import static accord.coordinate.ExecuteFlag.NO_WAIT;
+import static accord.coordinate.ExecuteFlag.RELAYED;
 import static accord.primitives.Routable.Domain.Key;
 import static accord.utils.Property.qt;
 import static org.apache.cassandra.utils.AccordGenerators.fromQT;
@@ -128,6 +131,62 @@ public class BacklogMessageSerializersTest
             assertThat(result.executeAt).isEqualTo(executeAt);
             assertThat(result.deps()).isNull();
             assertThat(result.txn()).isNull();
+        });
+    }
+
+    @Test
+    public void applyRelayed()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(txnIds(Txn.Kind.Read), routes(), AccordGens.timestamps()).check((txnId, route, executeAt) -> {
+            long epoch = executeAt.epoch();
+            // a relayed Apply reports the replica that executed the transaction; an Apply without RELAYED is unchanged
+            for (boolean relayed : new boolean[] { false, true })
+            {
+                Apply apply = Apply.SerializationSupport.create(txnId, Ballot.ZERO, route, epoch, epoch, epoch, Apply.Kind.NoDeps, executeAt,
+                                                                null, null, null, null, TxnDataResult.PERSISTABLE,
+                                                                relayed ? ExecuteFlags.none().with(RELAYED) : ExecuteFlags.none());
+                if (relayed)
+                    apply.executedBy = new Node.Id(7);
+                Apply result = roundTrip(buffer, ApplySerializers.request, apply);
+                assertThat(result.flags.contains(RELAYED)).isEqualTo(relayed);
+                assertThat(result.executedBy).isEqualTo(relayed ? new Node.Id(7) : null);
+            }
+        });
+    }
+
+    @Test
+    public void waitingWithOwners() throws IOException
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(routes()).check(route -> {
+            RoutingKey[] keys = new RoutingKey[route.size()];
+            Node.Id[] executors = new Node.Id[route.size()];
+            for (int i = 0 ; i < keys.length ; ++i)
+            {
+                keys[i] = route.get(i);
+                executors[i] = new Node.Id(i + 1);
+            }
+            ReadReply reply = roundTrip(buffer, ReadDataSerializer.reply, new WaitingWithOwners(keys, executors));
+            assertThat(reply).isInstanceOf(WaitingWithOwners.class);
+            assertThat(reply.isFinal()).isFalse();
+            assertThat(((CommitOrReadNack) reply).kind).isEqualTo(CommitOrReadNack.Kind.Waiting);
+            assertThat(((WaitingWithOwners) reply).keys).isEqualTo(keys);
+            assertThat(((WaitingWithOwners) reply).executors).isEqualTo(executors);
+        });
+        // a plain Waiting reply is unchanged
+        assertThat(roundTrip(buffer, ReadDataSerializer.reply, CommitOrReadNack.Waiting)).isSameAs(CommitOrReadNack.Waiting);
+    }
+
+    @Test
+    public void backlogDelegate()
+    {
+        DataOutputBuffer buffer = new DataOutputBuffer();
+        qt().forAll(txnIds(), routes(), AccordGens.timestamps()).check((txnId, route, executeAt) -> {
+            BacklogDelegate result = roundTrip(buffer, BacklogClaimSerializers.delegate, new BacklogDelegate(txnId, route, executeAt));
+            assertThat(result.txnId).isEqualTo(txnId);
+            assertThat(result.route).isEqualTo(route);
+            assertThat(result.executeAt).isEqualTo(executeAt);
         });
     }
 

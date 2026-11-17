@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord.serializers;
 import java.io.IOException;
 
 import accord.api.Result.PersistableResult;
+import accord.coordinate.ExecuteFlag;
 import accord.coordinate.ExecuteFlag.ExecuteFlags;
 import accord.messages.Apply;
 import accord.messages.Apply.ApplyReply;
@@ -64,6 +65,9 @@ public class ApplySerializers
             if (apply.txnId.is(Write))
                 CommandSerializers.writes.serialize(apply.writes(), out, version);
             out.writeUnsignedVInt32(apply.flags.bits());
+            // RELAYED was introduced later, and is only set when relaying (see relay_remote_apply)
+            if (apply.flags.contains(ExecuteFlag.RELAYED))
+                TopologySerializers.nodeId.serialize(apply.executedBy, out);
         }
 
         protected abstract A deserializeApply(TxnId txnId, Ballot ballot, Route<?> scope, long minEpoch, long waitForEpoch, long maxEpoch, Apply.Kind kind,
@@ -76,15 +80,16 @@ public class ApplySerializers
             long minEpoch = waitForEpoch + in.readVInt();
             long maxEpoch = minEpoch + in.readUnsignedVInt();
             Apply.Kind kind = kinds.deserialize(in);
-            return deserializeApply(txnId, ballot, scope, minEpoch, waitForEpoch, maxEpoch,
-                                    kind,
-                                    ExecuteAtSerializer.deserialize(txnId, in),
-                                    kind == Apply.Kind.NoDeps ? null : DepsSerializers.partialDeps.deserialize(in),
-                                    CommandSerializers.nullablePartialTxn.deserialize(in, version),
-                                    KeySerializers.nullableFullRoute.deserialize(in),
-                                    (txnId.is(Write) ? CommandSerializers.writes.deserialize(in, version) : null),
-                                    TxnDataResult.PERSISTABLE,
-                                    ExecuteFlags.get(in.readUnsignedVInt32()));
+            Timestamp executeAt = ExecuteAtSerializer.deserialize(txnId, in);
+            PartialDeps deps = kind == Apply.Kind.NoDeps ? null : DepsSerializers.partialDeps.deserialize(in);
+            PartialTxn txn = CommandSerializers.nullablePartialTxn.deserialize(in, version);
+            FullRoute<?> fullRoute = KeySerializers.nullableFullRoute.deserialize(in);
+            Writes writes = txnId.is(Write) ? CommandSerializers.writes.deserialize(in, version) : null;
+            ExecuteFlags flags = ExecuteFlags.get(in.readUnsignedVInt32());
+            A apply = deserializeApply(txnId, ballot, scope, minEpoch, waitForEpoch, maxEpoch, kind, executeAt, deps, txn, fullRoute, writes, TxnDataResult.PERSISTABLE, flags);
+            if (flags.contains(ExecuteFlag.RELAYED))
+                apply.executedBy = TopologySerializers.nodeId.deserialize(in);
+            return apply;
         }
 
         @Override
@@ -100,6 +105,7 @@ public class ApplySerializers
                    + KeySerializers.nullableFullRoute.serializedSize(apply.fullRoute)
                    + (apply.txnId.is(Write) ? CommandSerializers.writes.serializedSize(apply.writes(), version) : 0)
                    + VIntCoding.sizeOfUnsignedVInt(apply.flags.bits())
+                   + (apply.flags.contains(ExecuteFlag.RELAYED) ? TopologySerializers.nodeId.serializedSize(apply.executedBy) : 0)
             ;
         }
     }
