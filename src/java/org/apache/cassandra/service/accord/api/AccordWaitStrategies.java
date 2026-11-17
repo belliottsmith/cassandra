@@ -100,7 +100,7 @@ public class AccordWaitStrategies
 
     static MessageTimeoutStrategy slowTxnPreaccept, slowRead, slowStatusCheck;
     static MessageTimeoutStrategy slowSyncPointPreaccept, slowSyncPointWaitUntilApplied;
-    static MessageTimeoutStrategy expireTxn, expireSyncPoint, expireDurability;
+    static MessageTimeoutStrategy expireTxn, expireSyncPoint, expireSyncPointWaitUntilApplied;
     static TimeoutStrategy expireEpochWait;
     static TimeoutStrategy fetchTxn, fetchSyncPoint;
     static RetryStrategy recoverTxn, recoverSyncPoint, retrySyncPoint, retryBackgroundSyncPoint, retryDurability, retryBootstrap, retryJoinBootstrap;
@@ -119,7 +119,7 @@ public class AccordWaitStrategies
 
         if (txnId == null || !txnId.isSyncPoint())
             return expireTxn.get(verb, destination);
-        return (verb == Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ ? expireDurability : expireSyncPoint).get(verb, destination);
+        return (isWaitUntilApplied(verb) ? expireSyncPointWaitUntilApplied : expireSyncPoint).get(verb, destination);
     }
 
     public static @Nullable TimeoutStrategy slowRead(@Nullable TxnId txnId, Verb verb, @Nullable String destination)
@@ -145,6 +145,11 @@ public class AccordWaitStrategies
     public static @Nullable TimeoutStrategy slowWaitUntilApplied(TxnId txnId, Verb verb, @Nullable String destination)
     {
         return txnId.isSyncPoint() ? slowSyncPointWaitUntilApplied.get(verb, destination) : null;
+    }
+
+    private static boolean isWaitUntilApplied(@Nullable Verb verb)
+    {
+        return verb == Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ || verb == Verb.ACCORD_APPLY_AND_WAIT_REQ;
     }
 
     public static TimeoutStrategy fetch(@Nullable TxnId txnId)
@@ -174,7 +179,7 @@ public class AccordWaitStrategies
         setSlowSyncPointWaitUntilApplied(config.slow_syncpoint_wait_until_applied);
         setExpireTxn(config.expire_txn);
         setExpireSyncPoint(config.expire_syncpoint);
-        setExpireDurability(config.expire_durability);
+        setExpireSyncPointWaitUntilApplied(config.expire_syncpoint_wait_until_applied);
         setExpireEpochWait(config.expire_epoch_wait);
         setFetchTxn(config.fetch_txn);
         setFetchSyncPoint(config.fetch_syncpoint);
@@ -224,9 +229,9 @@ public class AccordWaitStrategies
         expireSyncPoint = new MessageTimeoutStrategy(spec, true);
     }
 
-    public static void setExpireDurability(String spec)
+    public static void setExpireSyncPointWaitUntilApplied(String spec)
     {
-        expireDurability = new MessageTimeoutStrategy(spec, true);
+        expireSyncPointWaitUntilApplied = new MessageTimeoutStrategy(spec, true);
     }
 
     public static void setExpireEpochWait(String spec)

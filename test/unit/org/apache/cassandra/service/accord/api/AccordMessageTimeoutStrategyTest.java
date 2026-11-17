@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord.api;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -26,7 +27,9 @@ import accord.primitives.Routable;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
 
+import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.YamlConfigurationLoader;
 import org.apache.cassandra.metrics.AccordCoordinatorMetrics;
 import org.apache.cassandra.metrics.AccordCoordinatorMetrics.MessageLatency;
 import org.apache.cassandra.net.LinkLatencies;
@@ -95,7 +98,8 @@ public class AccordMessageTimeoutStrategyTest
     public void testDispatch()
     {
         // configured defaults: slow_syncpoint_preaccept = 10s, slow_syncpoint_wait_until_applied = 15s*attempts <= 300s,
-        // expire_txn = 5s*attempts <= 60s, expire_syncpoint = 15s*attempts<=300s, expire_durability = 10s*attempts <= 30s
+        // expire_txn = 5s*attempts <= 60s, expire_syncpoint = 15s*attempts<=300s,
+        // expire_syncpoint_wait_until_applied = 10s*attempts <= 30s
         assertThat(AccordWaitStrategies.slowPreaccept(SYNC_POINT, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(10);
         assertThat(AccordWaitStrategies.slowPreaccept(WRITE, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, MILLISECONDS)).isBetween(30L, 1000L);
         assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "remote").computeWait(2, SECONDS)).isEqualTo(30);
@@ -106,8 +110,19 @@ public class AccordMessageTimeoutStrategyTest
         assertThat(AccordWaitStrategies.expire(WRITE, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(5);
         assertThat(AccordWaitStrategies.expire(SYNC_POINT, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(15);
         assertThat(AccordWaitStrategies.expire(SYNC_POINT, Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(10);
+        assertThat(AccordWaitStrategies.expire(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "remote").computeWait(3, SECONDS)).isEqualTo(30);
+        assertThat(AccordWaitStrategies.expire(WRITE, Verb.ACCORD_APPLY_AND_WAIT_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(5);
         assertThat(AccordWaitStrategies.expire(SYNC_POINT, Verb.ACCORD_CHECK_STATUS_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(5);
         assertThat(AccordWaitStrategies.expire(null, null, null).computeWait(1, SECONDS)).isEqualTo(5);
+    }
+
+    @Test
+    public void testDeprecatedExpireDurability()
+    {
+        Config config = YamlConfigurationLoader.fromMap(ImmutableMap.of("accord", ImmutableMap.of("expire_durability", "7s")), true, Config.class);
+        assertThat(config.accord.expire_syncpoint_wait_until_applied).isEqualTo("7s");
+        config = YamlConfigurationLoader.fromMap(ImmutableMap.of("accord", ImmutableMap.of("expire_syncpoint_wait_until_applied", "8s")), true, Config.class);
+        assertThat(config.accord.expire_syncpoint_wait_until_applied).isEqualTo("8s");
     }
 
     @Test

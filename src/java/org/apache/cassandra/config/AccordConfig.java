@@ -275,16 +275,20 @@ public class AccordConfig
      * specifications are evaluated separately for each kind of message and destination: their percentiles (pX) refer to
      * the recent round-trips of the message being sent (e.g. PreAccept) to the datacenter it is being sent to (or of
      * local delivery), as recorded by the AccordCoordinator <Request>Message-<destination> metrics (falling back to all
-     * destinations until there are samples). For the syncpoint specifications (including expire_durability) these are
-     * the round-trips of sync points; otherwise (r) selects those of read transactions, (w) writes, and (rw) the larger.
+     * destinations until there are samples). For the syncpoint specifications these are the round-trips of sync
+     * points; otherwise (r) selects those of read transactions, (w) writes, and (rw) the larger.
      */
     public String expire_txn = "5s*attempts <= 60s";
     public String expire_syncpoint = "15s*attempts<=300s";
     public String expire_epoch_wait = "10s";
-    // we don't want to wait ages for durability as it blocks other durability progress; even this might be too long, as we can always retry
-    public String expire_durability = "10s*attempts <= 30s";
     public String slow_syncpoint_preaccept = "10s";
-    // for WaitUntilApplied and ApplyThenWaitUntilApplied, which are only sent for sync points
+    /*
+     * For WaitUntilApplied and ApplyThenWaitUntilApplied, which are only sent for sync points, to await their application
+     * (e.g. for durability). We don't want to wait ages for this, as it blocks other durability progress; even this
+     * might be too long, as we can always retry.
+     */
+    @Replaces(oldName = "expire_durability", converter = Converters.IDENTITY, deprecated = true)
+    public String expire_syncpoint_wait_until_applied = "10s*attempts <= 30s";
     public String slow_syncpoint_wait_until_applied = "15s*attempts <= 300s";
     public String slow_txn_preaccept = "30ms <= p50*2 <= 1000ms";
     public String slow_read = "30ms <= p50*2 <= 1000ms";
