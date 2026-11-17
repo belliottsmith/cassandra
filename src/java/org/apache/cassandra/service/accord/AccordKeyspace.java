@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -55,6 +56,7 @@ import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.LivenessInfo;
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.db.PartitionRangeReadCommand;
 import org.apache.cassandra.db.ReadExecutionController;
 import org.apache.cassandra.db.RegularAndStaticColumns;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
@@ -383,27 +385,7 @@ public class AccordKeyspace
                                               TokenKey end, boolean endInclusive,
                                               Consumer<TokenKey> consumer)
         {
-
-            Token startToken = CommandsForKeyAccessor.makeSystemTableToken(commandStore, start);
-            Token endToken = CommandsForKeyAccessor.makeSystemTableToken(commandStore, end);
-
-            if (start.isTableSentinel())
-                startInclusive = true;
-            if (end.isTableSentinel())
-                endInclusive = true;
-
-            PartitionPosition startPosition = startInclusive ? startToken.minKeyBound() : startToken.maxKeyBound();
-            PartitionPosition endPosition = endInclusive ? endToken.maxKeyBound() : endToken.minKeyBound();
-            AbstractBounds<PartitionPosition> bounds;
-            if (startInclusive && endInclusive)
-                bounds = new Bounds<>(startPosition, endPosition);
-            else if (endInclusive)
-                bounds = new Range<>(startPosition, endPosition);
-            else if (startInclusive)
-                bounds = new IncludingExcludingBounds<>(startPosition, endPosition);
-            else
-                bounds = new ExcludingBounds<>(startPosition, endPosition);
-
+            AbstractBounds<PartitionPosition> bounds = systemTableBounds(commandStore, start, startInclusive, end, endInclusive);
             ColumnFamilyStore baseCfs = AccordColumnFamilyStores.commandsForKey;
             try (OpOrder.Group baseOp = baseCfs.readOrdering.start();
                  WriteContext writeContext = baseCfs.keyspace.getWriteHandler().createContextForRead();
@@ -421,6 +403,65 @@ public class AccordKeyspace
             {
                 throw new RuntimeException(e);
             }
+        }
+
+        /**
+         * As {@link #findAllKeysBetween}, but reading each {@code CommandsForKey} to report its latest TxnId
+         * ({@link TxnId#NONE} if it has none).
+         */
+        public static void findAllKeysAndLastBetween(int commandStore, TableId tableId, IPartitioner partitioner,
+                                                     TokenKey start, boolean startInclusive,
+                                                     TokenKey end, boolean endInclusive,
+                                                     BiConsumer<TokenKey, TxnId> consumer)
+        {
+            AbstractBounds<PartitionPosition> bounds = systemTableBounds(commandStore, start, startInclusive, end, endInclusive);
+            long nowInSeconds = MICROSECONDS.toSeconds(TimeUnit.MILLISECONDS.toMicros(Global.currentTimeMillis()));
+            CommandsForKeyAccessor accessor = CFKAccessor;
+            PartitionRangeReadCommand command = PartitionRangeReadCommand.create(accessor.table, nowInSeconds, accessor.allColumns,
+                                                                                 RowFilter.none(), DataLimits.NONE,
+                                                                                 new DataRange(bounds, new ClusteringIndexSliceFilter(Slices.ALL, false)));
+            try (ReadExecutionController controller = command.executionController();
+                 FilteredPartitions partitions = FilteredPartitions.filter(command.executeLocally(controller), nowInSeconds))
+            {
+                while (partitions.hasNext())
+                {
+                    try (RowIterator partition = partitions.next())
+                    {
+                        TokenKey key = getUserTableKey(tableId, partition.partitionKey(), partitioner);
+                        TxnId last = TxnId.NONE;
+                        if (partition.hasNext())
+                        {
+                            // TODO (desired): decode only the latest TxnId
+                            CommandsForKey cfk = accessor.fromRow(key, partition.next());
+                            if (cfk != null && cfk.size() > 0)
+                                last = cfk.get(cfk.size() - 1);
+                        }
+                        consumer.accept(key, last);
+                    }
+                }
+            }
+        }
+
+        private static AbstractBounds<PartitionPosition> systemTableBounds(int commandStore, TokenKey start, boolean startInclusive, TokenKey end, boolean endInclusive)
+        {
+            Token startToken = CommandsForKeyAccessor.makeSystemTableToken(commandStore, start);
+            Token endToken = CommandsForKeyAccessor.makeSystemTableToken(commandStore, end);
+
+            if (start.isTableSentinel())
+                startInclusive = true;
+            if (end.isTableSentinel())
+                endInclusive = true;
+
+            PartitionPosition startPosition = startInclusive ? startToken.minKeyBound() : startToken.maxKeyBound();
+            PartitionPosition endPosition = endInclusive ? endToken.maxKeyBound() : endToken.minKeyBound();
+            if (startInclusive && endInclusive)
+                return new Bounds<>(startPosition, endPosition);
+            else if (endInclusive)
+                return new Range<>(startPosition, endPosition);
+            else if (startInclusive)
+                return new IncludingExcludingBounds<>(startPosition, endPosition);
+            else
+                return new ExcludingBounds<>(startPosition, endPosition);
         }
 
         /**

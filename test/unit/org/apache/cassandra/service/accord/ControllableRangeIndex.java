@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -163,6 +164,13 @@ public class ControllableRangeIndex implements RangeIndex
                 if ((cmpStart > 0 || (cmpStart == 0 && startInclusive)) && (cmpEnd < 0 || (cmpEnd == 0 && endInclusive)))
                     consumer.accept(key);
             }
+        }
+
+        /** the keys {@link #discover} names, whose latest TxnId we cannot tell */
+        @Override
+        public void findKeysAndLastBetween(TokenKey start, boolean startInclusive, TokenKey end, boolean endInclusive, BiConsumer<TokenKey, TxnId> consumer)
+        {
+            findKeysBetween(start, startInclusive, end, endInclusive, key -> consumer.accept(key, null));
         }
 
         /** off the executor thread - the scan proper, and the only part a test decides */

@@ -18,6 +18,7 @@
 package org.apache.cassandra.service.accord.execution;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -75,6 +76,7 @@ import org.apache.cassandra.concurrent.DebuggableTask;
 import org.apache.cassandra.metrics.LogLinearDecayingHistograms;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordCommandStore.Caches;
+import org.apache.cassandra.service.accord.MaxUncachedTxnId;
 import org.apache.cassandra.service.accord.RangeIndex;
 import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.accord.debug.DebugExecution.DebugTask;
@@ -99,6 +101,7 @@ import static accord.utils.Invariants.Paranoia.SUPERLINEAR;
 import static accord.utils.Invariants.ParanoiaCostFactor.LOW;
 import static accord.utils.Invariants.isParanoid;
 import static accord.utils.Invariants.testParanoia;
+import static org.apache.cassandra.config.DatabaseDescriptor.getAccord;
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DEBUG_EXECUTION;
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DebugTask.SANITY_CHECK;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode.HOLD_QUEUE;
@@ -2008,6 +2011,120 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 if (ranges.contains(state.key()))
                     reference((AccordCacheEntry<RoutingKey, CommandsForKey, SaferCommandsForKey>) state);
             }
+
+            @Override
+            public void onEvict(AccordCacheEntry<RoutingKey, CommandsForKey, ?> state)
+            {
+                if (diskScan != null)
+                    diskScan.onEvict(state);
+            }
+        }
+
+        /**
+         * The parts of our ranges we scan on disk, as we know nothing of them or their bounds may be relevant to us (see
+         * {@link MaxUncachedTxnId}), and what we learn of them as we scan, so that we may (re-)establish their bounds.
+         * <p>
+         * Once we have set up the keys we must load, every key in a range we scanned is either in the cache, or was not
+         * in the cache while we scanned so that we read its current state on disk, or left the cache while we scanned.
+         * So we may bound the range by the irrelevant keys we found on disk or saw evicted, together with a bound of
+         * its own for each relevant key we saw evicted (as the keys we found relevant on disk are now in the cache).
+         */
+        class DiskScan
+        {
+            final Ranges ranges;
+            // per range, the latest TxnId of the irrelevant keys we found on disk; written only while we scan on disk
+            final TxnId[] diskMax;
+            // per range, whether we found a key on disk whose latest TxnId we cannot tell, so cannot bound the range
+            final boolean[] unknown;
+            // per range, the latest TxnId of the irrelevant keys evicted while we scanned, and each relevant key evicted
+            final TxnId[] evictedMax;
+            final TreeMap<RoutingKey, TxnId> evictedRelevant = new TreeMap<>();
+            boolean establishing = true;
+
+            DiskScan(Ranges ranges)
+            {
+                this.ranges = ranges;
+                this.diskMax = new TxnId[ranges.size()];
+                this.evictedMax = new TxnId[ranges.size()];
+                this.unknown = new boolean[ranges.size()];
+                Arrays.fill(diskMax, TxnId.NONE);
+                Arrays.fill(evictedMax, TxnId.NONE);
+            }
+
+            void scan()
+            {
+                for (int i = 0 ; i < ranges.size() ; ++i)
+                {
+                    int index = i;
+                    Range range = ranges.get(i);
+                    loader.findKeysAndLastBetween((TokenKey) range.start(), range.startInclusive(),
+                                                  (TokenKey) range.end(), range.endInclusive(),
+                                                  (key, last) -> {
+                                                      if (cancelled)
+                                                          throw new CancellationException();
+                                                      onDisk(index, key, last);
+                                                  });
+                }
+            }
+
+            private void onDisk(int index, TokenKey key, @Nullable TxnId last)
+            {
+                if (last == null)
+                {
+                    unknown[index] = true;
+                    intersectingKeys.add(key);
+                }
+                else if (!last.equals(TxnId.NONE))
+                {
+                    if (loader.isRelevant(key, last)) intersectingKeys.add(key);
+                    else if (last.compareTo(diskMax[index]) > 0) diskMax[index] = last;
+                }
+            }
+
+            void onEvict(AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry)
+            {
+                if (!establishing)
+                    return;
+
+                int index = ranges.indexOf(entry.key());
+                if (index < 0)
+                    return;
+
+                // if not loaded, it was not modified, so its state on disk was unchanged as we scanned it
+                TxnId last = AccordCommandStore.evictedLast(entry);
+                if (last == null || last.equals(TxnId.NONE))
+                    return;
+
+                if (loader.isRelevant(entry.key(), last)) evictedRelevant.merge(entry.key(), last, TxnId::max);
+                else if (last.compareTo(evictedMax[index]) > 0) evictedMax[index] = last;
+            }
+
+            /**
+             * Must be invoked only once we have set up every key we must load
+             */
+            void establish()
+            {
+                establishing = false;
+                if (cancelled)
+                    return;
+
+                MaxUncachedTxnId bounds = commandStore.unsafeGetMaxUncachedTxnId();
+                for (int i = 0 ; i < ranges.size() ; ++i)
+                {
+                    if (unknown[i])
+                        continue;
+
+                    Range range = ranges.get(i);
+                    TreeMap<RoutingKey, TxnId> keys = new TreeMap<>();
+                    for (Map.Entry<RoutingKey, TxnId> e : evictedRelevant.entrySet())
+                    {
+                        if (range.contains(e.getKey()))
+                            keys.put(e.getKey(), e.getValue());
+                    }
+                    bounds = bounds.establish(range, TxnId.max(diskMax[i], evictedMax[i]), keys);
+                }
+                commandStore.unsafeSetMaxUncachedTxnId(bounds);
+            }
         }
 
         final Set<TokenKey> intersectingKeys = new ObjectHashSet<>();
@@ -2016,6 +2133,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         final Ranges ranges = ((AbstractRanges) context.keys()).toRanges();
         final AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance commandsForKeyCache;
         KeyWatcher keyWatcher = new KeyWatcher();
+        // null if we do not use MaxUncachedTxnId, in which case we scan all of our ranges on disk, for keys only
+        @Nullable DiskScan diskScan;
 
         public RangeTxnAndKeyScanner(AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance commandsForKeyCache)
         {
@@ -2024,17 +2143,24 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
 
         protected void runInternal()
         {
-            for (Range range : ranges)
+            // the on-disk half of the key scan, via the loader so that an index that knows its own keys can answer
+            // it without consulting the commands_for_key table
+            if (diskScan != null)
             {
-                // the on-disk half of the key scan, via the loader so that an index that knows its own keys can answer
-                // it without consulting the commands_for_key table
-                loader.findKeysBetween((TokenKey) range.start(), range.startInclusive(),
-                                       (TokenKey) range.end(), range.endInclusive(),
-                                       key -> {
-                                           if (cancelled)
-                                               throw new CancellationException();
-                                           intersectingKeys.add(key);
-                                       });
+                diskScan.scan();
+            }
+            else
+            {
+                for (Range range : ranges)
+                {
+                    loader.findKeysBetween((TokenKey) range.start(), range.startInclusive(),
+                                           (TokenKey) range.end(), range.endInclusive(),
+                                           key -> {
+                                               if (cancelled)
+                                                   throw new CancellationException();
+                                               intersectingKeys.add(key);
+                                           });
+                }
             }
             super.runInternal();
         }
@@ -2113,6 +2239,16 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                         intersectingKeys.add((TokenKey) key);
                 }
             }
+
+            if (getAccord().max_uncached_txnid_entries > 0)
+            {
+                // scan on disk only those parts of our ranges we know nothing of, or whose bounds may be relevant
+                List<Range> scan = new ArrayList<>();
+                commandStore.unsafeGetMaxUncachedTxnId()
+                            .forEachMaybeRelevant(ranges, bound -> loader.isRelevant(bound, bound.max),
+                                                  scan::add, key -> intersectingKeys.add((TokenKey) key));
+                diskScan = new DiskScan(Ranges.of(scan.toArray(new Range[0])));
+            }
             cache.register(keyWatcher);
         }
 
@@ -2121,6 +2257,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             intersectingKeys.removeAll(refs.keySet());
             intersectingKeys.removeAll(irrelevantKeys);
             setupKeyLoadsExclusive(false, commandStore.cachesExclusive(), intersectingKeys, true);
+            if (diskScan != null)
+                diskScan.establish();
             super.scannedInternal();
         }
 

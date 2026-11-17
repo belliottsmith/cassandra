@@ -21,6 +21,7 @@ package org.apache.cassandra.service.accord;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -74,6 +75,17 @@ public interface RangeIndex
             AccordCommandStore commandStore = commandStore();
             CommandsForKeyAccessor.findAllKeysBetween(commandStore.id(), commandStore.tableId(), DatabaseDescriptor.getPartitioner(),
                                                      start, startInclusive, end, endInclusive, consumer);
+        }
+
+        /**
+         * As {@link #findKeysBetween}, but also reporting the latest TxnId of each key ({@link TxnId#NONE} if it has
+         * none), or null if we cannot tell
+         */
+        public void findKeysAndLastBetween(TokenKey start, boolean startInclusive, TokenKey end, boolean endInclusive, BiConsumer<TokenKey, TxnId> consumer)
+        {
+            AccordCommandStore commandStore = commandStore();
+            CommandsForKeyAccessor.findAllKeysAndLastBetween(commandStore.id(), commandStore.tableId(), DatabaseDescriptor.getPartitioner(),
+                                                            start, startInclusive, end, endInclusive, consumer);
         }
 
         protected CommandSummaries.Summary loadFromDisk(TxnId txnId)

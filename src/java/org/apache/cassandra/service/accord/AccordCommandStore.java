@@ -235,6 +235,8 @@ public class AccordCommandStore extends CommandStore
     private final ExclusiveExecutor exclusiveExecutor;
     private final ExclusiveCaches caches;
     private final RangeIndex rangeIndex;
+    // bounds the CommandsForKey not in our cache, for range scans; accessed only with our executor lock held
+    private MaxUncachedTxnId maxUncachedTxnId = MaxUncachedTxnId.EMPTY;
     private final TableId tableId;
     private TableMetadataRef metadata;
 
@@ -282,6 +284,17 @@ public class AccordCommandStore extends CommandStore
             commands = exclusive.commands.newInstance(this);
             commandsForKey = exclusive.commandsForKey.newInstance(this);
             this.caches = new ExclusiveCaches(sharedExecutor, exclusive.global, commands, commandsForKey);
+            if (getAccord().max_uncached_txnid_entries > 0)
+            {
+                commandsForKey.register(new AccordCache.Listener<>()
+                {
+                    @Override
+                    public void onEvict(AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry)
+                    {
+                        unsafeSetMaxUncachedTxnId(maxUncachedTxnId.evicted(entry.key(), evictedLast(entry)));
+                    }
+                });
+            }
         }
         this.exclusiveExecutor = sharedExecutor.newExclusiveExecutor(id);
 
@@ -320,6 +333,44 @@ public class AccordCommandStore extends CommandStore
     public RangeIndex rangeIndex()
     {
         return rangeIndex;
+    }
+
+    /**
+     * See {@link MaxUncachedTxnId}; may only be invoked with our executor lock held
+     */
+    public MaxUncachedTxnId unsafeGetMaxUncachedTxnId()
+    {
+        return maxUncachedTxnId;
+    }
+
+    /**
+     * See {@link MaxUncachedTxnId}; may only be invoked with our executor lock held
+     */
+    public void unsafeSetMaxUncachedTxnId(MaxUncachedTxnId newMaxUncachedTxnId)
+    {
+        maxUncachedTxnId = newMaxUncachedTxnId.bound(getAccord().max_uncached_txnid_entries);
+    }
+
+    /**
+     * The latest TxnId of a {@code CommandsForKey} leaving the cache ({@link TxnId#NONE} if it has none), or null if
+     * it was not loaded, so we cannot tell
+     */
+    public static @Nullable TxnId evictedLast(AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry)
+    {
+        switch (entry.status())
+        {
+            default:
+                return null;
+
+            case LOADED:
+            case MODIFIED:
+            case WAITING_TO_SAVE:
+            case SAVING:
+            case FAILED_TO_SAVE:
+                Object value = entry.getOrShrunkExclusive();
+                TxnId last = value == null ? null : AccordCache.CommandsForKeyAdapter.last(value);
+                return last == null ? TxnId.NONE : last;
+        }
     }
 
     @Override

@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import org.junit.Test;
 
@@ -33,6 +34,7 @@ import accord.coordinate.CoordinateSyncPoint;
 import accord.coordinate.ExecuteSyncPoint;
 import accord.local.CommandStore;
 import accord.local.ExecutionContext;
+import accord.local.FindKeys;
 import accord.local.Node;
 import accord.local.RedundantStatus;
 import accord.local.cfk.CommandsForKey;
@@ -40,7 +42,9 @@ import accord.local.cfk.SafeCommandsForKey;
 import accord.local.durability.DurabilityResult;
 import accord.local.durability.DurabilityService.SyncRemote;
 import accord.primitives.KeyDeps;
+import accord.primitives.Range;
 import accord.primitives.Ranges;
+import accord.primitives.Routable;
 import accord.primitives.SyncPoint;
 import accord.primitives.Txn;
 import accord.primitives.TxnId;
@@ -53,14 +57,17 @@ import org.apache.cassandra.distributed.shared.ClusterUtils;
 import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.MaxUncachedTxnId;
+import org.apache.cassandra.service.accord.RangeIndex;
 import org.apache.cassandra.service.accord.TokenRange;
 import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.service.accord.execution.AccordExecutor;
 import org.apache.cassandra.service.accord.execution.SaferCommandStore;
 
 import static accord.local.RedundantStatus.Property.LOCALLY_APPLIED;
 import static accord.local.RedundantStatus.Property.QUORUM_APPLIED;
-import static accord.primitives.Routable.Domain.Range;
 import static accord.primitives.Routables.Slice.Minimal;
 import static accord.primitives.TxnId.Cardinality.cardinality;
 import static org.apache.cassandra.config.DatabaseDescriptor.getPartitioner;
@@ -154,6 +161,58 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
                                  expect, e.getValue());
                 }
             }
+        }
+    }
+
+    /**
+     * As {@link #syncPointDoesNotLoadSyncedKeys}, but with every key evicted from the cache, so that a sync point must
+     * rely on {@link MaxUncachedTxnId} or read the keys on disk, and should then bound them so later scans need not.
+     */
+    @Test
+    public void syncPointDoesNotLoadSyncedKeysOnDisk() throws Throwable
+    {
+        try (Cluster cluster = cluster(Mode.QUORUM_APPLIED))
+        {
+            Synced synced = setup(cluster, Mode.QUORUM_APPLIED);
+            String tableId = synced.tableId, firstId = synced.firstId, touched = synced.touched;
+            for (IInvokableInstance instance : cluster)
+            {
+                String node = "node " + instance.config().num();
+                Map<Integer, List<String>> retained = instance.callOnInstance(() -> loadedKeys(tableId, Txn.Kind.VisibilitySyncPoint));
+                assertEquals("precondition: " + node + " must still have every write before " + firstId + "; found " + retained,
+                             KEY_COUNT, retained.values().stream().mapToInt(List::size).sum());
+
+                // the bounds maintained on eviction should spare a sync point from reading disk at all
+                instance.runOnInstance(() -> evictCommandsForKeys(tableId, touched));
+                Map<Integer, List<String>> bounded = instance.callOnInstance(() -> boundedKeys(tableId));
+                for (Map.Entry<Integer, List<String>> e : retained.entrySet())
+                {
+                    List<String> evicted = new ArrayList<>(e.getValue());
+                    evicted.remove(touched);
+                    assertTrue(node + " store " + e.getKey() + " did not bound every evicted key " + evicted + "; bounded " + bounded,
+                               bounded.getOrDefault(e.getKey(), List.of()).containsAll(evicted));
+                }
+                assertEquals(node + " would scan on disk", Map.of(), instance.callOnInstance(() -> rangesToScan(tableId)));
+                assertOnlyTouchedLoaded(node, synced, retained, instance.callOnInstance(() -> loadedKeys(tableId, Txn.Kind.ExclusiveSyncPoint)));
+
+                // without bounds (as after a restart) a sync point must read the keys on disk, and load only those relevant
+                instance.runOnInstance(() -> {
+                    evictCommandsForKeys(tableId, touched);
+                    forEachStoreExclusive(store -> store.unsafeSetMaxUncachedTxnId(MaxUncachedTxnId.EMPTY));
+                });
+                assertOnlyTouchedLoaded(node, synced, retained, instance.callOnInstance(() -> loadedKeys(tableId, Txn.Kind.ExclusiveSyncPoint)));
+                // ... and bound those it found irrelevant, so that a later sync point need not read disk
+                assertEquals(node + " would scan on disk", Map.of(), instance.callOnInstance(() -> rangesToScan(tableId)));
+            }
+        }
+    }
+
+    private static void assertOnlyTouchedLoaded(String node, Synced synced, Map<Integer, List<String>> retained, Map<Integer, List<String>> loaded)
+    {
+        for (Map.Entry<Integer, List<String>> e : loaded.entrySet())
+        {
+            List<String> expect = retained.get(e.getKey()).contains(synced.touched) ? List.of(synced.touched) : List.of();
+            assertEquals(node + " store " + e.getKey() + " loaded keys with no new work since " + synced.firstId, expect, e.getValue());
         }
     }
 
@@ -312,6 +371,90 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
         }
     }
 
+    private static void forEachStoreExclusive(Consumer<AccordCommandStore> forEach)
+    {
+        for (CommandStore store : AccordService.instance().node().commandStores().all())
+        {
+            AccordCommandStore commandStore = (AccordCommandStore) store;
+            try (AccordExecutor.ExclusiveGlobalCaches ignore = commandStore.executor().lockCaches())
+            {
+                forEach.accept(commandStore);
+            }
+        }
+    }
+
+    /**
+     * Evict every {@code CommandsForKey} of the table from the cache but {@code except} (which a recent write may keep
+     * from eviction), leaving the cache with no capacity
+     */
+    private static void evictCommandsForKeys(String tableId, String except)
+    {
+        AccordService.instance().setCacheSize(0);
+        Ranges ranges = ranges(tableId);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        while (true)
+        {
+            List<String> cached = new ArrayList<>();
+            forEachStoreExclusive(store -> {
+                for (Range range : ranges)
+                {
+                    for (RoutingKey key : store.cachesExclusive().commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
+                    {
+                        if (!token(key).equals(except))
+                            cached.add(String.valueOf(store.cachesExclusive().commandsForKeys().getExclusive(key)));
+                    }
+                }
+            });
+            if (cached.isEmpty())
+                return;
+            assertTrue("CommandsForKey were not evicted: " + cached, System.nanoTime() < deadline);
+            try { Thread.sleep(10); }
+            catch (InterruptedException e) { throw new AssertionError(e); }
+        }
+    }
+
+    /**
+     * @return per command store, the keys with a bound of their own later than {@link TxnId#NONE}
+     */
+    private static Map<Integer, List<String>> boundedKeys(String tableId)
+    {
+        Ranges ranges = ranges(tableId);
+        Map<Integer, List<String>> result = new TreeMap<>();
+        forEachStoreExclusive(store -> {
+            List<String> keys = new ArrayList<>();
+            for (MaxUncachedTxnId.Entry bound : store.unsafeGetMaxUncachedTxnId())
+            {
+                if (bound.isKey() && ranges.contains(bound.end()) && bound.max.compareTo(TxnId.NONE) > 0)
+                    keys.add(token(bound.end()));
+            }
+            result.put(store.id(), keys);
+        });
+        return result;
+    }
+
+    /**
+     * @return per command store, the parts of the table it owns that a new sync point would scan on disk
+     */
+    private static Map<Integer, List<String>> rangesToScan(String tableId)
+    {
+        Node node = AccordService.instance().node();
+        Ranges ranges = ranges(tableId);
+        Map<Integer, List<String>> result = new TreeMap<>();
+        forEachStoreExclusive(store -> {
+            Ranges owned = store.unsafeGetRangesForEpoch().all().slice(ranges, Minimal);
+            if (owned.isEmpty())
+                return;
+
+            TxnId probe = node.nextTxnIdWithDefaultFlags(owned, Txn.Kind.ExclusiveSyncPoint, Routable.Domain.Range, cardinality(owned));
+            RangeIndex.Loader loader = store.rangeIndex().loader(probe, probe, FindKeys.CONFLICTS, owned);
+            List<String> scan = new ArrayList<>();
+            store.unsafeGetMaxUncachedTxnId().forEachMaybeRelevant(owned, bound -> loader.isRelevant(bound, bound.max), range -> scan.add(range.toString()), key -> {});
+            if (!scan.isEmpty())
+                result.put(store.id(), scan);
+        });
+        return result;
+    }
+
     /**
      * Wait until every command store has recorded {@code syncId} as decided for the table ranges it owns.
      */
@@ -348,7 +491,7 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
 
             while (true)
             {
-                TxnId probe = node.nextTxnIdWithDefaultFlags(owned, Txn.Kind.VisibilitySyncPoint, Range, cardinality(owned));
+                TxnId probe = node.nextTxnIdWithDefaultFlags(owned, Txn.Kind.VisibilitySyncPoint, Routable.Domain.Range, cardinality(owned));
                 ExecutionContext context = ExecutionContext.unsequencedReadWrite(probe, owned, "Test await durably committed");
                 String notDurable = getBlocking(store.chain(context, safeStore -> {
                     for (SafeCommandsForKey safeCfk : ((SaferCommandStore) safeStore).safeCommandsForKeys())
@@ -387,7 +530,7 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
             if (owned.isEmpty())
                 continue;
 
-            TxnId probe = node.nextTxnIdWithDefaultFlags(owned, kind, Range, cardinality(owned));
+            TxnId probe = node.nextTxnIdWithDefaultFlags(owned, kind, Routable.Domain.Range, cardinality(owned));
             ExecutionContext context = ExecutionContext.unsequencedReadWrite(probe, owned, "Test sync point key filtering");
             List<String> keys = getBlocking(store.chain(context, safeStore -> {
                 TreeSet<String> loaded = new TreeSet<>();

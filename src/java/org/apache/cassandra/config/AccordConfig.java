@@ -220,6 +220,13 @@ public class AccordConfig
      * once this number of tasks are blocked behind it, regardless of batch_size.
      */
     public Integer queue_nonsync_blocked_limit;
+
+    /**
+     * The maximum number of bounds each command store keeps on the latest transaction of the CommandsForKey not in its
+     * cache, which let a sync point avoid scanning parts of its ranges on disk for keys it must load. Zero disables them.
+     */
+    public int max_uncached_txnid_entries = 4096;
+
     /**
      * The number of threads that may be used to execute distributed requests for migration tasks
      */
