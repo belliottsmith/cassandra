@@ -21,6 +21,8 @@ package org.apache.cassandra.service.accord;
 import java.util.UUID;
 import java.util.function.ToLongFunction;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.api.Key;
 import accord.api.RoutingKey;
 import accord.local.Command;
@@ -39,6 +41,7 @@ import accord.primitives.FullRangeRoute;
 import accord.primitives.KeyDeps;
 import accord.primitives.Keys;
 import accord.primitives.Known;
+import accord.primitives.PartialDepsView;
 import accord.primitives.PartialKeyRoute;
 import accord.primitives.PartialRangeRoute;
 import accord.primitives.PartialTxn;
@@ -61,10 +64,12 @@ import accord.utils.UnhandledEnum;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.BufferDecoratedKey;
+import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.PartitionKey;
 import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.service.accord.serializers.SerializedPartialDeps;
 import org.apache.cassandra.service.accord.serializers.TableMetadatasAndKeys;
 import org.apache.cassandra.service.accord.txn.AccordUpdate;
 import org.apache.cassandra.service.accord.txn.TxnDataResult;
@@ -264,21 +269,108 @@ public class AccordObjectSizes
         //      doesn't account for txnIdToKeys, txnIdToRanges, and searchable fields;
         //      fix to accunt for, in case caching isn't redone
         long size = EMPTY_DEPS_SIZE - EMPTY_KEYS_SIZE - ObjectSizes.sizeOfReferenceArray(0);
-        size += routingKeys(dependencies.keyDeps.keys());
-        for (int i = 0 ; i < dependencies.rangeDeps.rangeCount() ; ++i)
-            size += range(dependencies.rangeDeps.range(i));
-        size += ObjectSizes.sizeOfReferenceArray(dependencies.rangeDeps.rangeCount());
+        size += keyDeps(dependencies.keyDeps);
+        size += rangeDeps(dependencies.rangeDeps);
+        return size;
+    }
 
-        size += dependencies.keyDeps.txnIdCount() * TIMESTAMP_SIZE;
-        size += dependencies.rangeDeps.txnIdCount() * TIMESTAMP_SIZE;
-        if (dependencies.keyDeps.hasByKey())
-            size += KeyDeps.SerializerSupport.keysToTxnIds(dependencies.keyDeps).length * 4L;
-        if (dependencies.keyDeps.hasByTxnId())
-            size += KeyDeps.SerializerSupport.txnIdsToKeys(dependencies.keyDeps).length * 4L;
-        if (dependencies.rangeDeps.hasByRange())
-            size += RangeDeps.SerializerSupport.rangesToTxnIds(dependencies.rangeDeps).length * 4L;
-        if (dependencies.rangeDeps.hasByTxnId())
-            size += RangeDeps.SerializerSupport.txnIdsToRanges(dependencies.rangeDeps).length * 4L;
+    /**
+     * Estimate the size of a possibly-unmaterialised view of a command's deps.
+     *
+     * The components a {@link SerializedPartialDeps} retains after {@link PartialDepsView#unmemoize()} (keys, RangeDeps
+     * and covering) may be deserialized lazily at any time, so we estimate them from the shape of the serialized form
+     * whether or not they have been deserialized, so that our estimate is unaffected by when this happens.
+     * The KeyDeps are discarded by unmemoize, so are normally absent when we estimate, but we count them if present.
+     */
+    public static long depsView(PartialDepsView deps)
+    {
+        if (!(deps instanceof SerializedPartialDeps))
+            return dependencies(deps.materialize());
+
+        SerializedPartialDeps serialized = (SerializedPartialDeps) deps;
+        long size = serialized.unsharedHeapSizeExcludingMemoized();
+        size += estimateRoutingKeys(serialized.keyCount(), serialized.keysSerializedSize());
+        size += estimateRangeDeps(serialized.rangeCount(), serialized.rangesSerializedSize(), serialized.rangeTxnIdCount(), serialized.rangeMapLength());
+        size += serialized.coveringIsRanges() ? estimateRanges(serialized.coveringCount(), serialized.coveringSerializedSize())
+                                              : estimateRoutingKeys(serialized.coveringCount(), serialized.coveringSerializedSize());
+        KeyDeps keyDeps = serialized.memoizedKeyDeps();
+        if (keyDeps != null)
+            size += keyDepsExcludingKeys(keyDeps);
+        return size;
+    }
+
+    private static final long EMPTY_TOKEN_KEY_SIZE = measure(new TokenKey(null, null));
+    /**
+     * Estimate the size of a deserialized TokenKey, given the average number of bytes used to serialize each key.
+     * For fixed length partitioners this should be exact; otherwise we assume the token's size is proportional to
+     * its serialized size (which includes some amortised overheads, so is likely to be an overestimate).
+     */
+    private static long estimateTokenKey(long averageSerializedSize)
+    {
+        IPartitioner partitioner = DatabaseDescriptor.getPartitioner();
+        long size = EMPTY_TOKEN_KEY_SIZE + partitioner.getMinimumToken().getHeapSize();
+        if (!partitioner.isFixedLength())
+            size += averageSerializedSize;
+        return size;
+    }
+
+    @VisibleForTesting
+    public static long estimateRoutingKeys(int count, int serializedSize)
+    {
+        return EMPTY_ROUTING_KEYS_SIZE
+               + ObjectSizes.sizeOfReferenceArray(count)
+               + count * estimateTokenKey(serializedSize / Math.max(1, count));
+    }
+
+    private static long estimateRanges(int count, int serializedSize)
+    {
+        return EMPTY_RANGES_SIZE + estimateRangesOnly(count, serializedSize);
+    }
+
+    private static long estimateRangesOnly(int count, int serializedSize)
+    {
+        return ObjectSizes.sizeOfReferenceArray(count)
+               + count * (EMPTY_RANGE_SIZE + 2 * estimateTokenKey(serializedSize / Math.max(1, 2 * count)));
+    }
+
+    private static final long EMPTY_RANGE_DEPS_SIZE = ObjectSizes.measureDeep(RangeDeps.NONE);
+    private static long estimateRangeDeps(int rangeCount, int rangesSerializedSize, int txnIdCount, int mapLength)
+    {
+        if (rangeCount == 0 && txnIdCount == 0)
+            return 0;
+
+        return EMPTY_RANGE_DEPS_SIZE
+               + estimateRangesOnly(rangeCount, rangesSerializedSize)
+               + ObjectSizes.sizeOfReferenceArray(txnIdCount) + txnIdCount * TIMESTAMP_SIZE
+               + mapLength * 4L;
+    }
+
+    private static long keyDeps(KeyDeps keyDeps)
+    {
+        return routingKeys(keyDeps.keys()) + keyDepsExcludingKeys(keyDeps);
+    }
+
+    private static long keyDepsExcludingKeys(KeyDeps keyDeps)
+    {
+        long size = keyDeps.txnIdCount() * TIMESTAMP_SIZE;
+        if (keyDeps.hasByKey())
+            size += KeyDeps.SerializerSupport.keysToTxnIds(keyDeps).length * 4L;
+        if (keyDeps.hasByTxnId())
+            size += KeyDeps.SerializerSupport.txnIdsToKeys(keyDeps).length * 4L;
+        return size;
+    }
+
+    private static long rangeDeps(RangeDeps rangeDeps)
+    {
+        long size = 0;
+        for (int i = 0 ; i < rangeDeps.rangeCount() ; ++i)
+            size += range(rangeDeps.range(i));
+        size += ObjectSizes.sizeOfReferenceArray(rangeDeps.rangeCount());
+        size += rangeDeps.txnIdCount() * TIMESTAMP_SIZE;
+        if (rangeDeps.hasByRange())
+            size += RangeDeps.SerializerSupport.rangesToTxnIds(rangeDeps).length * 4L;
+        if (rangeDeps.hasByTxnId())
+            size += RangeDeps.SerializerSupport.txnIdsToRanges(rangeDeps).length * 4L;
         return size;
     }
 
@@ -403,7 +495,7 @@ public class AccordObjectSizes
         size += sizeNullable(command.promised(), AccordObjectSizes::timestamp);
         size += sizeNullable(command.executeAt(), AccordObjectSizes::timestamp);
         size += sizeNullable(command.partialTxn(), AccordObjectSizes::txn);
-        size += sizeNullable(command.partialDeps(), AccordObjectSizes::dependencies);
+        size += sizeNullable(command.depsView(), AccordObjectSizes::depsView);
         size += sizeNullable(command.acceptedOrCommitted(), AccordObjectSizes::timestamp);
         size += sizeNullable(command.writes(), AccordObjectSizes::writes);
         // no need to measure command.results(), as should always be a sentinel value

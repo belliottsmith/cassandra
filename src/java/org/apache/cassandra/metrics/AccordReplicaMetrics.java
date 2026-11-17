@@ -29,7 +29,7 @@ import accord.api.Result;
 import accord.local.Command;
 import accord.local.Node;
 import accord.local.SafeCommandStore;
-import accord.primitives.PartialDeps;
+import accord.primitives.PartialDepsView;
 import accord.primitives.TxnId;
 
 import org.apache.cassandra.metrics.LogLinearDecayingHistograms.LogLinearDecayingHistogram;
@@ -216,7 +216,7 @@ public class AccordReplicaMetrics
             {
                 long elapsed = elapsed(cmd.txnId());
                 metrics.preapplyLatency.add(buffer(safeStore), elapsed);
-                PartialDeps deps = cmd.partialDeps();
+                PartialDepsView deps = cmd.depsView();
                 metrics.dependencies.add(buffer(safeStore), deps != null ? deps.txnIdCount() : 0);
             }
         }

@@ -24,15 +24,18 @@ import com.google.common.annotations.VisibleForTesting;
 import accord.primitives.Deps;
 import accord.primitives.KeyDeps;
 import accord.primitives.PartialDeps;
+import accord.primitives.PartialDepsView;
 import accord.primitives.Participants;
 import accord.primitives.Range;
 import accord.primitives.RangeDeps;
+import accord.primitives.Routable;
 import accord.primitives.RoutingKeys;
 import accord.primitives.TxnId;
 import accord.utils.Invariants;
 import accord.utils.VIntCoding;
 
 import org.apache.cassandra.io.UnversionedSerializer;
+import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.service.accord.TokenRange;
@@ -55,6 +58,7 @@ public class DepsSerializers
     public static final UnversionedSerializer<Deps> nullableDeps;
     public static final AbstractDepsSerializer<PartialDeps> partialDeps;
     public static final AbstractDepsSerializer<PartialDeps> partialDepsById;
+    public static final AbstractDepsSerializer<PartialDeps> partialDepsByKey;
     public static final UnversionedSerializer<PartialDeps> nullablePartialDeps;
 
     static
@@ -66,7 +70,49 @@ public class DepsSerializers
         nullableDeps = serializers.nullableDeps;
         partialDeps = serializers.partialDeps;
         partialDepsById = serializers.partialDepsById;
+        partialDepsByKey = serializers.partialDepsByKey;
         nullablePartialDeps = serializers.nullablePartialDeps;
+    }
+
+    /**
+     * Select the serializer to use for persisting the deps of {@code txnId} in the journal (or the cache's shrunk form).
+     *
+     * Key-domain commands are the most common, and their deps are normally accessed by key (e.g. to determine if
+     * they are ready to execute), so we store their KeyDeps by key. Range-domain commands may be queried by
+     * TxnId in their serialized form when scanning for recovery (see {@link SerializedPartialDeps#isStableDepCovering}),
+     * so we store their KeyDeps by TxnId. The serialized form encodes its layout, so both may be read by either.
+     */
+    public static AbstractDepsSerializer<PartialDeps> journalSerializer(TxnId txnId)
+    {
+        return txnId.is(Routable.Domain.Key) ? partialDepsByKey : partialDepsById;
+    }
+
+    /**
+     * Serialize deps for the journal (or the cache's shrunk form). If the deps are already in their serialized form
+     * we simply copy the bytes, avoiding any materialisation or re-serialization.
+     */
+    public static void serializeForJournal(TxnId txnId, PartialDepsView deps, DataOutputPlus out) throws IOException
+    {
+        if (deps instanceof SerializedPartialDeps) ((SerializedPartialDeps) deps).serialize(out);
+        else journalSerializer(txnId).serialize(deps.materialize(), out);
+    }
+
+    public static long serializedSizeForJournal(TxnId txnId, PartialDepsView deps)
+    {
+        if (deps instanceof SerializedPartialDeps) return ((SerializedPartialDeps) deps).serializedSize();
+        else return journalSerializer(txnId).serializedSize(deps.materialize());
+    }
+
+    /**
+     * Read deps written by {@link #serializeForJournal}. Where possible the deps are retained in their serialized form,
+     * so that they may be (partially) deserialized only if and when they are needed. The bytes are always copied, so
+     * that we do not retain any reference to the source buffer (which may, for instance, be memory mapped).
+     */
+    public static PartialDepsView deserializeForJournal(DataInputPlus in) throws IOException
+    {
+        if (in instanceof DataInputBuffer)
+            return SerializedPartialDeps.read((DataInputBuffer) in);
+        return partialDepsById.deserialize(in);
     }
 
     public static abstract class AbstractDepsSerializer<D extends Deps> implements UnversionedSerializer<D>
@@ -74,12 +120,18 @@ public class DepsSerializers
         static final int KEYS_BY_TXNID = 0x1;
         static final int RANGES_BY_TXNID = 0x2;
         static final int FLAGS_SIZE = VIntCoding.sizeOfUnsignedVInt(KEYS_BY_TXNID | RANGES_BY_TXNID);
-        final boolean byTxnId;
+        final boolean keysByTxnId, rangesByTxnId;
 
         protected final UnversionedSerializer<Range> tokenRange;
         public AbstractDepsSerializer(boolean byTxnId, UnversionedSerializer<Range> tokenRange)
         {
-            this.byTxnId = byTxnId;
+            this(byTxnId, byTxnId, tokenRange);
+        }
+
+        public AbstractDepsSerializer(boolean keysByTxnId, boolean rangesByTxnId, UnversionedSerializer<Range> tokenRange)
+        {
+            this.keysByTxnId = keysByTxnId;
+            this.rangesByTxnId = rangesByTxnId;
             this.tokenRange = tokenRange;
         }
 
@@ -88,8 +140,6 @@ public class DepsSerializers
         @Override
         public void serialize(D deps, DataOutputPlus out) throws IOException
         {
-            boolean keysByTxnId = byTxnId;
-            boolean rangesByTxnId = byTxnId;
             out.writeUnsignedVInt32((keysByTxnId ? KEYS_BY_TXNID : 0) | (rangesByTxnId ? RANGES_BY_TXNID : 0));
             {
                 KeyDeps keyDeps = deps.keyDeps;
@@ -111,7 +161,7 @@ public class DepsSerializers
         {
             out.writeUnsignedVInt32(xtoy.length);
 
-            if ((xCount <= 1 || yCount <= 1) && (xtoy.length == (xCount == 1 ? 1 + yCount : 2 * xCount) || xCount == 0 || yCount == 0))
+            if (isInferredXtoY(xCount, yCount, xtoy.length))
             {
                 // no point serializing as can be directly inferred
                 if (Invariants.isParanoid())
@@ -169,12 +219,21 @@ public class DepsSerializers
             return deserialize(keyDeps, rangeDeps, in);
         }
 
-        private static int[] deserializePackedXtoY(int xCount, int yCount, DataInputPlus in) throws IOException
+        /**
+         * If there is only one x or y, the mapping may be inferred from its length and is not serialized
+         * (see {@link SerializedPartialDeps.PackedRelation} for random access to the inferred mapping)
+         */
+        static boolean isInferredXtoY(int xCount, int yCount, int length)
+        {
+            return (xCount <= 1 || yCount <= 1) && (length == (xCount == 1 ? 1 + yCount : 2 * xCount) || xCount == 0 || yCount == 0);
+        }
+
+        static int[] deserializePackedXtoY(int xCount, int yCount, DataInputPlus in) throws IOException
         {
             int length = in.readUnsignedVInt32();
             int[] xtoy = new int[length];
 
-            if ((xCount <= 1 || yCount <= 1) && (xtoy.length == (xCount == 1 ? 1 + yCount : 2 * xCount) || xCount == 0 || yCount == 0))
+            if (isInferredXtoY(xCount, yCount, length))
             {
                 // no point serializing as can be directly inferred
                 if (xCount == 1)
@@ -206,15 +265,17 @@ public class DepsSerializers
             return xtoy;
         }
 
-        private static void skipPackedXtoY(int xCount, int yCount, DataInputPlus in) throws IOException
+        // returns the length of the xtoy mapping
+        static int skipPackedXtoY(int xCount, int yCount, DataInputPlus in) throws IOException
         {
             int length = in.readUnsignedVInt32();
 
-            if (!((xCount <= 1 || yCount <= 1) && (length == (xCount == 1 ? 1 + yCount : 2 * xCount) || xCount == 0 || yCount == 0)))
+            if (!isInferredXtoY(xCount, yCount, length))
             {
                 in.skipBytesFully(serializedPackedSize(xCount, length)
                                   + serializedPackedSize(length - xCount, yCount - 1));
             }
+            return length;
         }
 
         @Override
@@ -239,8 +300,6 @@ public class DepsSerializers
         @Override
         public long serializedSize(D deps)
         {
-            boolean keysByTxnId = byTxnId;
-            boolean rangesByTxnId = byTxnId;
             long size = FLAGS_SIZE;
             {
                 KeyDeps keyDeps = deps.keyDeps;
@@ -262,7 +321,7 @@ public class DepsSerializers
         private static long serializedPackedXtoYSize(int[] xtoy, int xCount, int yCount)
         {
             long size = VIntCoding.sizeOfUnsignedVInt(xtoy.length);
-            if ((xCount <= 1 || yCount <= 1) && (xtoy.length == (xCount == 1 ? 1 + yCount : 2 * xCount) || xCount == 0 || yCount == 0))
+            if (isInferredXtoY(xCount, yCount, xtoy.length))
             {
                 // no point serializing as can be directly inferred
             }
@@ -280,6 +339,11 @@ public class DepsSerializers
         public PartialDepsSerializer(boolean preferByTxnId, UnversionedSerializer<Range> tokenRange)
         {
             super(preferByTxnId, tokenRange);
+        }
+
+        public PartialDepsSerializer(boolean keysByTxnId, boolean rangesByTxnId, UnversionedSerializer<Range> tokenRange)
+        {
+            super(keysByTxnId, rangesByTxnId, tokenRange);
         }
 
         @Override
@@ -333,6 +397,7 @@ public class DepsSerializers
         final UnversionedSerializer<Deps> nullableDeps;
         final PartialDepsSerializer partialDeps; // currently happens to be byId but doesn't rely upon it
         final PartialDepsSerializer partialDepsById;
+        final PartialDepsSerializer partialDepsByKey; // keys by key, ranges by txnId
         final UnversionedSerializer<PartialDeps> nullablePartialDeps;
 
         public Impl(UnversionedSerializer<Range> tokenRange)
@@ -342,6 +407,7 @@ public class DepsSerializers
             this.nullableDeps = NullableSerializer.wrap(deps);
             this.partialDeps = new PartialDepsSerializer(true, tokenRange);
             this.partialDepsById = partialDeps;
+            this.partialDepsByKey = new PartialDepsSerializer(false, true, tokenRange);
             this.nullablePartialDeps = NullableSerializer.wrap(partialDeps);
         }
     }

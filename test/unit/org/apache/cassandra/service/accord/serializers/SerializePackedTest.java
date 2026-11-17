@@ -30,6 +30,7 @@ import accord.utils.Gens;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.Serializers;
 import org.apache.cassandra.io.UnversionedSerializer;
+import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
@@ -111,6 +112,88 @@ public class SerializePackedTest
 
             Assertions.assertThat(packed.remaining()).isLessThanOrEqualTo(list.remaining());
         });
+    }
+
+    @Test
+    public void randomAccess()
+    {
+        @SuppressWarnings({ "resource", "IOResourceOpenedButNotSafelyClosed" }) DataOutputBuffer output = new DataOutputBuffer();
+        qt().check(rs -> {
+            // values are non-negative, so entries are at most 63 bits wide (see rejectsUnsupportedWidth)
+            int bits = rs.nextInt(0, 64);
+            long max = bits == 0 ? 0 : -1L >>> (64 - bits);
+            int count = rs.nextBoolean() ? rs.nextInt(0, 16) : rs.nextInt(0, 1024);
+            long[] values = new long[count];
+            for (int i = 0 ; i < count ; ++i)
+                values[i] = bits == 0 ? 0 : rs.nextLong() & max;
+            if (count > 0 && bits > 0)
+                values[rs.nextInt(count)] = max; // ensure we exercise the full width
+
+            // pad with a random prefix and suffix to ensure we respect the offset and length
+            int prefix = rs.nextInt(0, 9);
+            output.clear();
+            for (int i = 0 ; i < prefix ; ++i)
+                output.writeByte(rs.nextInt());
+            SerializePacked.serializePacked((vs, i) -> vs[i], values, 0, count, max, output);
+            int length = output.getLength() - prefix;
+            Assertions.assertThat(length).isEqualTo(SerializePacked.serializedPackedSize(count, max));
+            for (int i = 0, suffix = rs.nextInt(0, 9) ; i < suffix ; ++i)
+                output.writeByte(rs.nextInt());
+
+            byte[] bytes = output.toByteArray();
+            for (int i = 0 ; i < count ; ++i)
+            {
+                Assertions.assertThat(SerializePacked.readPacked(bytes, prefix, count, max, i))
+                          .describedAs("bits=%d count=%d index=%d", bits, count, i)
+                          .isEqualTo(values[i]);
+            }
+
+            long[] deserialized = new long[count];
+            try (DataInputBuffer in = new DataInputBuffer(bytes, prefix, bytes.length - prefix))
+            {
+                SerializePacked.deserializePacked((out, i, v) -> out[i] = v, deserialized, 0, count, max, in);
+            }
+            Assertions.assertThat(deserialized).describedAs("bits=%d count=%d", bits, count).isEqualTo(values);
+        });
+    }
+
+    /**
+     * Values must be non-negative so entries need at most 63 bits; 64-bit entries are not supported by the implementation
+     * (they depend on shifts by 64, which are no-ops in Java), and may only arise from a negative max or a corrupt stream,
+     * so we must reject them rather than silently mis-encode or mis-decode.
+     */
+    @Test
+    public void rejectsUnsupportedWidth() throws IOException
+    {
+        long[] values = new long[] { 0, 1, Long.MAX_VALUE };
+        try (DataOutputBuffer output = new DataOutputBuffer())
+        {
+            Assertions.assertThatThrownBy(() -> SerializePacked.serializePacked((vs, i) -> vs[i], values, 0, values.length, -1L, output))
+                      .isInstanceOf(IllegalArgumentException.class)
+                      .hasMessageContaining("max must be non-negative");
+            Assertions.assertThat(output.getLength()).isZero();
+
+            // the maximum supported width round-trips
+            SerializePacked.serializePacked((vs, i) -> vs[i], values, 0, values.length, Long.MAX_VALUE, output);
+            byte[] bytes = output.toByteArray();
+            long[] deserialized = new long[values.length];
+            try (DataInputBuffer in = new DataInputBuffer(bytes))
+            {
+                SerializePacked.deserializePacked((out, i, v) -> out[i] = v, deserialized, 0, values.length, Long.MAX_VALUE, in);
+            }
+            Assertions.assertThat(deserialized).isEqualTo(values);
+
+            try (DataInputBuffer in = new DataInputBuffer(bytes))
+            {
+                Assertions.assertThatThrownBy(() -> SerializePacked.deserializePacked((out, i, v) -> out[i] = v, deserialized, 0, values.length, -1L, in))
+                          .isInstanceOf(IllegalArgumentException.class);
+            }
+            Assertions.assertThatThrownBy(() -> SerializePacked.readPacked(bytes, 0, values.length, -1L, 0))
+                      .isInstanceOf(IllegalArgumentException.class);
+            Assertions.assertThatThrownBy(() -> SerializePacked.readPackedBits(bytes, 0, bytes.length, 64, 0))
+                      .isInstanceOf(IllegalStateException.class)
+                      .hasMessageContaining("Unsupported packed entry width");
+        }
     }
 
     public static class PackedSortedSerializer implements UnversionedSerializer<int[]>

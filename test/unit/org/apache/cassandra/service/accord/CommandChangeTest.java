@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.nio.ByteBuffer;
 import java.util.EnumSet;
 import java.util.Set;
 
@@ -29,6 +30,7 @@ import org.junit.Test;
 import accord.impl.CommandChange;
 import accord.local.Command;
 import accord.local.RedundantBefore;
+import accord.primitives.Routable;
 import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.TxnId;
@@ -46,6 +48,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.service.accord.journal.CommandChangeWriter;
 import org.apache.cassandra.service.accord.journal.CommandChanges;
 import org.apache.cassandra.service.accord.serializers.CommandSerializers;
+import org.apache.cassandra.service.accord.serializers.SerializedPartialDeps;
 import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 import org.apache.cassandra.utils.AccordGenerators;
@@ -148,6 +151,72 @@ public class CommandChangeTest
                     }
             });
         }
+    }
+
+    /**
+     * Deps loaded from the journal (or the cache's shrunk form) should be retained in their serialized form:
+     * constructing the command should not require deserializing the KeyDeps; re-serializing the command should copy
+     * the deps bytes verbatim; and transitions that do not modify the deps should not be considered to modify them.
+     *
+     * Note that Command.equals does not compare deps, so we compare them explicitly here.
+     */
+    @Test
+    public void depsRetainedInSerializedForm()
+    {
+        Gen<AccordGenerators.CommandBuilder> gen = AccordGenerators.commandsBuilder();
+        qt().forAll(gen).check(cmdBuilder -> {
+            SoftAssertions checks = new SoftAssertions();
+            for (SaveStatus saveStatus : SaveStatus.values())
+            {
+                if (cmdBuilder.txnId.awaitsOnlyDeps() && saveStatus.is(Status.Truncated))
+                    continue;
+
+                Command orig = cmdBuilder.build(saveStatus);
+                if (orig.partialDeps() == null)
+                    continue;
+
+                ByteBuffer serialized = CommandChangeWriter.asSerializedChange(null, orig, Version.LATEST);
+                if (serialized == null)
+                    continue;
+
+                CommandChanges builder = new CommandChanges(orig.txnId(), Load.ALL);
+                builder.deserializeNext(serialized.duplicate(), Version.LATEST);
+                builder.forceResult(orig.result());
+                Command loaded = builder.construct(RedundantBefore.EMPTY);
+                checks.assertThat(loaded.saveStatus()).isEqualTo(orig.saveStatus());
+                checks.assertThat(loaded.depsView()).describedAs("%s", saveStatus).isInstanceOf(SerializedPartialDeps.class);
+                if (!(loaded.depsView() instanceof SerializedPartialDeps))
+                    continue;
+
+                SerializedPartialDeps view = (SerializedPartialDeps) loaded.depsView();
+                checks.assertThat(view.memoizedKeyDeps()).describedAs("%s: constructing should not deserialize KeyDeps", saveStatus).isNull();
+                // key commands store their KeyDeps by key, range commands by TxnId
+                checks.assertThat(view.keysByTxnId()).describedAs("%s", orig.txnId()).isEqualTo(orig.txnId().is(Routable.Domain.Range));
+
+                // re-serializing should reproduce the same bytes, without deserializing the KeyDeps
+                ByteBuffer reserialized = CommandChangeWriter.asSerializedChange(null, loaded, Version.LATEST);
+                checks.assertThat(reserialized).describedAs("%s", saveStatus).isEqualTo(serialized);
+                checks.assertThat(view.memoizedKeyDeps()).describedAs("%s: serializing should not deserialize KeyDeps", saveStatus).isNull();
+
+                // a transition that does not modify the deps should propagate the view, and not be considered a change
+                Command updated = loaded.updateParticipants(loaded.participants());
+                checks.assertThat(updated.depsView()).isSameAs(view);
+                checks.assertThat(CommandChange.isChanged(Field.PARTIAL_DEPS, getFlags(loaded, updated))).describedAs("%s", saveStatus).isFalse();
+
+                // the deps should be equal to the original
+                checks.assertThat(loaded.partialDeps()).describedAs("%s", saveStatus).isEqualTo(orig.partialDeps());
+
+                // even if a command is rebuilt with the materialised deps, we should not consider the deps to have changed
+                Command rebuilt = new accord.local.CommandBuilder(loaded).partialDeps(loaded.partialDeps()).build(loaded.saveStatus());
+                checks.assertThat(CommandChange.isChanged(Field.PARTIAL_DEPS, getFlags(loaded, rebuilt))).describedAs("%s", saveStatus).isFalse();
+
+                // but once unmemoized we can no longer tell, and must assume they have changed
+                loaded.unmemoizeDeps();
+                checks.assertThat(view.memoizedKeyDeps()).isNull();
+                checks.assertThat(CommandChange.isChanged(Field.PARTIAL_DEPS, getFlags(loaded, rebuilt))).describedAs("%s", saveStatus).isTrue();
+            }
+            checks.assertAll();
+        });
     }
 
     private void assertHas(int flags, Set<Field> missing)

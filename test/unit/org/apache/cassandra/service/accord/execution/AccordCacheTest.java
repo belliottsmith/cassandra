@@ -102,6 +102,71 @@ public class AccordCacheTest
         }
     }
 
+    /**
+     * A value with some memoised state that can be discarded by {@link #unmemoize()}
+     */
+    private static class Memo
+    {
+        final String name;
+        final int size;
+        int memoized;
+        int unmemoizeCount;
+
+        Memo(String name, int size, int memoized)
+        {
+            this.name = name;
+            this.size = size;
+            this.memoized = memoized;
+        }
+
+        long heapSize()
+        {
+            return size + memoized;
+        }
+
+        void unmemoize()
+        {
+            ++unmemoizeCount;
+            memoized = 0;
+        }
+
+        @Override
+        public String toString()
+        {
+            return name;
+        }
+    }
+
+    private static class SafeMemo extends SafeState<Memo> implements SaferState<String, Memo, SafeMemo>
+    {
+        final AccordCacheEntry<String, Memo, SafeMemo> global;
+
+        public SafeMemo(AccordCacheEntry<String, Memo, SafeMemo> global)
+        {
+            this.global = global;
+        }
+
+        @Override
+        public AccordCacheEntry<String, Memo, SafeMemo> global()
+        {
+            return global;
+        }
+
+        @Override
+        public void preExecute(SafeTask<?> owner, LockMode lockMode)
+        {
+            requireUninitialised();
+            current = global.lockExclusive(owner, lockMode);
+            setSafe();
+        }
+
+        @Override
+        public void postExecute(SafeTask<?> owner)
+        {
+            global.releaseExclusive(this, owner);
+        }
+    }
+
     private static long emptyNodeSize()
     {
         return AccordCacheEntry.EMPTY_SIZE;
@@ -389,6 +454,61 @@ public class AccordCacheTest
         // so that a forgotten preExecute elsewhere cannot silently become this case.
         instance.release(safeString2, null);
         assertCacheState(cache, 0, 1, nodeSize(1));
+    }
+
+    /**
+     * A value may memoise state while it is referenced, even if it is not modified (e.g. a Command's deserialized deps).
+     * When the last reference is released this should be discarded before it becomes eligible for eviction; previously
+     * this happened only for modified values (via quickShrink). Since the entry's size was estimated before the state
+     * was memoised, discarding it restores consistency with the estimate, without needing to re-estimate.
+     */
+    @Test
+    public void unmodifiedReleaseUnmemoizesOnLastReference()
+    {
+        AccordCacheMetrics cacheMetrics = new AccordCacheMetrics(nextMetricId());
+        AccordCacheMetrics.Shard shard = cacheMetrics.newShard(new NoOpLock());
+
+        ManualExecutor executor = new ManualExecutor();
+        AccordCache cache = new AccordCache(saveExecutor(executor), 1000);
+        Memo memo = new Memo("0", 10, 0);
+        AccordCache.Adapter<String, Memo, SafeMemo> adapter =
+            new AccordCache.FunctionalAdapter<String, Memo, SafeMemo>((s, k) -> memo, (s, k, v, o) -> null,
+                                                                      Function.identity(), Memo::unmemoize, (k, v) -> null, (s, k, o) -> null,
+                                                                      (s, k, v) -> true, Memo::heapSize, o -> 0,
+                                                                      SafeMemo::new, AccordCacheEntry::createReadyToLoad);
+        AccordCache.Type<String, Memo, SafeMemo> type = cache.newType(String.class, adapter, shard);
+        AccordCache.Type<String, Memo, SafeMemo>.Instance instance = type.newInstance(null);
+
+        SafeMemo safe1 = instance.acquire("0");
+        testLoad(executor, safe1, memo);
+        assertCacheState(cache, 1, 1, nodeSize(10));
+
+        // memoise some state while referenced, which is not accounted for
+        memo.memoized = 90;
+
+        // releasing a reference that is not the last should not unmemoize
+        SafeMemo safe2 = instance.acquire("0");
+        instance.release(safe1, AccordExecutionTestUtils.owner(safe1));
+        Assert.assertEquals(0, memo.unmemoizeCount);
+        Assert.assertEquals(90, memo.memoized);
+
+        // releasing the last reference unmemoizes, so that the value is again consistent with its estimated size
+        instance.release(safe2, null); // never locked, so has no owner
+        Assert.assertEquals(1, memo.unmemoizeCount);
+        Assert.assertEquals(0, memo.memoized);
+        assertCacheState(cache, 0, 1, nodeSize(10));
+        Assert.assertEquals(nodeSize(memo.heapSize()), cache.weightedSize());
+        Assert.assertEquals(Status.LOADED, safe2.global.status());
+
+        // and again for a single reference
+        SafeMemo safe3 = instance.acquire("0");
+        AccordExecutionTestUtils.preExecute(safe3);
+        memo.memoized = 50;
+        instance.release(safe3, AccordExecutionTestUtils.owner(safe3));
+        Assert.assertEquals(2, memo.unmemoizeCount);
+        Assert.assertEquals(0, memo.memoized);
+        Assert.assertEquals(nodeSize(memo.heapSize()), cache.weightedSize());
+        Assert.assertEquals(Status.LOADED, safe3.global.status());
     }
 
     @Test

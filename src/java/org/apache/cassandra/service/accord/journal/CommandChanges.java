@@ -27,7 +27,6 @@ import accord.impl.CommandChange;
 import accord.local.Cleanup;
 import accord.local.DurableBefore;
 import accord.local.RedundantBefore;
-import accord.primitives.PartialDeps;
 import accord.primitives.SaveStatus;
 import accord.primitives.Status;
 import accord.primitives.TxnId;
@@ -45,7 +44,6 @@ import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.accord.serializers.WaitingOnSerializer;
 import org.apache.cassandra.service.accord.txn.TxnDataResult;
 
-import static accord.api.Journal.Load.ALL;
 import static accord.impl.CommandChange.Field.CLEANUP;
 import static accord.impl.CommandChange.isChanged;
 import static accord.impl.CommandChange.nextSetField;
@@ -57,8 +55,6 @@ import static accord.local.Cleanup.Input.FULL;
 
 public class CommandChanges extends CommandChange.Builder implements Merger
 {
-    private final boolean deserializeDeps;
-
     public CommandChanges()
     {
         this(Journal.Load.ALL);
@@ -77,7 +73,6 @@ public class CommandChanges extends CommandChange.Builder implements Merger
     public CommandChanges(TxnId txnId, Journal.Load load)
     {
         super(txnId, load);
-        deserializeDeps = load == ALL;
     }
 
     // applies cleanup and returns null if no command should be returned
@@ -96,23 +91,6 @@ public class CommandChanges extends CommandChange.Builder implements Merger
         }
         Invariants.require(builder.saveStatus() != null, "No saveSatus loaded, but next was called and cleanup was not: %s", builder);
         return builder;
-    }
-
-    @Override
-    public PartialDeps partialDeps()
-    {
-        if (partialDeps instanceof ByteBuffer)
-        {
-            try
-            {
-                partialDeps = DepsSerializers.partialDepsById.deserialize((ByteBuffer) partialDeps);
-            }
-            catch (IOException e)
-            {
-                throw new IllegalStateException("Failed to materialise partially deserialised deps", e);
-            }
-        }
-        return (PartialDeps) partialDeps;
     }
 
     public void reset(JournalKey key)
@@ -192,8 +170,8 @@ public class CommandChanges extends CommandChange.Builder implements Merger
                     break;
                 case PARTIAL_DEPS:
                     Invariants.require(partialDeps != null, "%s", this);
-                    if (partialDeps instanceof ByteBuffer) out.write(((ByteBuffer) partialDeps).duplicate());
-                    else DepsSerializers.partialDepsById.serialize((PartialDeps) partialDeps, out);
+                    Invariants.require(txnId != null, "%s", this);
+                    DepsSerializers.serializeForJournal(txnId, partialDeps, out);
                     break;
                 case WAITING_ON:
                     Invariants.require(waitingOn != null, "%s", this);
@@ -287,21 +265,8 @@ public class CommandChanges extends CommandChange.Builder implements Merger
                 partialTxn = CommandSerializers.partialTxn.deserialize(in, userVersion);
                 break;
             case PARTIAL_DEPS:
-                // TODO (expected): this optimisation will be easily disabled;
-                //  should either operate natively on ByteBuffer
-                //  or else use some explicit API for copying bytes while skipping
-                if (deserializeDeps || !(in instanceof DataInputBuffer))
-                {
-                    partialDeps = DepsSerializers.partialDepsById.deserialize(in);
-                }
-                else
-                {
-                    ByteBuffer buf = ((DataInputBuffer) in).buffer();
-                    int start = buf.position();
-                    DepsSerializers.partialDepsById.skip(in);
-                    int end = buf.position();
-                    partialDeps = buf.duplicate().position(start).limit(end);
-                }
+                // retain in serialized form where possible, deserializing only when (and what is) required
+                partialDeps = DepsSerializers.deserializeForJournal(in);
                 break;
             case WAITING_ON:
                 waitingOn = WaitingOnSerializer.deserializeBitSets(txnId, in);

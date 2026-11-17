@@ -130,7 +130,7 @@ public class CommandChangeWriter implements Journal.Writer
                     CommandSerializers.partialTxn.serialize(command.partialTxn(), out, userVersion);
                     break;
                 case PARTIAL_DEPS:
-                    DepsSerializers.partialDepsById.serialize(command.partialDeps(), out);
+                    DepsSerializers.serializeForJournal(command.txnId(), command.depsView(), out);
                     break;
                 case WAITING_ON:
                     Command.WaitingOn waitingOn = command.waitingOn();

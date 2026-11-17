@@ -23,7 +23,7 @@ import java.io.IOException;
 import accord.impl.CommandChange.WaitingOnBitSets;
 import accord.local.Command;
 import accord.local.Command.WaitingOn;
-import accord.primitives.PartialDeps;
+import accord.primitives.PartialDepsView;
 import accord.primitives.RangeDeps;
 import accord.primitives.RoutingKeys;
 import accord.primitives.Timestamp;
@@ -69,11 +69,11 @@ public class WaitingOnSerializer
             this.appliedOrInvalidatedLength = appliedOrInvalidatedLength;
         }
 
-        public WaitingOn construct(PartialDeps deps, Timestamp executeAtLeast, long uniqueHlc)
+        public WaitingOn construct(PartialDepsView deps, Timestamp executeAtLeast, long uniqueHlc)
         {
             Invariants.nonNull(deps);
-            RoutingKeys keys = deps.keyDeps.keys();
-            RangeDeps directRangeDeps = deps.rangeDeps;
+            RoutingKeys keys = deps.keys();
+            RangeDeps directRangeDeps = deps.rangeDeps();
             int txnIdCount = directRangeDeps.txnIdCount();
             Invariants.require(waitingOn.size()/64 == (txnIdCount + keys.size() + 63) / 64);
             Invariants.require(appliedOrInvalidated == null || (appliedOrInvalidated.size()/64 == (txnIdCount + 63)/64));

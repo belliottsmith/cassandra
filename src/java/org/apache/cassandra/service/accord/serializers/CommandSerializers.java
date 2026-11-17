@@ -755,12 +755,27 @@ public class CommandSerializers
             }, bits, 0, length, mask(hlcBits), in);
             SerializePacked.deserializePacked((out, i, v) -> out[i*2 + 1] |= minFlags + v, bits, 0, length, mask(flagBits), in);
             T[] ts = allocator.apply(length);
+            // node ids are typically drawn from a small domain, so avoid allocating a new Node.Id for every element
+            Node.Id[] nodeIds = nodeBits <= MAX_CACHED_NODE_ID_BITS ? new Node.Id[Math.min(1 << nodeBits, Integer.highestOneBit(Math.max(1, length - 1)) << 1)] : null;
             SerializePacked.deserializePacked((out, i, v) -> {
-                Node.Id id = new Node.Id(minNodeId + (int)v);
+                Node.Id id;
+                if (nodeIds == null) id = new Node.Id(minNodeId + (int)v);
+                else id = nodeId(nodeIds, minNodeId, (int)v);
                 ts[i] = rawFactory.create(bits[i*2], bits[i*2 + 1], id);
             }, bits, 0, length, mask(nodeBits), in);
             ArrayBuffers.cachedLongs().forceDiscard(bits);
             return ts;
+        }
+
+        private static final int MAX_CACHED_NODE_ID_BITS = 8;
+        private static Node.Id nodeId(Node.Id[] cache, int minNodeId, int offset)
+        {
+            // cache is a small open-addressed table keyed by offset; on collision we simply allocate
+            int slot = offset & (cache.length - 1);
+            Node.Id id = cache[slot];
+            if (id == null || id.id != minNodeId + offset)
+                cache[slot] = id = new Node.Id(minNodeId + offset);
+            return id;
         }
 
         public int skipArray(DataInputPlus in) throws IOException

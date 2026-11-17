@@ -645,15 +645,23 @@ public class AccordCommandStore extends CommandStore
     {
         // TODO (required): validate we don't have duplicate objects
         if (command != null)
-        {
-            PartialTxn txn = command.partialTxn();
-            if (txn != null)
-            {
-                TxnRead read = (TxnRead) txn.read();
-                read.unmemoize();
-            }
-        }
+            unmemoize(command);
         return command;
+    }
+
+    /**
+     * Discard any memoised state of the command that can be recomputed on demand, without logically modifying it.
+     */
+    public static void unmemoize(Command command)
+    {
+        PartialTxn txn = command.partialTxn();
+        if (txn != null)
+        {
+            TxnRead read = (TxnRead) txn.read();
+            read.unmemoize();
+        }
+        // discard any deserialized deps that can be recomputed from their serialized form on demand
+        command.unmemoizeDeps();
     }
 
     public MinimalCommand loadMinimal(TxnId txnId)

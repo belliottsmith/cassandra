@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
@@ -130,6 +131,16 @@ public class AccordCache
         default boolean canSave(@Nullable V value, @Nullable Object shrunk) { return true; }
         // a result of null means we can immediately evict, without saving
         @Nullable V quickShrink(V value);
+        /**
+         * Invoked when the last reference to an unmodified value is released, to discard any memoised state that may
+         * have been computed while it was referenced (modified values are instead passed to {@link #quickShrink}).
+         * Must not logically modify the value.
+         *
+         * Note that we only estimate the size of a value when it is loaded, inflated or updated (after {@link #quickShrink}),
+         * i.e. when it has no memoised state. So this returns the value to the state for which its size was estimated,
+         * and we need not re-estimate it.
+         */
+        default void unmemoize(V value) {}
         Shrink decideFullShrink(K key, V value);
         // a result of null means we cannot shrink, and should save/evict as appropriate
         @Nullable Object fullShrink(K key, V value);
@@ -599,6 +610,12 @@ public class AccordCache
                 else
                 {
                     evict = node.is(LOADED) && node.isNull();
+                    // the value may have memoised state while referenced (e.g. deserialized deps), which we should discard
+                    // before it becomes eligible for eviction (returning it to the state its size was estimated for, see
+                    // Adapter.unmemoize); we wait until the last reference is released, so that concurrent users of the
+                    // entry do not repeatedly recompute this state
+                    if (!evict && node.references() == 1)
+                        unmemoize(node);
                 }
                 node.remove(owner, safeRef.setReleased(), null);
 
@@ -632,6 +649,16 @@ public class AccordCache
                 }
 
                 tryShrinkOrEvict = true;
+            }
+
+            private void unmemoize(AccordCacheEntry<K, V, ?> node)
+            {
+                if (!node.isLoaded())
+                    return;
+
+                V current = node.tryGetFull();
+                if (current != null)
+                    adapter.unmemoize(current);
             }
 
             final AccordCacheEntry<K, ?, ?> remove(K key)
@@ -1060,6 +1087,7 @@ public class AccordCache
         final BiFunction<AccordCommandStore, K, V> load;
         final QuadFunction<AccordCommandStore, K, V, Object, Runnable> save;
         final Function<V, V> quickShrink;
+        final Consumer<V> unmemoize;
         final BiFunction<K, V, Object> shrink;
         final TriFunction<AccordCommandStore, K, Object, V> inflate;
         final TriFunction<AccordCommandStore, K, V, Boolean> validate;
@@ -1078,10 +1106,24 @@ public class AccordCache
                           Function<AccordCacheEntry<K, V, S>, S> newSafeRef,
                           BiFunction<K, Type<K, V, S>.Instance, AccordCacheEntry<K, V, S>> newNode)
         {
+            this(load, save, quickShrink, ignore -> {}, shrink, inflate, validate, estimateHeapSize, estimateShrunkHeapSize, newSafeRef, newNode);
+        }
+
+        FunctionalAdapter(BiFunction<AccordCommandStore, K, V> load,
+                          QuadFunction<AccordCommandStore, K, V, Object, Runnable> save,
+                          Function<V, V> quickShrink, Consumer<V> unmemoize, BiFunction<K, V, Object> shrink,
+                          TriFunction<AccordCommandStore, K, Object, V> inflate,
+                          TriFunction<AccordCommandStore, K, V, Boolean> validate,
+                          ToLongFunction<V> estimateHeapSize,
+                          ToLongFunction<Object> estimateShrunkHeapSize,
+                          Function<AccordCacheEntry<K, V, S>, S> newSafeRef,
+                          BiFunction<K, Type<K, V, S>.Instance, AccordCacheEntry<K, V, S>> newNode)
+        {
             this.load = load;
             this.save = save;
             this.shrink = shrink;
             this.quickShrink = quickShrink;
+            this.unmemoize = unmemoize;
             this.inflate = inflate;
             this.validate = validate;
             this.estimateHeapSize = estimateHeapSize;
@@ -1092,7 +1134,7 @@ public class AccordCache
 
         FunctionalAdapter(Adapter<K, V, S> wrap)
         {
-            this(wrap::load, wrap::save, wrap::quickShrink, wrap::fullShrink, wrap::inflate, wrap::validate, wrap::estimateHeapSize, wrap::estimateShrunkHeapSize, wrap::safeRef, wrap::newEntry);
+            this(wrap::load, wrap::save, wrap::quickShrink, wrap::unmemoize, wrap::fullShrink, wrap::inflate, wrap::validate, wrap::estimateHeapSize, wrap::estimateShrunkHeapSize, wrap::safeRef, wrap::newEntry);
         }
 
         @Override
@@ -1111,6 +1153,12 @@ public class AccordCache
         public V quickShrink(V value)
         {
             return quickShrink.apply(value);
+        }
+
+        @Override
+        public void unmemoize(V value)
+        {
+            unmemoize.accept(value);
         }
 
         @Override
@@ -1395,6 +1443,12 @@ public class AccordCache
         }
 
         @Override
+        public void unmemoize(Command value)
+        {
+            AccordCommandStore.unmemoize(value);
+        }
+
+        @Override
         public Object fullShrink(TxnId txnId, Command value)
         {
             if (txnId.is(Txn.Kind.EphemeralRead))
@@ -1418,7 +1472,7 @@ public class AccordCache
                 Invariants.expect(value.saveStatus().compareTo(SaveStatus.ReadyToExecute) < 0);
 
             // TODO (expected): improve heuristics and consider transaction size
-            if (SHRINK_WITHOUT_LOCK <= 0 || value.partialDeps() == null || value.partialDeps().txnIds().size() <= SHRINK_WITHOUT_LOCK)
+            if (SHRINK_WITHOUT_LOCK <= 0 || value.depsView() == null || value.depsView().txnIdCount() <= SHRINK_WITHOUT_LOCK)
                 return Shrink.DONE;
 
             return Shrink.PERFORM_WITHOUT_LOCK;
