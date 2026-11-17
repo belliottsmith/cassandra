@@ -37,7 +37,8 @@ public final class SaferCommandsForKey extends SafeCommandsForKey implements Saf
 {
     public static class CommandsForKeyCacheEntry extends AccordCacheEntry<RoutingKey, CommandsForKey, SaferCommandsForKey>
     {
-        private NotifySink overrideSink;
+        // transient backlog execution state (see SafeCommandsForKey#backlogState); not persisted, lost on eviction
+        private Object backlogState;
 
         CommandsForKeyCacheEntry(RoutingKey key, AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance owner)
         {
@@ -90,16 +91,15 @@ public final class SaferCommandsForKey extends SafeCommandsForKey implements Saf
     }
 
     @Override
-    public void overrideSink(NotifySink overrideSink)
+    public void backlogState(Object state)
     {
-        ((CommandsForKeyCacheEntry)global).overrideSink = overrideSink;
+        ((CommandsForKeyCacheEntry)global).backlogState = state;
     }
 
     @Override
-    public NotifySink overrideSink()
+    public Object backlogState()
     {
-        NotifySink sink = ((CommandsForKeyCacheEntry)global).overrideSink;
-        return DebugDistributedExecution.ENABLED ? DebugDistributedExecution.sink(sink) : sink;
+        return ((CommandsForKeyCacheEntry)global).backlogState;
     }
 
     @Override
@@ -111,8 +111,11 @@ public final class SaferCommandsForKey extends SafeCommandsForKey implements Saf
             return;
         }
 
+        // the backlog state (which may hold an override sink) is compared by identity, so we can no longer wrap the
+        // override sink for tracing; we instead wrap the sink of callbacks (so updates via e.g. registerUnmanaged,
+        // updateRedundantBefore and updateUniqueHlc notify without tracing)
         TxnId prev = DebugDistributedExecution.beginKeyUpdate(safeStore, key, nextCommand.saveStatus().name(), nextCommand.txnId());
-        try { super.callback(safeStore, nextCommand, notifySink, forceNotify); }
+        try { super.callback(safeStore, nextCommand, DebugDistributedExecution.sink(notifySink), forceNotify); }
         finally { DebugDistributedExecution.endKeyUpdate(prev); }
     }
 
