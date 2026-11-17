@@ -192,9 +192,7 @@ public class ControllableRangeIndex implements RangeIndex
         }
 
         /**
-         * Both relevance overloads, so that the answer does not depend on which representation the cache happens to hold:
-         * {@code KeyWatcher.reference} takes the {@code CommandsForKey} overload for a live value and the
-         * {@code (key, last, minUndecided)} one for a shrunk (ByteBuffer) value.
+         * Both relevance overloads, so that the answer does not depend on which one the scanner uses.
          */
         @Override
         public boolean isRelevant(accord.local.cfk.CommandsForKey cfk)
@@ -203,7 +201,7 @@ public class ControllableRangeIndex implements RangeIndex
         }
 
         @Override
-        public boolean isRelevant(RoutingKey key, TxnId last, TxnId minUndecided)
+        public boolean isRelevant(RoutingKey key, TxnId last)
         {
             return relevance.test(key);
         }

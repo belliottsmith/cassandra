@@ -17,7 +17,6 @@
  */
 package org.apache.cassandra.service.accord.execution;
 
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -83,7 +82,6 @@ import org.apache.cassandra.service.accord.execution.AccordCacheEntry.Loading;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.Status;
-import org.apache.cassandra.service.accord.serializers.CommandSerializers;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -1993,6 +1991,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         }
 
         final Set<TokenKey> intersectingKeys = new ObjectHashSet<>();
+        // keys we found loaded and irrelevant when we started, so need not load even if we find them on disk
+        final Set<TokenKey> irrelevantKeys = new ObjectHashSet<>();
         final Ranges ranges = ((AbstractRanges) context.keys()).toRanges();
         final AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance commandsForKeyCache;
         KeyWatcher keyWatcher = new KeyWatcher();
@@ -2044,40 +2044,62 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                     if (refs.containsKey(entry.key()))
                         return;
 
-                    Object v = entry.getOrShrunkExclusive();
-                    if (v == null) return;
-                    else if (v instanceof CommandsForKey)
-                    {
-                        if (!loader.isRelevant((CommandsForKey) v))
-                            return;
-                    }
-                    else
-                    {
-                        TxnId last = CommandSerializers.txnId.deserialize((ByteBuffer) v);
-                        int position = (int)CommandSerializers.txnId.serializedSize(last);
-                        TxnId minUndecided = CommandSerializers.txnId.deserialize((ByteBuffer) v, position);
-                        if (!loader.isRelevant(entry.key(), last, minUndecided))
-                            return;
-                    }
+                    if (isRelevant(entry) != Boolean.TRUE)
+                        return;
 
                     SafeTask.this.addCachedKeyExclusive(entry, commandsForKeyCache.acquire(entry));
             }
         }
 
+        /**
+         * @return whether a cached {@code CommandsForKey} may be relevant to us, or null if we cannot tell as it is not loaded
+         */
+        private @Nullable Boolean isRelevant(AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry)
+        {
+            switch (entry.status())
+            {
+                default:
+                    return null;
+
+                case MODIFIED:
+                case WAITING_TO_SAVE:
+                case SAVING:
+                case LOADED:
+                case FAILED_TO_SAVE:
+                    Object v = entry.getOrShrunkExclusive();
+                    if (v == null)
+                        return false;
+                    if (v instanceof CommandsForKey)
+                        return loader.isRelevant((CommandsForKey) v);
+                    TxnId last = AccordCache.CommandsForKeyAdapter.last(v);
+                    return last != null && loader.isRelevant(entry.key(), last);
+            }
+        }
+
         void startInternal(Caches caches)
         {
+            super.startInternal(caches);
+            AccordCache.Type<RoutingKey, CommandsForKey, SaferCommandsForKey>.Instance cache = caches.commandsForKeys();
             for (Range range : ranges)
             {
-                for (RoutingKey key : caches.commandsForKeys().keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
-                    intersectingKeys.add((TokenKey) key);
+                for (RoutingKey key : cache.keysBetween(range.start(), range.startInclusive(), range.end(), range.endInclusive()))
+                {
+                    // a loaded key we find irrelevant need not be loaded, even if we find it on disk; if it is updated
+                    // before we finish scanning, keyWatcher will reconsider it
+                    AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry = cache.getExclusive(key);
+                    if (entry != null && !entry.isUnsafeToRead() && isRelevant(entry) == Boolean.FALSE)
+                        irrelevantKeys.add((TokenKey) key);
+                    else
+                        intersectingKeys.add((TokenKey) key);
+                }
             }
-            caches.commandsForKeys().register(keyWatcher);
-            super.startInternal(caches);
+            cache.register(keyWatcher);
         }
 
         void scannedInternal()
         {
             intersectingKeys.removeAll(refs.keySet());
+            intersectingKeys.removeAll(irrelevantKeys);
             setupKeyLoadsExclusive(false, commandStore.cachesExclusive(), intersectingKeys, true);
             super.scannedInternal();
         }

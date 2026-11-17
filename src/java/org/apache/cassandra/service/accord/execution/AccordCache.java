@@ -692,6 +692,14 @@ public class AccordCache
                 return cache.get(key);
             }
 
+            /**
+             * The entry for {@code key} if present, without acquiring it; the caller must hold the cache lock
+             */
+            public final @Nullable AccordCacheEntry<K, V, S> getExclusive(K key)
+            {
+                return cache.get(key);
+            }
+
             @VisibleForTesting
             public final boolean isReferenced(K key)
             {
@@ -1267,23 +1275,31 @@ public class AccordCache
                 return null;
 
             TxnId last = value.size() == 0 ? null : value.get(value.size() - 1);
-            TxnId minUndecided = value.minUndecidedManaged();
             int lastSize = (int) CommandSerializers.txnId.serializedSize(last);
-            int minUndecidedSize = (int) CommandSerializers.txnId.serializedSize(minUndecided);
-            ByteBuffer result = Serialize.toBytesWithoutKey(lastSize + minUndecidedSize, value.maybePrune(0, AccordAgent.cfkHlcPruneDelta(getAccord())));
+            ByteBuffer result = Serialize.toBytesWithoutKey(lastSize, value.maybePrune(0, AccordAgent.cfkHlcPruneDelta(getAccord())));
             int limit = result.limit();
-            result.limit(lastSize + minUndecidedSize);
+            result.limit(lastSize);
             CommandSerializers.txnId.serialize(last, result, ByteBufferAccessor.instance, 0);
-            CommandSerializers.txnId.serialize(minUndecided, result, ByteBufferAccessor.instance, lastSize);
             result.limit(limit);
             return result;
         }
 
+        /**
+         * The latest TxnId of a full or shrunk {@link CommandsForKey}, or null if it has none
+         */
+        public static @Nullable TxnId last(Object fullOrShrunk)
+        {
+            if (fullOrShrunk instanceof CommandsForKey)
+            {
+                CommandsForKey cfk = (CommandsForKey) fullOrShrunk;
+                return cfk.size() == 0 ? null : cfk.get(cfk.size() - 1);
+            }
+            return CommandSerializers.txnId.deserialize((ByteBuffer) fullOrShrunk, 0);
+        }
+
         private static int prefixBytes(ByteBuffer bb)
         {
-            int prefix = (int) CommandSerializers.txnId.serializedSize(CommandSerializers.txnId.deserialize(bb, 0));
-            prefix += (int)CommandSerializers.txnId.serializedSize(CommandSerializers.txnId.deserialize(bb, prefix));
-            return prefix;
+            return (int) CommandSerializers.txnId.serializedSize(CommandSerializers.txnId.deserialize(bb, 0));
         }
 
         @Override
