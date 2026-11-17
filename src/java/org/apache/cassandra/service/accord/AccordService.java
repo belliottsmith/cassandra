@@ -544,7 +544,7 @@ public class AccordService implements IAccordService, Shutdownable
             ProtocolModifiers.Configure.setDefaultMediumPath(config.permit_track_stable_medium_path ? TrackStable : NoMediumPath);
         if (config.permit_fast_quorum_medium_path != null)
             ProtocolModifiers.Configure.setPermitFastQuorumMediumPath(config.permit_fast_quorum_medium_path);
-        if (config.always_inform_durable_single_key != null)
+        if (Boolean.TRUE.equals(config.always_inform_durable_single_key))
             ProtocolModifiers.Configure.setInformOfSingleKeyDurabilityIfDepsSizeAtLeast(0);
         if (config.replica_execution != null)
             ProtocolModifiers.Configure.setReplicaExecution(config.replica_execution);
