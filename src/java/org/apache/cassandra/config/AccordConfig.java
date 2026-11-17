@@ -289,7 +289,8 @@ public class AccordConfig
      */
     @Replaces(oldName = "expire_durability", converter = Converters.IDENTITY, deprecated = true)
     public String expire_syncpoint_wait_until_applied = "10s*attempts <= 30s";
-    public String slow_syncpoint_wait_until_applied = "15s*attempts <= 300s";
+    // must be less than expire_syncpoint_wait_until_applied to have any effect
+    public String slow_syncpoint_wait_until_applied = "1s <= p99*2 <= 10s";
     public String slow_txn_preaccept = "30ms <= p50*2 <= 1000ms";
     public String slow_read = "30ms <= p50*2 <= 1000ms";
     public String slow_status_check = "30ms <= p50*2 <= 1000ms";

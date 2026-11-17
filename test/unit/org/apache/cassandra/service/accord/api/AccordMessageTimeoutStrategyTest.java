@@ -97,13 +97,25 @@ public class AccordMessageTimeoutStrategyTest
     @Test
     public void testDispatch()
     {
-        // configured defaults: slow_syncpoint_preaccept = 10s, slow_syncpoint_wait_until_applied = 15s*attempts <= 300s,
+        // configured defaults: slow_syncpoint_preaccept = 10s, slow_syncpoint_wait_until_applied = 1s <= p99*2 <= 10s,
         // expire_txn = 5s*attempts <= 60s, expire_syncpoint = 15s*attempts<=300s,
         // expire_syncpoint_wait_until_applied = 10s*attempts <= 30s
         assertThat(AccordWaitStrategies.slowPreaccept(SYNC_POINT, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(10);
         assertThat(AccordWaitStrategies.slowPreaccept(WRITE, Verb.ACCORD_PRE_ACCEPT_REQ, "remote").computeWait(1, MILLISECONDS)).isBetween(30L, 1000L);
-        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "remote").computeWait(2, SECONDS)).isEqualTo(30);
-        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(15);
+        // with no sync point round-trips of these messages, bounded below
+        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ, "remote").computeWait(1, SECONDS)).isEqualTo(1);
+        // otherwise ~2x the p99 to the same destination, bounded above (histogram buckets are ~20% wide)
+        MessageLatency applyAndWait = AccordCoordinatorMetrics.syncPointMetrics.messageLatency(Verb.ACCORD_APPLY_AND_WAIT_REQ);
+        for (int i = 0 ; i < 100 ; ++i)
+        {
+            applyAndWait.recordMeasured("near", MILLISECONDS.toNanos(1000), 0);
+            applyAndWait.recordMeasured("far", MILLISECONDS.toNanos(8000), 0);
+        }
+        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "near").computeWait(1, MILLISECONDS)).isBetween(1600L, 2400L);
+        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "far").computeWait(1, SECONDS)).isEqualTo(10);
+        // and less than the expiry, so it can take effect
+        assertThat(AccordWaitStrategies.slowWaitUntilApplied(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "near").computeWait(1, MILLISECONDS))
+            .isLessThan(AccordWaitStrategies.expire(SYNC_POINT, Verb.ACCORD_APPLY_AND_WAIT_REQ, "near").computeWait(1, MILLISECONDS));
         assertThat(AccordWaitStrategies.slowWaitUntilApplied(WRITE, Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ, "remote")).isNull();
         assertThat(AccordWaitStrategies.slowRead(SYNC_POINT, Verb.ACCORD_READ_REQ, "remote")).isNull();
 
