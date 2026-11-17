@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import javax.annotation.Nullable;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import accord.primitives.TxnId;
 
 import org.apache.cassandra.config.AccordConfig;
@@ -45,27 +47,38 @@ public class AccordWaitStrategies
      * A {@link TimeoutStrategy} specification that is evaluated separately for each kind of message and destination,
      * so that its percentiles ({@code pX}) refer to the recent round-trips of that message to that destination
      * (see {@link AccordCoordinatorMetrics#latencies}): e.g. {@code p50*2} is twice the median round-trip of a
-     * PreAccept to the datacenter it is being sent to (or of local delivery).
+     * PreAccept to the datacenter it is being sent to (or of local delivery). For a sync point specification, these
+     * are the round-trips of sync points; otherwise {@code (r)} selects those of read transactions, {@code (w)} writes,
+     * and {@code (rw)} (the default) the larger.
      */
     public static final class MessageTimeoutStrategy
     {
         private static final String ANY_DESTINATION = "";
 
         final String spec;
+        final boolean syncPoints;
+        // for requests whose verb is unknown
+        private final TimeoutStrategy fallback;
         private final ConcurrentHashMap<Verb, ConcurrentHashMap<String, TimeoutStrategy>> byVerb = new ConcurrentHashMap<>();
 
-        MessageTimeoutStrategy(String spec)
+        @VisibleForTesting
+        MessageTimeoutStrategy(String spec, boolean syncPoints)
         {
             this.spec = spec;
-            TimeoutStrategy.parse(spec, none()); // validate
+            this.syncPoints = syncPoints;
+            // for sync points we have no fallback latencies (and validate the specification for both)
+            this.fallback = TimeoutStrategy.parse(spec, syncPoints ? none() : rw(accordReadMetrics, accordWriteMetrics));
         }
 
         /**
-         * @param verb the request's verb
+         * @param verb the request's verb, or null if unknown
          * @param destination the request's destination: a datacenter, {@link LinkLatencies#SELF}, or null if unknown
          */
-        public TimeoutStrategy get(Verb verb, @Nullable String destination)
+        public TimeoutStrategy get(@Nullable Verb verb, @Nullable String destination)
         {
+            if (verb == null)
+                return fallback;
+
             ConcurrentHashMap<String, TimeoutStrategy> byDestination = byVerb.get(verb);
             if (byDestination == null)
                 byDestination = byVerb.computeIfAbsent(verb, ignore -> new ConcurrentHashMap<>());
@@ -73,7 +86,8 @@ public class AccordWaitStrategies
             String key = destination == null ? ANY_DESTINATION : destination;
             TimeoutStrategy result = byDestination.get(key);
             if (result == null)
-                result = byDestination.computeIfAbsent(key, ignore -> TimeoutStrategy.parse(spec, AccordCoordinatorMetrics.latencies(verb, destination)));
+                result = byDestination.computeIfAbsent(key, ignore -> TimeoutStrategy.parse(spec, syncPoints ? AccordCoordinatorMetrics.syncPointLatencies(verb, destination)
+                                                                                                             : AccordCoordinatorMetrics.latencies(verb, destination)));
             return result;
         }
 
@@ -85,11 +99,28 @@ public class AccordWaitStrategies
     }
 
     static MessageTimeoutStrategy slowTxnPreaccept, slowRead, slowStatusCheck;
-    static TimeoutStrategy slowSyncPointPreaccept;
-    static TimeoutStrategy expireTxn, expireSyncPoint, expireDurability, expireEpochWait;
+    static MessageTimeoutStrategy slowSyncPointPreaccept, slowSyncPointWaitUntilApplied;
+    static MessageTimeoutStrategy expireTxn, expireSyncPoint, expireDurability;
+    static TimeoutStrategy expireEpochWait;
     static TimeoutStrategy fetchTxn, fetchSyncPoint;
     static RetryStrategy recoverTxn, recoverSyncPoint, retrySyncPoint, retryBackgroundSyncPoint, retryDurability, retryBootstrap, retryJoinBootstrap;
     static RetryStrategy retryFetchMinEpoch, retryFetchTopology;
+
+    /*
+     * Each of the following strategies concerns a request of {@code verb} for {@code txnId} sent to {@code destination}
+     * (a datacenter, {@link LinkLatencies#SELF}, or null if unknown), and is evaluated against the recent round-trips
+     * of the same kind of message to the same destination (see {@link MessageTimeoutStrategy})
+     */
+
+    public static TimeoutStrategy expire(@Nullable TxnId txnId, @Nullable Verb verb, @Nullable String destination)
+    {
+        if (verb == Verb.ACCORD_CHECK_STATUS_REQ || verb == Verb.ACCORD_AWAIT_REQ)
+            return expireTxn.get(verb, destination); // status checks are cheap, no reason to give sync points longer to timeout
+
+        if (txnId == null || !txnId.isSyncPoint())
+            return expireTxn.get(verb, destination);
+        return (verb == Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ ? expireDurability : expireSyncPoint).get(verb, destination);
+    }
 
     public static @Nullable TimeoutStrategy slowRead(@Nullable TxnId txnId, Verb verb, @Nullable String destination)
     {
@@ -98,24 +129,22 @@ public class AccordWaitStrategies
         return slowRead.get(verb, destination);
     }
 
-    public static TimeoutStrategy expire(@Nullable TxnId txnId, Verb verb)
-    {
-        switch (verb)
-        {
-            case ACCORD_CHECK_STATUS_REQ:
-            case ACCORD_AWAIT_REQ:
-                // status checks are cheap, no reason to give sync points longer to timeout
-                return expireTxn;
-        }
-
-        if (txnId == null || !txnId.isSyncPoint())
-            return expireTxn;
-        return verb == Verb.ACCORD_WAIT_UNTIL_APPLIED_REQ ? expireDurability : expireSyncPoint;
-    }
-
-    public static @Nullable TimeoutStrategy slowStatusCheck(Verb verb, @Nullable String destination)
+    public static TimeoutStrategy slowStatusCheck(Verb verb, @Nullable String destination)
     {
         return slowStatusCheck.get(verb, destination);
+    }
+
+    public static TimeoutStrategy slowPreaccept(TxnId txnId, Verb verb, @Nullable String destination)
+    {
+        return (txnId.isSyncPoint() ? slowSyncPointPreaccept : slowTxnPreaccept).get(verb, destination);
+    }
+
+    /**
+     * WaitUntilApplied (and ApplyThenWaitUntilApplied) are only sent for sync points
+     */
+    public static @Nullable TimeoutStrategy slowWaitUntilApplied(TxnId txnId, Verb verb, @Nullable String destination)
+    {
+        return txnId.isSyncPoint() ? slowSyncPointWaitUntilApplied.get(verb, destination) : null;
     }
 
     public static TimeoutStrategy fetch(@Nullable TxnId txnId)
@@ -123,23 +152,6 @@ public class AccordWaitStrategies
         if (txnId == null || !txnId.isSyncPoint())
             return fetchTxn;
         return fetchSyncPoint;
-    }
-
-    public static TimeoutStrategy slowPreaccept(TxnId txnId, Verb verb, @Nullable String destination)
-    {
-        if (txnId.isSyncPoint())
-            return expireSyncPoint;
-        return slowTxnPreaccept.get(verb, destination);
-    }
-
-    static TimeoutStrategy slowTxnPreaccept(Verb verb, @Nullable String destination)
-    {
-        return slowTxnPreaccept.get(verb, destination);
-    }
-
-    static TimeoutStrategy slowRead(Verb verb, @Nullable String destination)
-    {
-        return slowRead.get(verb, destination);
     }
 
     public static RetryStrategy retryFetchWatermarks()
@@ -159,6 +171,7 @@ public class AccordWaitStrategies
         setSlowStatusCheck(config.slow_status_check);
         setSlowTxnPreaccept(config.slow_txn_preaccept);
         setSlowSyncPointPreaccept(config.slow_syncpoint_preaccept);
+        setSlowSyncPointWaitUntilApplied(config.slow_syncpoint_wait_until_applied);
         setExpireTxn(config.expire_txn);
         setExpireSyncPoint(config.expire_syncpoint);
         setExpireDurability(config.expire_durability);
@@ -178,37 +191,42 @@ public class AccordWaitStrategies
 
     public static void setSlowRead(String spec)
     {
-        slowRead = new MessageTimeoutStrategy(spec);
+        slowRead = new MessageTimeoutStrategy(spec, false);
     }
 
     public static void setSlowStatusCheck(String spec)
     {
-        slowStatusCheck = new MessageTimeoutStrategy(spec);
+        slowStatusCheck = new MessageTimeoutStrategy(spec, false);
     }
 
     public static void setSlowTxnPreaccept(String spec)
     {
-        slowTxnPreaccept = new MessageTimeoutStrategy(spec);
+        slowTxnPreaccept = new MessageTimeoutStrategy(spec, false);
     }
 
     public static void setSlowSyncPointPreaccept(String spec)
     {
-        slowSyncPointPreaccept = TimeoutStrategy.parse(spec, none());
+        slowSyncPointPreaccept = new MessageTimeoutStrategy(spec, true);
+    }
+
+    public static void setSlowSyncPointWaitUntilApplied(String spec)
+    {
+        slowSyncPointWaitUntilApplied = new MessageTimeoutStrategy(spec, true);
     }
 
     public static void setExpireTxn(String spec)
     {
-        expireTxn = TimeoutStrategy.parse(spec, rw(accordReadMetrics, accordWriteMetrics));
+        expireTxn = new MessageTimeoutStrategy(spec, false);
     }
 
     public static void setExpireSyncPoint(String spec)
     {
-        expireSyncPoint = TimeoutStrategy.parse(spec, none());
+        expireSyncPoint = new MessageTimeoutStrategy(spec, true);
     }
 
     public static void setExpireDurability(String spec)
     {
-        expireDurability = TimeoutStrategy.parse(spec, none());
+        expireDurability = new MessageTimeoutStrategy(spec, true);
     }
 
     public static void setExpireEpochWait(String spec)

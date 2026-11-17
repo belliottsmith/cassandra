@@ -75,15 +75,20 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
     public void networkLatencyIsAttributedToLink() throws Throwable
     {
         withCluster(true, (cluster, estimate) -> {
-            // the coordinator pre-accepts locally without delivering a message, so its PreAccept round-trips are all to node2
-            double[] preAccept = awaitStats(cluster.get(1), Verb.ACCORD_PRE_ACCEPT_REQ, TXNS);
+            // the coordinator pre-accepts for itself directly (reported via AccordAgent.onLocalRequest), and sends PreAccept to node2
+            double[] preAccept = awaitStats(cluster.get(1), Verb.ACCORD_PRE_ACCEPT_REQ, 2 * TXNS);
             System.out.println("### node1 PreAccept " + STATS + ": " + Arrays.toString(preAccept));
             // every reply reported the time spent at the replica, so nothing was inferred
             assertThat(preAccept[1]).isEqualTo(preAccept[0]);
             assertThat(preAccept[4]).isEqualTo(0);
-            // the time at the replica is much less than the link round-trip, which accounts for the rest
+            // the time at the replica is much less than the link round-trip, which accounts for the rest of the half of
+            // round-trips that were remote
             assertThat(preAccept[3]).isLessThan(0.5 * estimate);
-            assertThat(preAccept[2] - preAccept[3]).isBetween(0.7 * estimate, 1.3 * estimate);
+            assertThat(preAccept[2] - preAccept[3]).isBetween(0.35 * estimate, 0.65 * estimate);
+
+            long[] preAcceptByDestination = awaitPerDestination(cluster.get(1), Verb.ACCORD_PRE_ACCEPT_REQ);
+            System.out.println("### node1 PreAccept " + PER_DESTINATION + ": " + Arrays.toString(preAcceptByDestination));
+            assertPerDestination(preAcceptByDestination, estimate);
 
             // Apply is sent both to node2, and to ourselves by local delivery
             double[] apply = awaitStats(cluster.get(1), Verb.ACCORD_APPLY_REQ, 2 * TXNS);
@@ -91,24 +96,10 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
             assertThat(apply[1]).isEqualTo(apply[0]);
             assertThat(apply[4]).isEqualTo(0);
 
-            // round-trips are also tracked per destination, and judged slow against those of the same message to the
-            // same destination: Apply round-trips to ourselves are short, and to datacenter2 at least the link
-            long[] perDestination = cluster.get(1).callOnInstance(() -> {
-                AccordCoordinatorMetrics.MessageLatency applies = AccordCoordinatorMetrics.writeMetrics.messageLatency(Verb.ACCORD_APPLY_REQ);
-                TxnId txnId = new TxnId(1, 1, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(1));
-                return new long[]{ applies.roundTrip(LinkLatencies.SELF).getCount(), (long) applies.roundTrip(LinkLatencies.SELF).getSnapshot().getMedian(),
-                                   applies.roundTrip("datacenter2").getCount(), (long) applies.roundTrip("datacenter2").getSnapshot().getMedian(),
-                                   AccordWaitStrategies.slowPreaccept(txnId, Verb.ACCORD_APPLY_REQ, LinkLatencies.SELF).computeWait(1, TimeUnit.MICROSECONDS),
-                                   AccordWaitStrategies.slowPreaccept(txnId, Verb.ACCORD_APPLY_REQ, "datacenter2").computeWait(1, TimeUnit.MICROSECONDS) };
-            });
-            System.out.println("### node1 Apply {self count, median; datacenter2 count, median; slow wait self, datacenter2}: " + Arrays.toString(perDestination));
-            assertThat(perDestination[0]).isGreaterThanOrEqualTo(TXNS);
-            assertThat(perDestination[2]).isGreaterThanOrEqualTo(TXNS);
-            assertThat(perDestination[1]).isLessThan((long) (0.25 * estimate));
-            assertThat(perDestination[3]).isBetween((long) (0.8 * estimate), (long) (1.5 * estimate));
-            // slow_txn_preaccept defaults to 30ms <= p50*2 <= 1000ms
-            assertThat(perDestination[4]).isLessThan(perDestination[5]);
-            assertThat(perDestination[5]).isBetween(2 * perDestination[3] * 8 / 10, 2 * perDestination[3] * 12 / 10);
+            // Apply round-trips are tracked per destination too
+            long[] applyByDestination = awaitPerDestination(cluster.get(1), Verb.ACCORD_APPLY_REQ);
+            System.out.println("### node1 Apply " + PER_DESTINATION + ": " + Arrays.toString(applyByDestination));
+            assertPerDestination(applyByDestination, estimate);
 
             // the round-trips observed on the network to datacenter2 agree with the probes, and spent little time queued
             // to be sent; there are none to datacenter1, as we were its only replica
@@ -139,10 +130,11 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
         withCluster(false, (cluster, estimate) -> {
             // requests wait ONE_WAY before serialization at node1 (its send queue), and responses wait ONE_WAY before
             // serialization at node2 (the replica's time); the network itself is fast
-            double[] preAccept = awaitStats(cluster.get(1), Verb.ACCORD_PRE_ACCEPT_REQ, TXNS);
+            double[] preAccept = awaitStats(cluster.get(1), Verb.ACCORD_PRE_ACCEPT_REQ, 2 * TXNS);
             System.out.println("### node1 PreAccept " + STATS + ": " + Arrays.toString(preAccept));
             assertThat(preAccept[4]).isEqualTo(0);
-            assertThat(preAccept[3]).isBetween(0.8 * ONE_WAY_MICROS, 1.5 * ONE_WAY_MICROS);
+            // half of the PreAccepts were our own (with no added delay), and half to node2
+            assertThat(preAccept[3]).isBetween(0.4 * ONE_WAY_MICROS, 0.75 * ONE_WAY_MICROS);
 
             long[] observed = observed(cluster.get(1));
             assertThat(observed[0]).isGreaterThanOrEqualTo(TXNS);
@@ -251,6 +243,52 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
         return observed;
     }
 
+    private static final String PER_DESTINATION = "{self count, median; datacenter2 count, median; slow wait self, datacenter2}";
+
+    /**
+     * @return {@link #PER_DESTINATION} for node's rw round-trips of {@code verb}, where the slow waits are those of
+     *         slow_txn_preaccept, judged against the same message to the same destination
+     */
+    private static long[] perDestination(IInvokableInstance instance, Verb verb)
+    {
+        return instance.callOnInstance(() -> {
+            AccordCoordinatorMetrics.MessageLatency metrics = AccordCoordinatorMetrics.writeMetrics.messageLatency(verb);
+            TxnId txnId = new TxnId(1, 1, Txn.Kind.Write, Routable.Domain.Key, new Node.Id(1));
+            return new long[]{ metrics.roundTrip(LinkLatencies.SELF).getCount(), (long) metrics.roundTrip(LinkLatencies.SELF).getSnapshot().getMedian(),
+                               metrics.roundTrip("datacenter2").getCount(), (long) metrics.roundTrip("datacenter2").getSnapshot().getMedian(),
+                               AccordWaitStrategies.slowPreaccept(txnId, verb, LinkLatencies.SELF).computeWait(1, TimeUnit.MICROSECONDS),
+                               AccordWaitStrategies.slowPreaccept(txnId, verb, "datacenter2").computeWait(1, TimeUnit.MICROSECONDS) };
+        });
+    }
+
+    /**
+     * Wait for the slow wait to datacenter2 to reflect the recent round-trips, as the latencies a strategy is based on
+     * are cached for up to 10s (and the strategy may have been first used before there were any samples)
+     */
+    private static long[] awaitPerDestination(IInvokableInstance instance, Verb verb) throws InterruptedException
+    {
+        long deadline = nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        long[] result = perDestination(instance, verb);
+        while (result[5] < 2 * result[3] * 8 / 10 && nanoTime() < deadline)
+        {
+            Thread.sleep(500);
+            result = perDestination(instance, verb);
+        }
+        return result;
+    }
+
+    private static void assertPerDestination(long[] perDestination, long estimate)
+    {
+        assertThat(perDestination[0]).isGreaterThanOrEqualTo(TXNS);
+        assertThat(perDestination[2]).isGreaterThanOrEqualTo(TXNS);
+        // round-trips to ourselves are short, and to datacenter2 at least the link
+        assertThat(perDestination[1]).isLessThan((long) (0.25 * estimate));
+        assertThat(perDestination[3]).isBetween((long) (0.8 * estimate), (long) (1.5 * estimate));
+        // slow_txn_preaccept defaults to 30ms <= p50*2 <= 1000ms
+        assertThat(perDestination[4]).isLessThan(perDestination[5]);
+        assertThat(perDestination[5]).isBetween(2 * perDestination[3] * 8 / 10, 2 * perDestination[3] * 12 / 10);
+    }
+
     private static final String STATS = "{count: total, replica; mean: total, replica; inferred}";
 
     /**
@@ -270,7 +308,7 @@ public class AccordReplicaLinkLatencyTest extends TestBaseImpl
             if (stats[0] >= count)
                 return stats;
             if (nanoTime() > deadline)
-                throw new AssertionError("Timed out waiting for " + count + ' ' + verb + " round-trips: " + Arrays.toString(stats));
+                throw new AssertionError("Timed out waiting for " + count + ' ' + verb + " round-trips: " + Arrays.toString(stats) + "; by destination " + Arrays.toString(perDestination(instance, verb)));
             Thread.sleep(100);
         }
     }

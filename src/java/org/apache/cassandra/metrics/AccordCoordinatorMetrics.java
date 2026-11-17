@@ -20,6 +20,7 @@ package org.apache.cassandra.metrics;
 
 import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 import javax.annotation.Nullable;
 
@@ -346,6 +347,17 @@ public class AccordCoordinatorMetrics
         MessageLatency reads = readMetrics.messageLatency(requestVerb), writes = writeMetrics.messageLatency(requestVerb);
         return new TimeoutStrategy.ReadWriteLatencySourceFactory(() -> reads.roundTripSnapshot(destination),
                                                                  () -> writes.roundTripSnapshot(destination));
+    }
+
+    /**
+     * @return the recent round-trip latencies of {@code requestVerb} to {@code destination} for sync points, for use
+     *         by a {@link TimeoutStrategy} (whatever the read/write selection, as sync points are neither)
+     */
+    public static TimeoutStrategy.LatencySourceFactory syncPointLatencies(Verb requestVerb, @Nullable String destination)
+    {
+        MessageLatency syncPoints = syncPointMetrics.messageLatency(requestVerb);
+        Supplier<Snapshot> snapshot = () -> syncPoints.roundTripSnapshot(destination);
+        return new TimeoutStrategy.ReadWriteLatencySourceFactory(snapshot, snapshot);
     }
 
     @Nullable

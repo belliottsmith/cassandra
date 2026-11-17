@@ -270,19 +270,22 @@ public class AccordConfig
     public StringRetryStrategy recover_syncpoint = new StringRetryStrategy("60s <= 30s*attempts...60s*attempts <= 600s");
     public String fetch_txn = "2s*attempts <= 60s";
     public String fetch_syncpoint = "5s*attempts <= 60s";
+    /*
+     * The expire_txn/syncpoint/durability, slow_txn_* and slow_syncpoint_* (and slow_read, slow_status_check)
+     * specifications are evaluated separately for each kind of message and destination: their percentiles (pX) refer to
+     * the recent round-trips of the message being sent (e.g. PreAccept) to the datacenter it is being sent to (or of
+     * local delivery), as recorded by the AccordCoordinator <Request>Message-<destination> metrics (falling back to all
+     * destinations until there are samples). For the syncpoint specifications (including expire_durability) these are
+     * the round-trips of sync points; otherwise (r) selects those of read transactions, (w) writes, and (rw) the larger.
+     */
     public String expire_txn = "5s*attempts <= 60s";
     public String expire_syncpoint = "15s*attempts<=300s";
     public String expire_epoch_wait = "10s";
     // we don't want to wait ages for durability as it blocks other durability progress; even this might be too long, as we can always retry
     public String expire_durability = "10s*attempts <= 30s";
     public String slow_syncpoint_preaccept = "10s";
-    /*
-     * slow_txn_preaccept, slow_read and slow_status_check are evaluated separately for each kind of message and
-     * destination: their percentiles (pX) refer to the recent round-trips of the message being sent (e.g. PreAccept)
-     * to the datacenter it is being sent to (or of local delivery), as recorded by the AccordCoordinator
-     * <Request>Message-<destination> metrics (falling back to all destinations until there are samples), with (r)
-     * selecting those of read transactions, (w) writes, and (rw) the larger.
-     */
+    // for WaitUntilApplied and ApplyThenWaitUntilApplied, which are only sent for sync points
+    public String slow_syncpoint_wait_until_applied = "15s*attempts <= 300s";
     public String slow_txn_preaccept = "30ms <= p50*2 <= 1000ms";
     public String slow_read = "30ms <= p50*2 <= 1000ms";
     public String slow_status_check = "30ms <= p50*2 <= 1000ms";

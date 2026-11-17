@@ -22,7 +22,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nullable;
 
@@ -107,6 +106,7 @@ import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expir
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowPreaccept;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowRead;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowStatusCheck;
+import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowWaitUntilApplied;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public class AccordMessageSink implements MessageSink
@@ -192,8 +192,9 @@ public class AccordMessageSink implements MessageSink
             return ((AccordMessageType)type).verb;
         }
 
+
         @Nullable
-        private static Verb getVerbOrNull(MessageType type)
+        private static Verb getVerbOrNull(@Nullable MessageType type)
         {
             if (type == null) return null;
             if (type.getClass() == StandardMessage.class) return (Verb) ((StandardMessage) type).mapToImplementation();
@@ -208,6 +209,16 @@ public class AccordMessageSink implements MessageSink
                 return getVerb(type);
             return null;
         }
+    }
+
+    /**
+     * @return the verb used to send messages of {@code type}, or null if none
+     */
+    @Nullable
+    public static Verb verbOrNull(@Nullable MessageType type)
+    {
+        // NOTE: must go via VerbMapping, whose initialisation installs the StandardMessage mappings
+        return VerbMapping.getVerbOrNull(type);
     }
 
     private final MessageDelivery messaging;
@@ -255,28 +266,33 @@ public class AccordMessageSink implements MessageSink
             return null;
         }
 
+        // expiry and slowness are judged against the recent round-trips of this kind of message to the same destination
+        String destination = LinkLatencies.destination(endpoint);
         long nowNanos = nanoTime();
         TxnId txnId = request.primaryTxnId();
         long slowAtNanos = Long.MAX_VALUE;
-        long expiresAtNanos = nowNanos + expire(txnId, verb).computeWait(attempt, NANOSECONDS);
+        long expiresAtNanos = nowNanos + expire(txnId, verb, destination).computeWait(attempt, NANOSECONDS);
 
-        // slowness is judged against the recent round-trips of this kind of message to the same destination
         TimeoutStrategy slow = null;
         switch (verb)
         {
             case ACCORD_READ_REQ:
             case ACCORD_STABLE_THEN_READ_REQ:
-                slow = slowRead(txnId, verb, LinkLatencies.destination(endpoint));
+                slow = slowRead(txnId, verb, destination);
                 break;
 
             case ACCORD_CHECK_STATUS_REQ:
             case ACCORD_AWAIT_REQ:
-                slow = slowStatusCheck(verb, LinkLatencies.destination(endpoint));
+                slow = slowStatusCheck(verb, destination);
                 break;
 
             case ACCORD_PRE_ACCEPT_REQ:
+                slow = slowPreaccept(txnId, verb, destination);
+                break;
+
             case ACCORD_WAIT_UNTIL_APPLIED_REQ:
-                slow = slowPreaccept(txnId, verb, LinkLatencies.destination(endpoint));
+            case ACCORD_APPLY_AND_WAIT_REQ:
+                slow = slowWaitUntilApplied(txnId, verb, destination);
                 break;
         }
         if (slow != null)
@@ -297,14 +313,6 @@ public class AccordMessageSink implements MessageSink
         if (DebugDistributedExecution.ENABLED) DebugDistributedExecution.onSend(to, request, message.id(), true);
         messaging.send(message, endpoint);
         return cancellable;
-    }
-
-    @Override
-    public void onLocalReply(MessageType requestType, @Nullable TxnId txnId, long elapsed, TimeUnit units)
-    {
-        // there is no link for local delivery: the whole round-trip is spent at the replica
-        long elapsedNanos = units.toNanos(elapsed);
-        AccordCoordinatorMetrics.recordMeasured(AccordCoordinatorMetrics.messageLatency(VerbMapping.getVerbOrNull(requestType), txnId), LinkLatencies.SELF, elapsedNanos, elapsedNanos);
     }
 
     public void reply(Node.Id replyingTo, ReplyContext replyContext, Reply reply, Throwable failure)

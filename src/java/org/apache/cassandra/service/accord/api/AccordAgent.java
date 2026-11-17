@@ -71,10 +71,13 @@ import org.apache.cassandra.config.AccordConfig;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.exceptions.RequestTimeoutException;
+import org.apache.cassandra.metrics.AccordCoordinatorMetrics;
 import org.apache.cassandra.metrics.AccordReplicaMetrics;
 import org.apache.cassandra.metrics.AccordSystemMetrics;
 import org.apache.cassandra.net.Verb;
 import org.apache.cassandra.service.RetryStrategy;
+import org.apache.cassandra.service.TimeoutStrategy;
+import org.apache.cassandra.service.accord.AccordMessageSink;
 import org.apache.cassandra.service.accord.AccordService;
 import org.apache.cassandra.service.accord.debug.AccordTracing;
 import org.apache.cassandra.service.accord.debug.DebugDistributedExecution;
@@ -99,8 +102,7 @@ import static org.apache.cassandra.config.DatabaseDescriptor.getAccordScheduleDu
 import static org.apache.cassandra.config.DatabaseDescriptor.getReadRpcTimeout;
 import static org.apache.cassandra.net.LinkLatencies.SELF;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireEpochWait;
-import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireSyncPoint;
-import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expireTxn;
+import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.expire;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.fetch;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.recover;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.retryBackgroundSyncPoint;
@@ -109,8 +111,8 @@ import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.retry
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.retryFetchTopology;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.retryJoinBootstrap;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.retrySyncPoint;
+import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowPreaccept;
 import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowRead;
-import static org.apache.cassandra.service.accord.api.AccordWaitStrategies.slowTxnPreaccept;
 import static org.apache.cassandra.service.accord.txn.TxnResult.Kind.txn_data;
 import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
@@ -499,28 +501,30 @@ public class AccordAgent implements Agent, OwnershipEventListener
         return expireEpochWait.computeWait(1, units);
     }
 
+    /*
+     * Slowness and expiry of requests we process for ourselves are judged against the recent latencies of doing so
+     * for the same kind of message (see onLocalRequest), as they are for remote replicas by AccordMessageSink.
+     */
+
     @Override
     public long selfSlowAt(TxnId txnId, MessageType type, TimeUnit unit)
     {
-        if (type.getClass() == MessageType.StandardMessage.class)
+        TimeoutStrategy slow = null;
+        Verb verb = AccordMessageSink.verbOrNull(type);
+        if (verb != null && txnId != null)
         {
-            switch ((MessageType.StandardMessage)type)
+            switch (verb)
             {
-                // judged against the recent latency of local delivery of the same kind of message
-                case PRE_ACCEPT_REQ:
-                    return unit.convert(slowTxnPreaccept(verb(type), SELF).computeWaitUntil(1), NANOSECONDS);
-                case READ_EPHEMERAL_REQ:
-                case READ_REQ:
-                case STABLE_THEN_READ_REQ:
-                    return unit.convert(slowRead(verb(type), SELF).computeWaitUntil(1), NANOSECONDS);
+                case ACCORD_PRE_ACCEPT_REQ:
+                    slow = slowPreaccept(txnId, verb, SELF);
+                    break;
+                case ACCORD_READ_REQ:
+                case ACCORD_STABLE_THEN_READ_REQ:
+                    slow = slowRead(txnId, verb, SELF);
+                    break;
             }
         }
-        return -1;
-    }
-
-    private static Verb verb(MessageType type)
-    {
-        return (Verb) ((MessageType.StandardMessage) type).mapToImplementation();
+        return slow == null ? -1 : unit.convert(slow.computeWaitUntil(1), NANOSECONDS);
     }
 
     @Override
@@ -528,7 +532,18 @@ public class AccordAgent implements Agent, OwnershipEventListener
     {
         if (txnId == null || txnId.equals(TxnId.NONE))
             return unit.convert(nanoTime(), NANOSECONDS) + DatabaseDescriptor.getRpcTimeout(unit);
-        return unit.convert((txnId.isSyncPoint() ? expireSyncPoint : expireTxn).computeWaitUntil(1), NANOSECONDS);
+        return unit.convert(expire(txnId, AccordMessageSink.verbOrNull(type), SELF).computeWaitUntil(1), NANOSECONDS);
+    }
+
+    /**
+     * Record requests we processed for ourselves (by local delivery, or as coordinator of a round) as round-trips to
+     * {@link org.apache.cassandra.net.LinkLatencies#SELF}, all of whose time was spent at the replica
+     */
+    @Override
+    public void onLocalRequest(MessageType requestType, @Nullable TxnId txnId, long elapsed, TimeUnit units)
+    {
+        long elapsedNanos = units.toNanos(elapsed);
+        AccordCoordinatorMetrics.recordMeasured(AccordCoordinatorMetrics.messageLatency(AccordMessageSink.verbOrNull(requestType), txnId), SELF, elapsedNanos, elapsedNanos);
     }
 
     @Override
