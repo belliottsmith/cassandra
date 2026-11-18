@@ -368,7 +368,13 @@ class AccordCacheEntryQueue
             unsequencedSize -= (priorityTail - prevTail);
             Arrays.sort(tasks, prevTail, priorityTail, AccordCacheEntryQueue::compare);
             if (notify)
+            {
                 onChangeRunnableStatus(priorityHead + 1, priorityTail + unsequencedSize, owner, NOT_RUNNABLE);
+                // the new head was a bag member blocking nobody; the arrival follows it, but notRunnableMaybeNewlyBlocked
+                // only tells a head about its first follower, so tell it here if it already has others
+                if (totalSize() > 1)
+                    tasks[priorityHead].onChangeRunnableStatus(owner, STILL_RUNNABLE_NEWLY_BLOCKING);
+            }
         }
         return true;
     }
