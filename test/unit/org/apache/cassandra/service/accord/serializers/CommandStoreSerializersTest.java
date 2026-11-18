@@ -19,26 +19,36 @@
 package org.apache.cassandra.service.accord.serializers;
 
 import java.io.IOException;
+import java.util.Arrays;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import accord.local.AbstractDurableBeforeTest.DurableBeforeLinear;
 import accord.local.CommandStores;
 import accord.local.DurableBefore;
+import accord.local.MaxConflicts;
+import accord.local.Node;
 import accord.local.RedundantBefore;
 import accord.primitives.Ranges;
+import accord.primitives.Timestamp;
 import accord.primitives.TxnId;
 import accord.utils.AccordGens;
 import accord.utils.Gen;
 import accord.utils.Gens;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.ByteOrderedPartitioner;
+import org.apache.cassandra.dht.ByteOrderedPartitioner.BytesToken;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.io.Serializers;
 import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.schema.TableId;
+import org.apache.cassandra.service.accord.TokenRange;
+import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers.ReducingRangeMapSerializer;
 import org.apache.cassandra.utils.AccordGenerators;
 import org.apache.cassandra.utils.NullableSerializer;
@@ -90,6 +100,42 @@ public class CommandStoreSerializersTest
             Serializers.testSerde(buffer, CommandStoreSerializers.durableBefore, durableBefore);
             Serializers.testSerde(buffer, durableBeforeLinear, DurableBeforeLinear.from(durableBefore), CommandStoreSerializers.durableBefore, DurableBeforeLinear::isEqualTo);
         });
+    }
+
+    /**
+     * With variable-length keys, the serialized size of a contiguous entry must count the length of its end key, which
+     * is what we serialize, not of its start key
+     */
+    @Test
+    public void maxConflictsWithVariableLengthKeys() throws IOException
+    {
+        DatabaseDescriptor.setPartitionerUnsafe(ByteOrderedPartitioner.instance);
+        try
+        {
+            TableId table = TableId.fromLong(1);
+            // the contiguous second entry has a short start key and a long end key, so their lengths encode to vints
+            // of different sizes; the first entry's keys are both short, so cannot mask a miscount of the second's
+            TokenKey a = new TokenKey(table, new BytesToken(new byte[] { 1 }));
+            TokenKey b = new TokenKey(table, new BytesToken(new byte[] { 1, 1 }));
+            TokenKey c = new TokenKey(table, new BytesToken(filled(200, (byte) 2)));
+            Timestamp first = Timestamp.fromValues(1, 10, new Node.Id(1));
+            Timestamp second = Timestamp.fromValues(1, 20, new Node.Id(1));
+            MaxConflicts maxConflicts = MaxConflicts.EMPTY.update(Ranges.of(TokenRange.create(a, b)), first, first)
+                                                          .update(Ranges.of(TokenRange.create(b, c)), second, second);
+            Assert.assertEquals(2, maxConflicts.size());
+            Serializers.testSerde(new DataOutputBuffer(), CommandStoreSerializers.maxConflicts, maxConflicts);
+        }
+        finally
+        {
+            DatabaseDescriptor.setPartitionerUnsafe(Murmur3Partitioner.instance);
+        }
+    }
+
+    private static byte[] filled(int length, byte value)
+    {
+        byte[] bytes = new byte[length];
+        Arrays.fill(bytes, value);
+        return bytes;
     }
 
     @Test
