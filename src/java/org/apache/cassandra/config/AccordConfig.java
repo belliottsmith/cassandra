@@ -36,6 +36,7 @@ import org.apache.cassandra.service.accord.serializers.Version;
 import org.apache.cassandra.service.consensus.TransactionalMode;
 
 import static org.apache.cassandra.config.AccordConfig.QueueShardModel.THREAD_POOL_PER_SHARD;
+import static org.apache.cassandra.config.AccordConfig.QueueSubmissionModel.SIGNAL;
 import static org.apache.cassandra.config.AccordConfig.QueueSubmissionModel.SYNC;
 import static org.apache.cassandra.config.AccordConfig.RangeIndexMode.in_memory;
 
@@ -179,7 +180,7 @@ public class AccordConfig
     }
 
     public QueueShardModel queue_shard_model = THREAD_POOL_PER_SHARD;
-    public QueueSubmissionModel queue_submission_model = SYNC;
+    public QueueSubmissionModel queue_submission_model = SIGNAL;
 
     /**
      * The number of queue (and cache) shards.
