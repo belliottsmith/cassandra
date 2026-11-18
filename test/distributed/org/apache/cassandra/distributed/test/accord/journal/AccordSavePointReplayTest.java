@@ -25,6 +25,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -33,6 +36,7 @@ import java.util.stream.Stream;
 import org.junit.Test;
 
 import accord.coordinate.CoordinateSyncPoint;
+import accord.coordinate.ExecuteSyncPoint;
 import accord.local.CommandStore;
 import accord.local.ExecutionContext;
 import accord.local.Node;
@@ -55,13 +59,16 @@ import org.apache.cassandra.distributed.test.TestBaseImpl;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.AccordService;
+import org.apache.cassandra.service.accord.MaxUncachedTxnId;
 import org.apache.cassandra.service.accord.TokenRange;
+import org.apache.cassandra.service.accord.api.TokenKey;
 import org.apache.cassandra.service.accord.execution.AccordExecutor;
 import org.apache.cassandra.service.accord.execution.SaferCommandStore;
 import org.apache.cassandra.service.accord.journal.ReplayMarkers;
 
 import static accord.local.RedundantStatus.Property.LOCALLY_APPLIED;
 import static accord.local.RedundantStatus.Property.LOCALLY_DURABLE_TO_COMMAND_STORE;
+import static accord.local.RedundantStatus.Property.QUORUM_APPLIED;
 import static accord.primitives.Routables.Slice.Minimal;
 import static accord.primitives.TxnId.Cardinality.cardinality;
 import static org.apache.cassandra.config.DatabaseDescriptor.getPartitioner;
@@ -76,6 +83,9 @@ import static org.junit.Assert.assertTrue;
  * replay by the save point's {@code RedundantBefore}, not the current one: otherwise, if a later save point is missing
  * (as after an unclean shutdown), commands written since the save point that have since become durable are skipped,
  * and are missing from the restored state.
+ * <p>
+ * We check this with {@link MaxUncachedTxnId}, which bounds the {@code CommandsForKey} not in the cache: it is valid
+ * on restore only if replay brings into the cache every {@code CommandsForKey} changed since the save point.
  */
 public class AccordSavePointReplayTest extends TestBaseImpl
 {
@@ -101,14 +111,18 @@ public class AccordSavePointReplayTest extends TestBaseImpl
             String tableId = ClusterUtils.tableId(cluster, "ks", "tbl").toString();
             String saveDirectory = instance.callOnInstance(() -> ReplayMarkers.saveDirectory().absolutePath());
 
-            // a clean restart writes the save point we will restore from
+            // write every key, and make the writes irrelevant to later sync points, which a scan then bounds
             write(cluster, 0);
+            instance.runOnInstance(() -> syncPoint(tableId, true));
+            assertEquals(Map.of(), instance.callOnInstance(() -> loadedKeys(tableId)));
+            // a clean restart saves those bounds
             instance.shutdown().get();
             instance.startup();
+            assertTrue("precondition: no bounds restored", instance.callOnInstance(() -> hasBounds(tableId)));
 
-            // write every key again, and make the writes durable on shutdown by applying a sync point
+            // write every key again, relevant to later sync points (as not yet quorum applied), and durable on shutdown
             write(cluster, 1);
-            String syncId = instance.callOnInstance(() -> syncPoint(tableId));
+            String syncId = instance.callOnInstance(() -> syncPoint(tableId, false));
             List<String> written = instance.callOnInstance(() -> latestTxnIds(tableId));
             assertEquals("precondition: not every key written " + written, KEY_COUNT, written.size());
             instance.shutdown().get();
@@ -121,6 +135,10 @@ public class AccordSavePointReplayTest extends TestBaseImpl
             instance.runOnInstance(() -> assertDurable(tableId, syncId));
             // replay must load every command not durable as of the save point we restored from
             assertEquals(List.of(), instance.callOnInstance(() -> notReplayed(written)));
+            // replay must have brought every key written since the save point into the cache, as the restored bounds
+            // do not cover them (with max_uncached_txnid_mode VALIDATE, as for all dtests, we fail if we would skip any)
+            Map<Integer, List<String>> loaded = instance.callOnInstance(() -> loadedKeys(tableId));
+            assertEquals("loaded " + loaded, KEY_COUNT, loaded.values().stream().mapToInt(List::size).sum());
         }
     }
 
@@ -138,13 +156,19 @@ public class AccordSavePointReplayTest extends TestBaseImpl
     }
 
     /**
-     * Coordinate an exclusive sync point over the table and wait for it to be applied locally
+     * Coordinate an exclusive sync point over the table and wait for it to be applied locally, and if {@code durable}
+     * for it to be applied by a quorum
      */
-    private static String syncPoint(String tableId)
+    private static String syncPoint(String tableId, boolean durable)
     {
         Node node = AccordService.instance().node();
         SyncPoint syncPoint = getBlocking(CoordinateSyncPoint.exclusive(node, ranges(tableId)));
         awaitStatus(tableId, syncPoint.syncId, LOCALLY_APPLIED);
+        if (durable)
+        {
+            getBlocking(ExecuteSyncPoint.coordinate(node, syncPoint, 1).onQuorumOrDone());
+            awaitStatus(tableId, syncPoint.syncId, QUORUM_APPLIED);
+        }
         return syncPoint.syncId.toString();
     }
 
@@ -174,6 +198,45 @@ public class AccordSavePointReplayTest extends TestBaseImpl
                            return durable && bounds != null && bounds.maxBound(LOCALLY_DURABLE_TO_COMMAND_STORE).compareTo(syncId) >= 0;
                        }, true))));
         });
+    }
+
+    private static boolean hasBounds(String tableId)
+    {
+        boolean[] result = { true };
+        forEachStore(tableId, (store, owned) -> {
+            try (AccordExecutor.ExclusiveGlobalCaches ignore = ((AccordCommandStore) store).executor().lockCaches())
+            {
+                result[0] &= !((AccordCommandStore) store).unsafeGetMaxUncachedTxnId().isEmpty();
+            }
+        });
+        return result[0];
+    }
+
+    /**
+     * Run a task as a new exclusive sync point over the table on every command store, as a sync point computing its
+     * dependencies would.
+     * @return per command store, the sorted tokens of the non-empty {@code CommandsForKey} the task loaded
+     */
+    private static Map<Integer, List<String>> loadedKeys(String tableId)
+    {
+        Node node = AccordService.instance().node();
+        Map<Integer, List<String>> result = new TreeMap<>();
+        forEachStore(tableId, (store, owned) -> {
+            TxnId probe = node.nextTxnIdWithDefaultFlags(owned, Txn.Kind.ExclusiveSyncPoint, Routable.Domain.Range, cardinality(owned));
+            ExecutionContext context = ExecutionContext.unsequencedReadWrite(probe, owned, "Test save point replay");
+            List<String> keys = getBlocking(store.chain(context, safeStore -> {
+                TreeSet<String> loaded = new TreeSet<>();
+                for (SafeCommandsForKey safeCfk : ((SaferCommandStore) safeStore).safeCommandsForKeys())
+                {
+                    if (safeCfk.current().size() > 0)
+                        loaded.add(((TokenKey) safeCfk.key()).token().toString());
+                }
+                return new ArrayList<>(loaded);
+            }));
+            if (!keys.isEmpty())
+                result.put(store.id(), keys);
+        });
+        return result;
     }
 
     /**

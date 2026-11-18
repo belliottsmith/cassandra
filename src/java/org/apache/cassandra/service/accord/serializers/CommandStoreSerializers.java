@@ -55,6 +55,7 @@ import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.io.UnversionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputPlus;
+import org.apache.cassandra.service.accord.MaxUncachedTxnId;
 import org.apache.cassandra.utils.CollectionSerializers;
 import org.apache.cassandra.utils.NoSpamLogger;
 
@@ -74,6 +75,7 @@ public class CommandStoreSerializers
 
     public static final UnversionedSerializer<DurableBefore> durableBefore = new DurableBeforeSerializer();
     public static final UnversionedSerializer<MaxConflicts> maxConflicts = new MaxConflictsSerializer();
+    public static final UnversionedSerializer<MaxUncachedTxnId> maxUncachedTxnId = new MaxUncachedTxnIdSerializer();
     public static final UnversionedSerializer<MaxDecidedRX> maxDecidedRX = new ReducingRangeMapSerializer<>(new DecidedRXSerializer(), MaxDecidedRX.DecidedRX[]::new, MaxDecidedRX.SerializerSupport::create, MaxDecidedRX.EMPTY);
     public static final UnversionedSerializer<RedundantBefore.Bounds> redundantBeforeShortBounds = new RedundantBeforeShortBoundsSerializer();
     public static final UnversionedSerializer<RedundantBefore> redundantBefore = new ReducingRangeMapSerializer<>(redundantBeforeShortBounds, RedundantBefore.Bounds[]::new, RedundantBefore.SerializerSupport::create, RedundantBefore.EMPTY);
@@ -637,6 +639,47 @@ public class CommandStoreSerializers
         {
             Timestamp all = CommandSerializers.timestamp.deserialize(in);
             return MaxConflicts.Entry.create(all, all, Timestamp.NONE);
+        }
+    }
+
+    private static final class MaxUncachedTxnIdSerializer extends BTreeReducingRangeMapSerializer<MaxUncachedTxnId.Entry, MaxUncachedTxnId>
+    {
+        private MaxUncachedTxnIdSerializer() {}
+
+        @Override
+        MaxUncachedTxnId empty()
+        {
+            return MaxUncachedTxnId.EMPTY;
+        }
+
+        @Override
+        BTreeReducingRangeMap.Builder<MaxUncachedTxnId.Entry, MaxUncachedTxnId> builder()
+        {
+            return new MaxUncachedTxnId.Builder();
+        }
+
+        @Override
+        void serializeWithoutRange(MaxUncachedTxnId.Entry entry, DataOutputPlus out) throws IOException
+        {
+            CommandSerializers.txnId.serialize(entry.max, out);
+        }
+
+        @Override
+        long serializedSizeWithoutRange(MaxUncachedTxnId.Entry entry)
+        {
+            return CommandSerializers.txnId.serializedSize(entry.max);
+        }
+
+        @Override
+        MaxUncachedTxnId.Entry deserialize(RoutingKey start, RoutingKey end, DataInputPlus in, int mapFlags) throws IOException
+        {
+            return new MaxUncachedTxnId.Entry(start, end, CommandSerializers.txnId.deserialize(in));
+        }
+
+        @Override
+        MaxUncachedTxnId.Entry deserializeArrayModeWithoutRange(DataInputPlus in)
+        {
+            throw new UnsupportedOperationException("MaxUncachedTxnId has only been serialized in tree mode");
         }
     }
 

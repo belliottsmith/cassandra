@@ -335,6 +335,42 @@ public class MaxUncachedTxnId extends BTreeReducingRangeMap<MaxUncachedTxnId.Ent
         }
     }
 
+    /**
+     * Retain only our bounds over {@code ranges}
+     */
+    public MaxUncachedTxnId slice(Ranges ranges)
+    {
+        try (Builder builder = new Builder())
+        {
+            boolean modified = false;
+            int next = 0;
+            for (Entry entry : this)
+            {
+                while (next < ranges.size() && ranges.get(next).end().compareTo(entry.start()) <= 0)
+                    ++next;
+
+                boolean retained = false;
+                for (int i = next ; i < ranges.size() && ranges.get(i).start().compareTo(entry.end()) < 0 ; ++i)
+                {
+                    Range range = ranges.get(i);
+                    RoutingKey start = range.start().compareTo(entry.start()) > 0 ? range.start() : entry.start();
+                    RoutingKey end = range.end().compareTo(entry.end()) < 0 ? range.end() : entry.end();
+                    if (entry.equalsRange(start, end))
+                    {
+                        builder.append(entry);
+                        retained = true;
+                    }
+                    else
+                    {
+                        builder.append(entry.with(start, end));
+                    }
+                }
+                modified |= !retained;
+            }
+            return modified ? builder.build() : this;
+        }
+    }
+
     private static TxnId plain(TxnId txnId)
     {
         return txnId.hasNonIdentityFlags() ? txnId.withoutNonIdentityFlags() : txnId;

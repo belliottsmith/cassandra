@@ -208,6 +208,33 @@ public class AccordSyncPointKeyFilteringTest extends TestBaseImpl
     }
 
     /**
+     * The bounds on {@code CommandsForKey} not in the cache are saved on shutdown and restored on startup, so that the
+     * first sync point after a restart need not read disk either.
+     */
+    @Test
+    public void boundsSurviveRestart() throws Throwable
+    {
+        try (Cluster cluster = cluster(Mode.QUORUM_APPLIED))
+        {
+            Synced synced = setup(cluster, Mode.QUORUM_APPLIED);
+            String tableId = synced.tableId, touched = synced.touched;
+            IInvokableInstance instance = cluster.get(2);
+            instance.runOnInstance(() -> evictCommandsForKeys(tableId, touched));
+            assertEquals("precondition: would scan on disk", Map.of(), instance.callOnInstance(() -> rangesToScan(tableId)));
+
+            instance.shutdown().get();
+            instance.startup();
+            assertEquals("would scan on disk after restart", Map.of(), instance.callOnInstance(() -> rangesToScan(tableId)));
+            // VALIDATE (as for all dtests) checks that we load every key we must; on startup we may learn that even the
+            // touched key's write is quorum applied, so may load nothing
+            Map<Integer, List<String>> loaded = instance.callOnInstance(() -> loadedKeys(tableId, Txn.Kind.ExclusiveSyncPoint));
+            for (Map.Entry<Integer, List<String>> e : loaded.entrySet())
+                assertTrue("node 2 store " + e.getKey() + " loaded keys with no new work since " + synced.firstId + ": " + e.getValue(),
+                           List.of(touched).containsAll(e.getValue()));
+        }
+    }
+
+    /**
      * With max_uncached_txnid_mode VALIDATE (as for all dtests), a sync point that the bounds would have let skip a key
      * it must load should fail, rather than silently omit the key.
      */

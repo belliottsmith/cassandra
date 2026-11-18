@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -117,6 +118,7 @@ import org.apache.cassandra.service.accord.execution.TaskRunner;
 import org.apache.cassandra.service.accord.execution.Unterminatable;
 import org.apache.cassandra.service.accord.journal.AccordJournal;
 import org.apache.cassandra.service.accord.journal.JournalRangeIndex;
+import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers;
 import org.apache.cassandra.service.accord.txn.TxnRead;
 import org.apache.cassandra.utils.NoSpamLogger;
 import org.apache.cassandra.utils.concurrent.Condition;
@@ -1018,6 +1020,8 @@ public class AccordCommandStore extends CommandStore
                 tmpSaveDir.createDirectoriesIfNotExists();
                 writeOne(new File(tmpSaveDir, "max_decidedrx"), unsafeGetMaxDecidedRX(), maxDecidedRX);
                 writeOne(new File(tmpSaveDir, "max_conflicts"), unsafeGetMaxConflicts(), maxConflicts);
+                if (maxUncachedTxnId != null)
+                    writeOne(new File(tmpSaveDir, "max_uncached_txnid"), maxUncachedTxnIdIfEvicted(), CommandStoreSerializers.maxUncachedTxnId);
                 writeList(new File(tmpSaveDir, "listeners"), ((DefaultLocalListeners)listeners).snapshot(), txnListener);
                 writeList(new File(tmpSaveDir, "progress_log"), ((DefaultProgressLog)progressLog).snapshot(), progressLogState);
                 rangeIndex.save(new File(tmpSaveDir, "range_index"));
@@ -1046,6 +1050,25 @@ public class AccordCommandStore extends CommandStore
 
             return true;
         });
+    }
+
+    /**
+     * Our bounds on the CommandsForKey not in our cache, as they would be were everything in our cache evicted (as on
+     * restart), over the ranges we own
+     */
+    private MaxUncachedTxnId maxUncachedTxnIdIfEvicted()
+    {
+        try (ExclusiveCaches caches = lockCaches())
+        {
+            MaxUncachedTxnId bounds = unsafeGetMaxUncachedTxnId();
+            if (bounds.isEmpty())
+                return bounds;
+
+            TreeMap<RoutingKey, TxnId> cached = new TreeMap<>();
+            for (AccordCacheEntry<RoutingKey, CommandsForKey, ?> entry : caches.commandsForKeys())
+                cached.put(entry.key(), evictedLast(entry));
+            return bounds.evicted(cached).slice(unsafeGetRangesForEpoch().all());
+        }
     }
 
     private File storeSaveDir()
@@ -1108,6 +1131,15 @@ public class AccordCommandStore extends CommandStore
                 return null;
             }
 
+            MaxUncachedTxnId mut = MaxUncachedTxnId.EMPTY;
+            File mutf = new File(savePoint, "max_uncached_txnid");
+            if (maxUncachedTxnId != null && mutf.exists())
+            {
+                // only an optimisation, so we may continue without it
+                try { mut = readOne(mutf, CommandStoreSerializers.maxUncachedTxnId); }
+                catch (Throwable t) { logger.warn("{} could not load {}; continuing without it", this, mutf, t); }
+            }
+
             if (journal instanceof AccordJournal && ((AccordJournal)journal).maxDescriptor() <= segment)
                 Invariants.expect(rdb.equals(unsafeGetRedundantBefore()));
 
@@ -1115,6 +1147,10 @@ public class AccordCommandStore extends CommandStore
             rangeIndex.restore(rgi);
             unsafeSetMaxDecidedRX(mxd);
             unsafeSetMaxConflicts(mxc);
+            // replay brings into our cache every CommandsForKey changed since the save point, as we replay everything
+            // not durable as of the save point, so these bounds remain valid for those not in our cache
+            MaxUncachedTxnId restoredMaxUncachedTxnId = mut;
+            unsafeUpdateMaxUncachedTxnId(current -> current.isEmpty() ? restoredMaxUncachedTxnId : current);
             ((DefaultLocalListeners) listeners).restore(dll);
             boolean unsetCatchup = ((DefaultProgressLog) progressLog).setModeExclusive(safeStore, CATCH_UP);
             ((DefaultProgressLog) progressLog).restore(safeStore, dpl);

@@ -18,6 +18,7 @@
 
 package org.apache.cassandra.service.accord;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -38,8 +39,11 @@ import accord.utils.BTreeReducingRangeMap;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Murmur3Partitioner.LongToken;
+import org.apache.cassandra.io.Serializers;
+import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.schema.TableId;
 import org.apache.cassandra.service.accord.api.TokenKey;
+import org.apache.cassandra.service.accord.serializers.CommandStoreSerializers;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -214,6 +218,52 @@ public class MaxUncachedTxnIdTest
         });
         assertEquals(0, holder.pendingCount());
         assertEquals(txnId(10), holder.get().get(key(5)).max);
+    }
+
+    /**
+     * Retaining some ranges is the same as forgetting the gaps between them
+     */
+    @Test
+    public void testSlice()
+    {
+        for (long seed = 0 ; seed < 200 ; ++seed)
+        {
+            Random random = new Random(seed);
+            MaxUncachedTxnId bounds = randomBounds(random);
+            List<Range> retain = new ArrayList<>();
+            List<Range> forget = new ArrayList<>();
+            int from = 0;
+            while (from < KEYS - 1)
+            {
+                int to = Math.min(KEYS - 1, from + 1 + random.nextInt(random.nextBoolean() ? 2 : 30));
+                (random.nextBoolean() ? retain : forget).add(range(from, to));
+                from = to;
+            }
+
+            Ranges retained = Ranges.of(retain.toArray(new Range[0]));
+            MaxUncachedTxnId expect = bounds.without(Ranges.of(forget.toArray(new Range[0])));
+            MaxUncachedTxnId actual = bounds.slice(retained);
+            assertSameBounds("seed " + seed, expect, actual);
+            for (MaxUncachedTxnId.Entry entry : actual)
+            {
+                int i = retained.indexOf(entry.end());
+                assertTrue("seed " + seed + ": " + entry + " not in " + retained, i >= 0 && retained.get(i).start().compareTo(entry.start()) <= 0);
+            }
+        }
+    }
+
+    @Test
+    public void testSerialization() throws IOException
+    {
+        try (DataOutputBuffer buffer = new DataOutputBuffer())
+        {
+            Serializers.testSerde(buffer, CommandStoreSerializers.maxUncachedTxnId, MaxUncachedTxnId.EMPTY);
+            Range full = TokenRange.fullRange(TABLE, Murmur3Partitioner.instance);
+            Serializers.testSerde(buffer, CommandStoreSerializers.maxUncachedTxnId,
+                                  MaxUncachedTxnId.EMPTY.establish(full, txnId(5), new TreeMap<>()).evicted(key(3), txnId(7)));
+            for (long seed = 0 ; seed < 200 ; ++seed)
+                Serializers.testSerde(buffer, CommandStoreSerializers.maxUncachedTxnId, randomBounds(new Random(seed)));
+        }
     }
 
     private static MaxUncachedTxnId randomBounds(Random random)
