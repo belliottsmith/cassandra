@@ -90,7 +90,6 @@ import accord.utils.async.AsyncResults.CountingResult;
 import accord.utils.async.Cancellable;
 
 import org.apache.cassandra.config.AccordConfig;
-import org.apache.cassandra.config.AccordConfig.JournalConfig.ReplayMode;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.io.util.File;
@@ -240,6 +239,9 @@ public class AccordCommandStore extends CommandStore
     private TableMetadataRef metadata;
 
     volatile SafeRedundantBefore safeRedundantBefore;
+    // the RedundantBefore of the save point we restored from, if any, until we have replayed: the state we restored is
+    // only as of the save point, so we must replay everything not durable then, not only what is not durable now
+    private volatile @Nullable RedundantBefore restoredRedundantBefore;
     volatile Termination terminated;
 
     private SaferCommandStore current;
@@ -683,8 +685,20 @@ public class AccordCommandStore extends CommandStore
     @Override
     public AccordCommandStoreReplayer replayer(Mode mode)
     {
-        ReplayMode replayMode = getAccord().journal.replay;
-        return new AccordCommandStoreReplayer(this, mode);
+        RedundantBefore restored = restoredRedundantBefore;
+        RedundantBefore redundantBefore = unsafeGetRedundantBefore();
+        if (restored != null)
+            redundantBefore = RedundantBefore.preferring(restored, redundantBefore);
+        return new AccordCommandStoreReplayer(this, redundantBefore, mode);
+    }
+
+    /**
+     * Invoked once we have finished replaying on startup
+     */
+    public void postReplay()
+    {
+        restoredRedundantBefore = null;
+        rangeIndex.postReplay();
     }
     
     static final AtomicLong nextDurabilityLoggingId = new AtomicLong();
@@ -837,9 +851,9 @@ public class AccordCommandStore extends CommandStore
     {
         private final AccordCommandStore commandStore;
 
-        private AccordCommandStoreReplayer(AccordCommandStore commandStore, Mode mode)
+        private AccordCommandStoreReplayer(AccordCommandStore commandStore, RedundantBefore redundantBefore, Mode mode)
         {
-            super(commandStore, mode, null);
+            super(commandStore, redundantBefore, mode, null);
             this.commandStore = commandStore;
         }
 
@@ -1019,6 +1033,7 @@ public class AccordCommandStore extends CommandStore
             if (journal instanceof AccordJournal && ((AccordJournal)journal).maxDescriptor() <= segment)
                 Invariants.expect(rdb.equals(unsafeGetRedundantBefore()));
 
+            restoredRedundantBefore = rdb;
             rangeIndex.restore(rgi);
             unsafeSetMaxDecidedRX(mxd);
             unsafeSetMaxConflicts(mxc);
