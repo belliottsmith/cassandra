@@ -452,7 +452,7 @@ public class AccordService implements IAccordService, Shutdownable
         boolean success = journal().replay(node.commandStores(), minSegments);
         logger.info("Waiting for command stores to quiesce.");
         ((AccordCommandStores)node.commandStores()).waitForQuiescence();
-        getBlocking(node.commandStores().forAll("Post Replay", safeStore -> ((AccordCommandStore)safeStore.commandStore()).rangeIndex().postReplay()));
+        getBlocking(node.commandStores().forAll("Post Replay", safeStore -> ((AccordCommandStore)safeStore.commandStore()).postReplay()));
 
         long end = nanoTime();
         logger.info("Finished journal replay. {}s elapsed", String.format("%.2f", NANOSECONDS.toMillis(end - start)/1000.0));
