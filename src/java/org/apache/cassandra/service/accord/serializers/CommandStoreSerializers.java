@@ -465,7 +465,7 @@ public class CommandStoreSerializers
                             if ((flags & NEW_PREFIX) != 0)
                             {
                                 prefix = KeySerializers.routingKey.deserializePrefix(in);
-                                fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(in);
+                                fixedLength = KeySerializers.routingKey.fixedKeyLengthForPrefix(prefix);
                             }
                             int length = fixedLength >= 0 ? fixedLength : in.readUnsignedVInt32();
                             start = KeySerializers.routingKey.deserializeWithPrefix(prefix, length, in);
@@ -567,7 +567,7 @@ public class CommandStoreSerializers
                     size += KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start());
                 }
                 if (fixedLength < 0)
-                    size +=  VIntCoding.sizeOfUnsignedVInt(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.start()));
+                    size += VIntCoding.sizeOfUnsignedVInt(KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.end()));
                 size += KeySerializers.routingKey.serializedSizeWithoutPrefixOrLength(e.end());
                 size += serializedSizeWithoutRange(e);
                 prev = e;
