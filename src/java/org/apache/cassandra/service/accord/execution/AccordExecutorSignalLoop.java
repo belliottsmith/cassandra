@@ -41,6 +41,7 @@ import static accord.utils.Invariants.nonNull;
 import static accord.utils.Invariants.testParanoia;
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DEBUG_EXECUTION;
 import static org.apache.cassandra.service.accord.execution.Task.State.REGISTERED;
+import static org.apache.cassandra.utils.Clock.Global.nanoTime;
 
 public class AccordExecutorSignalLoop extends AbstractLoop
 {
@@ -57,20 +58,48 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     private Task pendingHead, pendingTail;
     private int pendingCount;
 
+    /*
+     * Completion budget. Completing a task can be expensive (e.g. a range task's key setup once its range scan
+     * completes), and the pending list can hold many completions, so a pass of the dispatch loop (one acquisition of the
+     * lock) may otherwise spend a long time completing tasks while it prepares no new work, and the other threads park.
+     * Once a pass has spent completionBudgetNanos completing tasks, further completions taken from the pending list are
+     * moved, in order, to the deferred list instead, so that new work (whose submission is safe to reorder ahead of
+     * completions: see drainUnqueuedNewWorkExclusive) and ready tasks are not held up behind them. Deferred completions
+     * are processed first by the next pass (at least one per pass, then within its budget), or one at a time whenever a
+     * pass finds nothing else to do, and the lock work signal is kept set while any remain.
+     * A budget of zero or less disables this: every completion is processed when it is reached, as before.
+     */
+    private final long completionBudgetNanos;
+    private long completionBudgetSpentNanos; // in the current pass
+    private Task deferredHead, deferredTail;
+    private int deferredCount;
+    private volatile long deferredTotal; // completions ever deferred, for diagnostics
+
     private boolean shutdown;
 
     public AccordExecutorSignalLoop(int executorId, Mode mode, int threads, long spinInterval, long stopCheckInterval, TimeUnit units, IntFunction<String> name, Agent agent)
     {
-        this(new SignalLock(threads, spinInterval, stopCheckInterval, units), executorId, mode, threads, name, agent);
+        this(executorId, mode, threads, spinInterval, stopCheckInterval, 0, units, name, agent);
+    }
+
+    public AccordExecutorSignalLoop(int executorId, Mode mode, int threads, long spinInterval, long stopCheckInterval, long completionBudget, TimeUnit units, IntFunction<String> name, Agent agent)
+    {
+        this(new SignalLock(threads, spinInterval, stopCheckInterval, units), executorId, mode, threads, units.toNanos(completionBudget), name, agent);
     }
 
     public AccordExecutorSignalLoop(SignalLock lock, int executorId, Mode mode, int threads, IntFunction<String> name, Agent agent)
+    {
+        this(lock, executorId, mode, threads, 0, name, agent);
+    }
+
+    public AccordExecutorSignalLoop(SignalLock lock, int executorId, Mode mode, int threads, long completionBudgetNanos, IntFunction<String> name, Agent agent)
     {
         super(lock, executorId, agent);
         Invariants.require(threads <= SignalLock.MAX_THREADS);
         this.lock = lock;
         this.loops = new Loops(mode, threads, name, this::task);
         this.readyToRunLimit = Math.min(threads * 4, SignalLock.MAX_SIGNAL_COUNT);
+        this.completionBudgetNanos = completionBudgetNanos;
     }
 
     <P1> void submit(Consumer<P1> sync, Function<P1, Task> async, P1 p1)
@@ -86,7 +115,8 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     {
         // work may arrive at the runnable queue directly;
         // we must ensure the lock work bit is set, to ensure this is processed into readyToRun
-        if (hasAlreadyWaitingToRun())
+        // (and likewise for any deferred completions)
+        if (hasAlreadyWaitingToRun() || deferredHead != null)
             lock.signalLockWorkExclusive();
     }
 
@@ -169,8 +199,70 @@ public class AccordExecutorSignalLoop extends AbstractLoop
             pendingTail = null;
 
         if (next.compareTo(REGISTERED) < 0) next.submitExclusiveNoExcept();
-        else next.completeExclusiveNoExcept();
+        else completeOrDeferExclusive(next);
         return true;
+    }
+
+    /** complete the task now if this pass's completion budget allows (or there is none), else defer it */
+    private void completeOrDeferExclusive(Task complete)
+    {
+        if (completionBudgetNanos <= 0)
+        {
+            complete.completeExclusiveNoExcept();
+        }
+        else if (completionBudgetSpentNanos >= completionBudgetNanos)
+        {
+            Invariants.require(complete.next == null);
+            if (deferredTail == null) deferredHead = complete;
+            else deferredTail.next = complete;
+            deferredTail = complete;
+            ++deferredCount;
+            deferredTotal++;
+        }
+        else
+        {
+            long start = nanoTime();
+            complete.completeExclusiveNoExcept();
+            completionBudgetSpentNanos += nanoTime() - start;
+        }
+    }
+
+    /** complete the oldest deferred completion, if any, whatever the budget */
+    private boolean completeOneDeferredExclusive()
+    {
+        Task next = deferredHead;
+        if (next == null)
+            return false;
+
+        deferredHead = destructiveNext(next);
+        if (deferredHead == null)
+            deferredTail = null;
+        --deferredCount;
+        long start = nanoTime();
+        next.completeExclusiveNoExcept();
+        completionBudgetSpentNanos += nanoTime() - start;
+        return true;
+    }
+
+    /**
+     * One pass of the dispatch loop, with completionBudgetSpentNanos already spent on completing a task this pass (the
+     * task the caller just ran, if it completed it under the lock).
+     */
+    private void fetchWorkExclusive(long completionBudgetSpentNanos)
+    {
+        this.completionBudgetSpentNanos = completionBudgetSpentNanos;
+        if (deferredHead != null)
+        {
+            // the oldest completions go first: at least one per pass, so they always make progress, then within the budget
+            do completeOneDeferredExclusive();
+            while (deferredHead != null && this.completionBudgetSpentNanos < completionBudgetNanos);
+        }
+
+        fetchWorkExclusive();
+
+        // make sure a thread comes back for the deferred completions, even if nothing else signals lock work
+        if (deferredHead != null)
+            lock.signalLockWorkExclusive();
     }
 
     private void fetchWorkExclusive()
@@ -225,6 +317,11 @@ public class AccordExecutorSignalLoop extends AbstractLoop
             if (task == null)
             {
                 if (updateAndEnqueuePendingUntilHasWaitingToRun(0))
+                    continue;
+
+                // nothing is ready to run and no new work is pending: work through the deferred completions, one at a
+                // time so that we pick up any work that arrives or becomes runnable in the meantime
+                if (completeOneDeferredExclusive())
                     continue;
 
                 lock.clearLockWork();
@@ -348,8 +445,18 @@ public class AccordExecutorSignalLoop extends AbstractLoop
         {
             try
             {
-                complete.completeExclusiveNoExcept();
-                fetchWorkExclusive();
+                long spent = 0;
+                if (completionBudgetNanos <= 0)
+                {
+                    complete.completeExclusiveNoExcept();
+                }
+                else
+                {
+                    long start = nanoTime();
+                    complete.completeExclusiveNoExcept();
+                    spent = nanoTime() - start;
+                }
+                fetchWorkExclusive(spent);
             }
             catch (Throwable t)
             {
@@ -363,7 +470,7 @@ public class AccordExecutorSignalLoop extends AbstractLoop
         {
             try
             {
-                fetchWorkExclusive();
+                fetchWorkExclusive(0);
             }
             catch (Throwable t)
             {

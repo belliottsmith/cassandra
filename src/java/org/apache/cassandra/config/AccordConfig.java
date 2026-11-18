@@ -234,6 +234,13 @@ public class AccordConfig
     public DurationSpec.LongMicrosecondsBound queue_stop_check_interval;
 
     /**
+     * If set (and non-zero), each pass of the signal loop's dispatch (one acquisition of an executor's lock) spends at
+     * most about this long completing tasks; further completions are deferred, in order, to later passes, so that new
+     * work and ready tasks are not held up behind many expensive completions. Unset or zero: no budget.
+     */
+    public DurationSpec.LongMicrosecondsBound queue_completion_budget;
+
+    /**
      * If the HLC is older than this, queue by next position instead
      */
     public DurationSpec.IntMillisecondsBound queue_priority_age_limit = new DurationSpec.IntMillisecondsBound(500);

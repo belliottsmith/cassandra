@@ -120,7 +120,8 @@ public class AccordCommandStores extends CommandStores implements CacheSize, Shu
                 case SIGNAL:
                     long spinIntervalNanos = config.queue_spin_interval == null ? 0 : config.queue_spin_interval.to(TimeUnit.NANOSECONDS);
                     long stopCheckIntervalNanos = config.queue_stop_check_interval == null ? 0 : config.queue_stop_check_interval.to(TimeUnit.NANOSECONDS);
-                    factory = (executorId, mode, threads, name, agent0) -> new AccordExecutorSignalLoop(executorId, mode, threads, spinIntervalNanos, stopCheckIntervalNanos, TimeUnit.NANOSECONDS, name, agent0);
+                    long completionBudgetNanos = config.queue_completion_budget == null ? 0 : config.queue_completion_budget.to(TimeUnit.NANOSECONDS);
+                    factory = (executorId, mode, threads, name, agent0) -> new AccordExecutorSignalLoop(executorId, mode, threads, spinIntervalNanos, stopCheckIntervalNanos, completionBudgetNanos, TimeUnit.NANOSECONDS, name, agent0);
                     break;
                 case EXEC_ST:
                     factory = AccordExecutorSimple::new;
