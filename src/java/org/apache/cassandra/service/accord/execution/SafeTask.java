@@ -214,6 +214,12 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         ObjectHashSet<RoutingKey> blocking, notBlocking;
         int loaded, processed;
         boolean alwaysReady;
+        /**
+         * A parent that queues by priority, so that our fifo claims go ahead of the positions it still holds on the
+         * keys it did not process. It leaves those queues as soon as it has submitted us, so we do not count it as a
+         * task we block. Cleared once we have taken our positions.
+         */
+        @Nullable SafeTask<?> priorityParent;
 
         NonSyncState(SafeTask<R> owner, ExecutionContext context)
         {
@@ -640,7 +646,12 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             }
 
             if (parent.fifoAt > 0) fifoAt = parent.fifoAt;
-            else fifoAt = executor().uniqueCreatedAt.incrementAndGet();
+            else
+            {
+                fifoAt = executor().uniqueCreatedAt.incrementAndGet();
+                if (isNonSync())
+                    nonSync().priorityParent = parent;
+            }
             // a fifo position is a cache queue position: with the queues disabled there is nowhere to take one, and
             // no ordering to provide with it
             if (CACHE_QUEUES_ENABLED)
@@ -1134,13 +1145,22 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
                 if (entry.isLoaded())
                 {
                     RunnableStatus status = ensureCacheQueued(entry);
-                    if (optional) addQueuedOptionalKey(entry, status);
+                    if (optional)
+                    {
+                        SafeTask<?> parent = nonSync().priorityParent;
+                        if (status == NEWLY_BLOCKING_RUNNABLE && parent != null && entry.isOnlyOtherQueued(parent))
+                            status = NEWLY_RUNNABLE;
+                        addQueuedOptionalKey(entry, status);
+                    }
                     else if (status == NOT_RUNNABLE)
                         incrementWaitingForKeyCount();
                 }
                 else Invariants.require(optional);
             }
         });
+
+        if (isNonSync())
+            nonSync().priorityParent = null;
 
         // we do this after since this is validation-only, and it's only valid once they're all inserted
         setCacheQueuedExclusive();

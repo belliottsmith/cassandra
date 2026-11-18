@@ -380,6 +380,17 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
         return q.statusIfPresent(task);
     }
 
+    /** whether exactly two tasks hold positions here, one of them {@code other} */
+    final boolean isOnlyOtherQueued(SafeTask<?> other)
+    {
+        // only a full queue can report a follower to a task that does not hold the lock
+        if (!(queue instanceof AccordCacheEntryQueue))
+            return false;
+
+        AccordCacheEntryQueue q = (AccordCacheEntryQueue) queue;
+        return q.totalSize() == 2 && q.contains(other);
+    }
+
     private AccordCacheEntryQueue ensureQueue()
     {
         if (queue instanceof AccordCacheEntryQueue)

@@ -1122,6 +1122,45 @@ public class AccordCacheEntryQueueTest
         verify(first, never()).onChangeRunnableStatus(owner, RunnableStatus.STILL_RUNNABLE_NEWLY_BLOCKING);
     }
 
+    /**
+     * A prioritised arrival sorts the bag members that precede it into the sorted region, so the first of them goes from
+     * runnable in a bag (blocking nobody) to the sorted head with followers. The others are revoked, and the head must
+     * be told it now blocks them, as it is when a single bag member is promoted.
+     */
+    @Test
+    public void hintsTheBagMemberThatSortingMakesHead()
+    {
+        AccordCacheEntryQueue q = new AccordCacheEntryQueue();
+        AccordCacheEntry<?, ?, ?> owner = owner();
+        SafeTask<?> first = task(1), second = task(2), arriving = task(3);
+        assertSame(RunnableStatus.NEWLY_RUNNABLE, q.addUnsequenced(owner, first));
+        assertSame(RunnableStatus.NEWLY_RUNNABLE, q.addUnsequenced(owner, second));
+        verify(first, never()).onChangeRunnableStatus(owner, RunnableStatus.STILL_RUNNABLE_NEWLY_BLOCKING);
+
+        assertSame(RunnableStatus.NOT_RUNNABLE, q.addPrioritised(owner, arriving));
+        check(q);
+        assertSame(first, q.peekFifoOrPriority());
+        verify(second).onChangeRunnableStatus(owner, RunnableStatus.NOT_RUNNABLE);
+        verify(first).onChangeRunnableStatus(owner, RunnableStatus.STILL_RUNNABLE_NEWLY_BLOCKING);
+    }
+
+    /** the same, with a bag member that sorts after the arrival and so stays in the (now blocked) bag */
+    @Test
+    public void hintsTheBagMemberThatPartialSortingMakesHead()
+    {
+        AccordCacheEntryQueue q = new AccordCacheEntryQueue();
+        AccordCacheEntry<?, ?, ?> owner = owner();
+        SafeTask<?> first = task(1), late = task(5), arriving = task(3);
+        q.addUnsequenced(owner, first);
+        q.addUnsequenced(owner, late);
+
+        assertSame(RunnableStatus.NOT_RUNNABLE, q.addPrioritised(owner, arriving));
+        check(q);
+        assertSame(first, q.peekFifoOrPriority());
+        verify(late).onChangeRunnableStatus(owner, RunnableStatus.NOT_RUNNABLE);
+        verify(first).onChangeRunnableStatus(owner, RunnableStatus.STILL_RUNNABLE_NEWLY_BLOCKING);
+    }
+
     @Test
     public void growsAndCompactsWithABag()
     {
