@@ -226,7 +226,9 @@ abstract class AbstractLockLoop extends AbstractLoop
 
                                 running = false;
                                 pauseLoop();
+                                long parked = DEBUG_EXECUTION ? debug.onPark(runnable.waitingCount(), hasAlreadyWaitingToRun()) : 0;
                                 awaitExclusive();
+                                if (parked != 0) debug.onUnpark(parked);
                                 resumeLoop();
                                 running = true;
                             }
@@ -302,7 +304,9 @@ abstract class AbstractLockLoop extends AbstractLoop
 
                             running = false;
                             pauseLoop();
+                            long parked = DEBUG_EXECUTION ? debug.onPark(runnable.waitingCount(), hasAlreadyWaitingToRun()) : 0;
                             awaitExclusive();
+                            if (parked != 0) debug.onUnpark(parked);
                             resumeLoop();
                             running = true;
                         }
