@@ -538,4 +538,10 @@ public class InboundMessageHandler extends AbstractMessageHandler
             message.releaseBuffers(); // releases buffers if they haven't been yet (by deserialize() call)
         }
     }
+
+    /** for {@link MessagingJfrEvents} */
+    ConnectionType type()
+    {
+        return type;
+    }
 }

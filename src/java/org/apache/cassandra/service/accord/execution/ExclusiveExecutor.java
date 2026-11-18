@@ -37,6 +37,7 @@ import org.apache.cassandra.service.accord.debug.DebugExecution;
 import org.apache.cassandra.service.accord.execution.Task.ExclusiveGroup;
 import org.apache.cassandra.service.accord.execution.Task.GlobalGroup;
 import org.apache.cassandra.service.accord.execution.Task.GroupKind;
+import org.apache.cassandra.utils.Clock;
 
 import static accord.utils.Functions.returningVoid;
 import static accord.utils.async.AsyncCallbacks.flatCallback;
@@ -129,6 +130,8 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
     final ExclusiveExecutorTask selfTask;
     Task task;
     volatile Thread owner, waiting;
+    // diagnostics (racy reads): tasks run by this store and the time spent running them; written only by the owner
+    volatile long diagnosticRuns, diagnosticRunNanos;
     private boolean isStopped;
     private volatile boolean visibleIsStopped;
     private boolean isTerminated;
@@ -178,7 +181,12 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
             if (isStopped && reject(task))
                 task.rejectAtRuntime(new RejectedExecutionException(commandStoreId + " is terminated. Cannot execute " + task.description()));
             else
+            {
+                long start = Clock.Global.nanoTime();
                 task.runNoExcept(self);
+                diagnosticRunNanos += Clock.Global.nanoTime() - start;
+                diagnosticRuns++;
+            }
         }
         finally
         {

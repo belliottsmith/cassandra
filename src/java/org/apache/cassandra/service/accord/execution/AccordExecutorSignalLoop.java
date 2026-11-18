@@ -653,6 +653,24 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     }
 
     @Override
+    public int unsafePendingCount()
+    {
+        return pendingCount;
+    }
+
+    @Override
+    public int unsafeDeferredCompletionCount()
+    {
+        return deferredCount;
+    }
+
+    @Override
+    public long unsafeDeferredCompletionTotal()
+    {
+        return deferredTotal;
+    }
+
+    @Override
     boolean isInLoop()
     {
         return loops.isInLoop();

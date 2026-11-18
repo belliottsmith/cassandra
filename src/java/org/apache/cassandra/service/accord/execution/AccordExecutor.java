@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
@@ -234,8 +235,14 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     int tasks;
 
     private boolean hasPausedLoading;
+    // racy-read statistics of the loading pauses, for JfrDiagnostics (written under the executor lock)
+    private volatile long loadingPauses, loadingPausedNanos;
+    private long loadingPausedAt;
 
     private List<Condition> waitingForQuiescence;
+
+    // the command stores' executors, for diagnostics
+    private final List<ExclusiveExecutor> storeExecutors = new CopyOnWriteArrayList<>();
 
     AccordExecutor(Lock lock, int executorId, Agent agent)
     {
@@ -430,6 +437,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         if (hasPausedLoading && (cache.weightedSize() < maxWorkingCapacityInBytes || !hasNonLoadingWaitingToRun()))
         {
             hasPausedLoading = false;
+            loadingPausedNanos += Clock.Global.nanoTime() - loadingPausedAt;
             runnable.restart(LOADING_GROUPS);
         }
     }
@@ -443,13 +451,17 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         {
             AccordSystemMetrics.metrics.pausedExecutorLoading.inc();
             hasPausedLoading = true;
+            loadingPausedAt = Clock.Global.nanoTime();
+            ++loadingPauses;
             runnable.stop(LOADING_GROUPS);
         }
     }
 
     public ExclusiveExecutor newExclusiveExecutor(int commandStoreId)
     {
-        return new ExclusiveExecutor(this, commandStoreId);
+        ExclusiveExecutor result = new ExclusiveExecutor(this, commandStoreId);
+        storeExecutors.add(result);
+        return result;
     }
 
     public ExclusiveAsyncExecutor newExclusiveExecutor()
@@ -726,6 +738,57 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         return loading.size();
     }
 
+    /** tasks waiting on another task's transaction or key (WAITING_ON_TXN / WAITING_ON_KEY) (racy read) */
+    public int unsafeWaitingOnTxnOrKeyCount()
+    {
+        return waiting.size();
+    }
+
+    /** tasks awaiting submission or completion under the executor lock, where the executor keeps such a list (racy read) */
+    public int unsafePendingCount()
+    {
+        return 0;
+    }
+
+    /** completions deferred because a dispatch pass exceeded its completion budget (racy read) */
+    public int unsafeDeferredCompletionCount()
+    {
+        return 0;
+    }
+
+    /** completions ever deferred because a dispatch pass exceeded its completion budget (racy read) */
+    public long unsafeDeferredCompletionTotal()
+    {
+        return 0;
+    }
+
+    /** whether loads are paused because the cache is over capacity plus working set (racy read) */
+    public boolean unsafeIsLoadingPaused()
+    {
+        return hasPausedLoading;
+    }
+
+    /** the number of times loading has been paused since startup (racy read) */
+    public long unsafeLoadingPauses()
+    {
+        return loadingPauses;
+    }
+
+    /** the total time loading has been paused since startup, in nanoseconds, including any current pause (racy read) */
+    public long unsafeLoadingPausedNanos()
+    {
+        long total = loadingPausedNanos;
+        if (hasPausedLoading)
+            total += Math.max(0, Clock.Global.nanoTime() - loadingPausedAt);
+        return total;
+    }
+
+    /** the cache size at which loading is paused: capacity plus the working set (racy read) */
+    public long unsafeMaxWorkingCapacity()
+    {
+        return maxWorkingCapacityInBytes;
+    }
+
     public int unsafeWaitingToRunCount()
     {
         return runnable.waitingCount();
@@ -777,6 +840,217 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         }
         result.sort(TaskInfo::compareTo);
         return result;
+    }
+
+    /** per command store queue state, for diagnostics (see {@link #diagnosticsSnapshot}) */
+    public static final class StoreDiagnostics
+    {
+        public final int commandStoreId;
+        // tasks waiting on another task's txn or key / loading or scanning ranges / queued at the store, ready to run
+        public int waiting, loading, queued, running;
+        public long oldestWaitingNanos, oldestLoadingNanos, oldestQueuedNanos;
+        // cumulative, from the store's ExclusiveExecutor
+        public long runs, runNanos;
+
+        StoreDiagnostics(int commandStoreId)
+        {
+            this.commandStoreId = commandStoreId;
+        }
+    }
+
+    /** a task that has been waiting on another task's txn or key for a while, and what it is waiting on */
+    public static final class WaitingDiagnostics
+    {
+        public int commandStoreId;
+        public String task, txnId, state;
+        public long ageNanos, position;
+        public boolean fifo;
+        // its cache entries, how many of them it does not yet hold (scanning at most MAX_REFS_SCANNED), and on how many
+        // of those it is blocked: locked by another task, or not among the queued tasks that may run (of the first
+        // MAX_QUEUES_INSPECTED unlocked ones)
+        public int refs, notHeld, blockedOn;
+        // the first entry it is blocked on: its key, holder, and the queue in front of it
+        public String entry, holder, holderState, queueHead;
+        public long holderAgeNanos = -1;
+        public int queueSize, fifoSize, runnablePrefix, indexInQueue = -1;
+        // if the queue head is a batched (non-sync / incremental) task: whether it has this entry in the keys it will
+        // process next (blocking: others wait on them; notBlocking: ready, nobody waiting), the sizes of those sets, and
+        // its progress (keys processed of its total); -1 if not applicable
+        public int headInBlocking = -1, headInNotBlocking = -1, headBlocking = -1, headNotBlocking = -1, headProcessed = -1, headKeys = -1;
+    }
+
+    private static final int MAX_REFS_SCANNED = 1 << 16;
+    private static final int MAX_QUEUES_INSPECTED = 256;
+    private static final int MAX_DESCRIPTION = 160;
+
+    /**
+     * Under the executor lock: per command store counts and oldest ages of the tasks waiting on a txn or key, loading,
+     * queued at their store and running; and the (at most) maxWaiting oldest tasks that have been waiting on a txn or
+     * key for at least minWaitingNanos, with the cache entry each is blocked on. Bounded work, for periodic diagnostics.
+     */
+    public void diagnosticsSnapshot(long minWaitingNanos, int maxWaiting, Consumer<StoreDiagnostics> stores, Consumer<WaitingDiagnostics> waiters)
+    {
+        long now = Clock.Global.nanoTime();
+        java.util.Map<Integer, StoreDiagnostics> byStore = new java.util.TreeMap<>();
+        for (ExclusiveExecutor e : storeExecutors)
+        {
+            StoreDiagnostics d = byStore.computeIfAbsent(e.commandStoreId, StoreDiagnostics::new);
+            d.runs = e.diagnosticRuns;
+            d.runNanos = e.diagnosticRunNanos;
+        }
+        // the oldest waiting tasks: a max-heap by createdAt (so the youngest of the kept is at the head)
+        java.util.PriorityQueue<SafeTask<?>> oldest = new java.util.PriorityQueue<>(Math.max(1, maxWaiting), (a, b) -> Long.compare(b.createdAt, a.createdAt));
+        List<WaitingDiagnostics> details = new ArrayList<>();
+
+        TaskRunner self = TaskRunner.get();
+        lock(self);
+        try
+        {
+            for (int i = 0 ; i < waiting.size() ; ++i)
+            {
+                SafeTask<?> t = waiting.getSingle(i);
+                StoreDiagnostics d = byStore.computeIfAbsent(t.commandStore.id(), StoreDiagnostics::new);
+                long age = now - t.createdAt;
+                d.waiting++;
+                d.oldestWaitingNanos = Math.max(d.oldestWaitingNanos, age);
+                if (maxWaiting > 0 && age >= minWaitingNanos)
+                {
+                    if (oldest.size() < maxWaiting) oldest.add(t);
+                    else if (t.createdAt < oldest.peek().createdAt) { oldest.poll(); oldest.add(t); }
+                }
+            }
+            for (int i = 0 ; i < loading.size() ; ++i)
+            {
+                SafeTask<?> t = loading.getSingle(i);
+                StoreDiagnostics d = byStore.computeIfAbsent(t.commandStore.id(), StoreDiagnostics::new);
+                d.loading++;
+                d.oldestLoadingNanos = Math.max(d.oldestLoadingNanos, now - t.createdAt);
+            }
+            for (TaskQueue<?> queue : runnable.queues)
+            {
+                if (queue != null)
+                    addQueuedDiagnostics(byStore, queue, now, false);
+            }
+            addQueuedDiagnostics(byStore, runnable.assigned, now, true);
+
+            for (SafeTask<?> t : oldest)
+                details.add(waitingDiagnostics(t, now));
+        }
+        finally
+        {
+            unlock(self);
+        }
+        byStore.values().forEach(stores);
+        details.sort((a, b) -> Long.compare(b.ageNanos, a.ageNanos));
+        details.forEach(waiters);
+    }
+
+    private static void addQueuedDiagnostics(java.util.Map<Integer, StoreDiagnostics> byStore, TaskQueue<?> queue, long now, boolean isAssigned)
+    {
+        for (int i = 0 ; i < queue.size() ; ++i)
+        {
+            Task t = queue.getSingle(i);
+            if (!(t instanceof ExclusiveExecutorTask))
+                continue;
+            ExclusiveExecutor q = ((ExclusiveExecutorTask) t).queue;
+            StoreDiagnostics d = byStore.computeIfAbsent(q.commandStoreId, StoreDiagnostics::new);
+            if (q.task != null)
+            {
+                if (isAssigned) d.running++;
+                else
+                {
+                    d.queued++;
+                    d.oldestQueuedNanos = Math.max(d.oldestQueuedNanos, now - q.task.createdAt);
+                }
+            }
+            for (TaskQueue<?> q0 : q.queues)
+            {
+                if (q0 == null)
+                    continue;
+                for (int j = 0 ; j < q0.size() ; ++j)
+                {
+                    d.queued++;
+                    d.oldestQueuedNanos = Math.max(d.oldestQueuedNanos, now - q0.getSingle(j).createdAt);
+                }
+            }
+        }
+    }
+
+    private static WaitingDiagnostics waitingDiagnostics(SafeTask<?> t, long now)
+    {
+        WaitingDiagnostics w = new WaitingDiagnostics();
+        w.commandStoreId = t.commandStore.id();
+        w.task = TaskLabels.label(t, TaskLabels.Prefix.RUN);
+        Object txnId = t.executionContext().primaryTxnId();
+        w.txnId = txnId == null ? "" : txnId.toString();
+        w.state = String.valueOf(t.currentState());
+        w.ageNanos = now - t.createdAt;
+        w.position = t.position;
+        w.fifo = t.isCacheQueuedFifo();
+        w.refs = t.refs.size();
+        // the entry holding it up: the first that another task has locked, or on which it is not (yet) among the tasks
+        // that may run; tasks only lock their entries when they run, so merely not holding an entry means nothing
+        int scanned = 0, inspected = 0;
+        AccordCacheEntry<?, ?, ?> first = null;
+        for (accord.local.SafeState<?> safeState : t.refs.values())
+        {
+            if (++scanned > MAX_REFS_SCANNED)
+                break;
+            AccordCacheEntry<?, ?, ?> entry = SaferState.global(safeState);
+            if (entry.isLockedBy(t))
+                continue;
+            w.notHeld++;
+            boolean blocked;
+            if (entry.isLocked()) blocked = true;
+            else if (inspected++ < MAX_QUEUES_INSPECTED)
+            {
+                int index = entry.unsafeQueuedTasks().indexOf(t);
+                blocked = index < 0 || index >= entry.unsafeRunnablePrefix();
+            }
+            else blocked = false;
+            if (blocked && ++w.blockedOn == 1)
+                first = entry;
+        }
+        if (first != null)
+        {
+            w.entry = truncate(String.valueOf(first.key()));
+            SafeTask<?> holder = first.isLocked() ? first.lockedBy() : null;
+            if (holder != null)
+            {
+                w.holder = truncate(TaskLabels.label(holder, TaskLabels.Prefix.RUN) + ' ' + holder.executionContext().primaryTxnId());
+                w.holderState = String.valueOf(holder.currentState());
+                w.holderAgeNanos = now - holder.createdAt;
+            }
+            List<SafeTask<?>> queued = first.unsafeQueuedTasks();
+            w.queueSize = queued.size();
+            w.fifoSize = first.unsafeFifoSize();
+            w.runnablePrefix = first.unsafeRunnablePrefix();
+            w.indexInQueue = queued.indexOf(t);
+            if (!queued.isEmpty())
+            {
+                SafeTask<?> head = queued.get(0);
+                w.queueHead = truncate(TaskLabels.label(head, TaskLabels.Prefix.RUN) + ' ' + head.executionContext().primaryTxnId()
+                                       + ' ' + head.currentState() + " age=" + (now - head.createdAt) / 1_000_000 + "ms"
+                                       + (head.isCacheQueuedFifo() ? " fifo" : ""));
+                SafeTask.NonSyncState<?> nonSync = head.nonSync();
+                if (nonSync != null)
+                {
+                    Object key = first.key();
+                    w.headInBlocking = nonSync.blocking != null && nonSync.blocking.contains(key) ? 1 : 0;
+                    w.headInNotBlocking = nonSync.notBlocking != null && nonSync.notBlocking.contains(key) ? 1 : 0;
+                    w.headBlocking = nonSync.blocking == null ? 0 : nonSync.blocking.size();
+                    w.headNotBlocking = nonSync.notBlocking == null ? 0 : nonSync.notBlocking.size();
+                    w.headProcessed = nonSync.processed;
+                    w.headKeys = head.keys;
+                }
+            }
+        }
+        return w;
+    }
+
+    private static String truncate(String s)
+    {
+        return s.length() <= MAX_DESCRIPTION ? s : s.substring(0, MAX_DESCRIPTION);
     }
 
     private static void addToSnapshot(List<TaskInfo> snapshot, TaskQueue<?> queue, TaskInfo.Status ifCurrent, TaskInfo.Status ifQueued)
