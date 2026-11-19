@@ -358,7 +358,9 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
 
     private RemoveMode removeMode(RemoveMode param, SafeTask<?> task)
     {
-        return param != null ? param : CACHE_QUEUES_ENABLED &&  task.isCacheQueued() && !is(FAILED_TO_LOAD) ? REQUIRE_PRESENT : IF_PRESENT;
+        // a task that never registered (e.g. a consequence cancelled before submission, whose references were taken at
+        // preSetup) never placed any claims, even if it was marked fifo (and so cache queued) at preSetup
+        return param != null ? param : CACHE_QUEUES_ENABLED && task.isCacheQueued() && task.compareTo(Task.State.REGISTERED) >= 0 && !is(FAILED_TO_LOAD) ? REQUIRE_PRESENT : IF_PRESENT;
     }
 
     final boolean isCommandsForKey()
