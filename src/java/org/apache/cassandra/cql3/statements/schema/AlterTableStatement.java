@@ -711,6 +711,9 @@ public abstract class AlterTableStatement extends AlterSchemaStatement
                 Guardrails.uncompressedTablesEnabled.ensureEnabled(state);
 
             params = validateAndUpdateTransactionalMigration(table.isCounter(), table.params, params);
+            // only a table newly using accord is validated, so we do not reject unrelated changes to existing tables
+            if (usesAccord(params) && !usesAccord(table.params))
+                validateAccordReplicationFactor(keyspace, tableName);
 
             return keyspace.withSwapped(keyspace.tables.withSwapped(table.withSwapped(params)));
         }

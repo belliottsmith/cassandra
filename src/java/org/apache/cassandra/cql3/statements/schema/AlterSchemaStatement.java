@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.auth.AuthenticatedUser;
 import org.apache.cassandra.auth.IResource;
+import org.apache.cassandra.config.CassandraRelevantProperties;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
@@ -294,6 +295,28 @@ abstract public class AlterSchemaStatement implements CQLStatement.SingleKeyspac
     static InvalidRequestException ire(String format, Object... args)
     {
         return new InvalidRequestException(String.format(format, args));
+    }
+
+    /**
+     * Accord cannot make progress on a shard while its only replica is unavailable or unreadable (as it is on restart),
+     * so its tables require more than one full replica. Tests may opt out, as many run with a single node.
+     */
+    static final int ACCORD_MIN_REPLICATION_FACTOR = 2;
+
+    static boolean usesAccord(TableParams params)
+    {
+        return params.transactionalMode.accordIsEnabled || params.transactionalMigrationFrom.migratingFromAccord();
+    }
+
+    static void validateAccordReplicationFactor(KeyspaceMetadata keyspace, String tableName)
+    {
+        if (CassandraRelevantProperties.ACCORD_TEST_ALLOW_MODES.getBoolean())
+            return;
+
+        int replicationFactor = keyspace.replicationStrategy.getReplicationFactor().fullReplicas;
+        if (replicationFactor < ACCORD_MIN_REPLICATION_FACTOR)
+            throw ire("Accord tables require a replication factor of at least %d, but %s.%s would have %d",
+                      ACCORD_MIN_REPLICATION_FACTOR, keyspace.name, tableName, replicationFactor);
     }
 
     public String toString()

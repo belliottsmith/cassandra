@@ -195,6 +195,9 @@ public final class CreateTableStatement extends AlterSchemaStatement
         if (table.params.transactionalMigrationFrom.isMigrating())
             throw ire("Cannot set transactional migration on new tables (%s.%s), %s", keyspaceName, tableName, table.params.transactionalMigrationFrom);
 
+        if (usesAccord(table.params))
+            validateAccordReplicationFactor(keyspace, tableName);
+
         return schema.withAddedOrUpdated(keyspace.withSwapped(keyspace.tables.with(table)));
     }
 

@@ -106,6 +106,16 @@ public final class AlterKeyspaceStatement extends AlterSchemaStatement
         validateNoRangeMovements();
         validateTransientReplication(keyspace, newKeyspace);
 
+        // only a reduction is validated, so we do not reject unrelated changes to existing keyspaces
+        if (newKeyspace.replicationStrategy.getReplicationFactor().fullReplicas < keyspace.replicationStrategy.getReplicationFactor().fullReplicas)
+        {
+            for (TableMetadata table : newKeyspace.tables)
+            {
+                if (usesAccord(table.params))
+                    validateAccordReplicationFactor(newKeyspace, table.name);
+            }
+        }
+
         // Because we used to not properly validate unrecognized options, we only log a warning if we find one.
         try
         {
