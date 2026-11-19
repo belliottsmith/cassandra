@@ -48,7 +48,9 @@ public class IdenticalTopologyTest extends FuzzTestBase
     {
         try (Cluster cluster = init(builder().withNodes(1)
                                              .withConfig(cfg -> cfg.set("accord.journal.compaction_period", "600s") // deliberately high
-                                                                   .set("max_value_size", "1MiB")) // deliberately low
+                                                                   .set("max_value_size", "1MiB") // deliberately low
+                                                                   // with a single replica, catchup cannot make progress while we restart unreadable
+                                                                   .set("accord.catchup_on_start", false))
                                              .start(),
                                     1))
         {
