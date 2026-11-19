@@ -52,8 +52,17 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     private final Loops loops;
     private int readyToRunTarget = 1;
     private final int readyToRunLimit;
-    // TODO (desired): intrusive queue using Task.next, but a little challenging because we reuse SequentialQueueTask so have ABA problem
-    private final ConcurrentLinkedQueue<Task> readyToRun = new ConcurrentLinkedQueue<>();
+    /*
+     * Work that is ready to run, for which a permit has been made available (see SignalLock.incrementAsyncWork).
+     * Work for a command store is serialised, so any delay to it delays every task queued on its store, whereas the
+     * delay of other work (e.g. a load) is typically hidden behind the command store work that awaits it. So we queue
+     * command store work separately, and a thread that is already running prefers it, while a thread that may have been
+     * woken to acquire its permit (and so has already incurred the latency of waking) prefers other work; see
+     * LoopTask.pollReadyToRun. Each queue is FIFO, so that it is cheap and cannot starve.
+     * TODO (desired): intrusive queues using Task.next, but a little challenging because we reuse SequentialQueueTask so have ABA problem
+     */
+    private final ConcurrentLinkedQueue<Task> readyCommandStore = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Task> readyOther = new ConcurrentLinkedQueue<>();
 
     private Task pendingHead, pendingTail;
     private int pendingCount;
@@ -114,25 +123,26 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     final void beforeUnlockExternal()
     {
         // work may arrive at the runnable queue directly;
-        // we must ensure the lock work bit is set, to ensure this is processed into readyToRun
+        // we must ensure the lock work bit is set, to ensure this is processed into our ready queues
         // (and likewise for any deferred completions)
         if (hasAlreadyWaitingToRun() || deferredHead != null)
             lock.signalLockWorkExclusive();
     }
 
-    private Task pollReadyToRun()
-    {
-        return readyToRun.poll();
-    }
-
     private void addReadyToRun(Task task)
     {
-        readyToRun.add(task);
+        (isCommandStoreWork(task) ? readyCommandStore : readyOther).add(task);
+    }
+
+    private static boolean isCommandStoreWork(Task task)
+    {
+        // other exclusive executors are generally low contention, so we do not prioritise them
+        return task instanceof ExclusiveExecutor.ExclusiveExecutorTask && ((ExclusiveExecutor.ExclusiveExecutorTask) task).queue.commandStoreId >= 0;
     }
 
     private boolean hasReadyToRun()
     {
-        return !readyToRun.isEmpty();
+        return !readyCommandStore.isEmpty() || !readyOther.isEmpty();
     }
 
     private LoopTask task(int index, String id, Mode mode)
@@ -416,6 +426,11 @@ public class AccordExecutorSignalLoop extends AbstractLoop
     class LoopTask extends Loops.LoopTask
     {
         final int index;
+        /**
+         * Whether our next poll (while running) should prefer other work, as we last took command store work while
+         * other work was also available; see {@link #pollReadyToRun}
+         */
+        private boolean preferOther;
 
         LoopTask(int index, String id)
         {
@@ -423,11 +438,65 @@ public class AccordExecutorSignalLoop extends AbstractLoop
             this.index = index;
         }
 
+        /**
+         * Poll the next ready task, having acquired a permit (so that one must be available).
+         * <p>
+         * A thread that may have been woken to acquire its permit prefers other work, as it has already incurred the
+         * latency of waking, which would otherwise delay command store work (and so every task queued on its store).
+         * A thread that is already running prefers command store work, but if other work is also available it prefers
+         * the other work on its next poll, so that while both are available each gets half of these polls and neither
+         * can be starved. If the preferred queue is empty, or we take command store work while there is no other work,
+         * there is no contention and our preference resets.
+         * <p>
+         * As each task is queued before its permit is made available, and each poll is made by a thread holding a
+         * permit, there is always a task for us in one of the queues; but another thread may take the one we would have
+         * found in the second queue we poll after we have polled the first, so we retry until we find one (or shutdown).
+         */
+        private Task pollReadyToRun(boolean mayHaveWoken)
+        {
+            boolean otherFirst = mayHaveWoken || preferOther;
+            while (true)
+            {
+                Task next;
+                if (otherFirst)
+                {
+                    next = readyOther.poll();
+                    if (next == null) next = readyCommandStore.poll();
+                    if (next != null)
+                    {
+                        preferOther = false;
+                        return next;
+                    }
+                }
+                else
+                {
+                    next = readyCommandStore.poll();
+                    if (next != null)
+                    {
+                        preferOther = !readyOther.isEmpty();
+                        return next;
+                    }
+                    next = readyOther.poll();
+                    if (next != null)
+                    {
+                        preferOther = false;
+                        return next;
+                    }
+                }
+
+                if (shutdown)
+                    return null;
+                Thread.onSpinWait();
+            }
+        }
+
         private Task awaitWork(TaskRunner self)
         {
             while (true)
             {
-                if (lock.awaitAsyncOrLock(index))
+                // if we took the lock we made work ready ourselves, and are running; otherwise we acquired a permit while waiting
+                boolean tookLock = lock.awaitAsyncOrLock(index);
+                if (tookLock)
                 {
                     if (!enterLock(self))
                         continue;
@@ -436,7 +505,7 @@ public class AccordExecutorSignalLoop extends AbstractLoop
                         continue;
                 }
 
-                Task next = pollReadyToRun();
+                Task next = pollReadyToRun(!tookLock);
                 if (next == null && shutdown)
                     throw new ShutdownException();
 
@@ -554,7 +623,7 @@ public class AccordExecutorSignalLoop extends AbstractLoop
             else if (!completeAndFetchWorkExclusiveAndUnlock(self, complete))
                 return null;
 
-            Task next = pollReadyToRun();
+            Task next = pollReadyToRun(false);
             if (next == null)
             {
                 Invariants.expect(shutdown);
@@ -562,7 +631,7 @@ public class AccordExecutorSignalLoop extends AbstractLoop
                 lock(self);
                 try { drainUnqueuedNewWorkExclusive(); }
                 finally { unlock(self); }
-                next = pollReadyToRun();
+                next = pollReadyToRun(false);
                 if (next == null)
                     throw new ShutdownException();
             }

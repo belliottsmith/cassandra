@@ -52,6 +52,8 @@ import accord.local.Node.Id;
 import accord.local.NodeCommandStoreService;
 import accord.local.SafeCommandStore;
 import accord.local.TimeService;
+import accord.local.cfk.CommandsForKey;
+import accord.local.cfk.SafeCommandsForKey;
 import accord.local.durability.DurabilityService;
 import accord.primitives.Ballot;
 import accord.primitives.Ranges;
@@ -96,6 +98,11 @@ public class AccordExecutorExclusiveContinueBench
     private static final int KEYS_PER_TASK = Integer.getInteger("bench.keys_per_task", 1);
     /** if set, run only those configurations whose description (e.g. "SIGNAL stores=1 keys=8 continue=0 batch=8") matches */
     private static final String FILTER = System.getProperty("bench.filter");
+    /**
+     * write a (non-null) CommandsForKey for each key: otherwise, as a key's CommandsForKey is null, its entry is evicted
+     * whenever it is unreferenced, and must be reloaded
+     */
+    private static final boolean WRITE_CFK = Boolean.getBoolean("bench.write_cfk");
     private static final long WORK_NANOS = Long.getLong("bench.work_nanos", 2000);
     private static final long WARMUP_MILLIS = Long.getLong("bench.warmup_millis", 2000);
     private static final long MEASURE_MILLIS = Long.getLong("bench.measure_millis", 4000);
@@ -255,6 +262,16 @@ public class AccordExecutorExclusiveContinueBench
             taskKeys[i] = keys[(int) ((seq + i) % keys.length)];
         ExecutionContext context = ExecutionContext.contextFor(null, null, RoutingKeys.of(taskKeys), LoadKeys.SYNC, FindKeys.CONFLICTS, "bench");
         store.execute(context, (Consumer<? super SafeCommandStore>) safeStore -> {
+            if (WRITE_CFK)
+            {
+                for (RoutingKey key : taskKeys)
+                {
+                    SafeCommandsForKey safeCfk = safeStore.get(key);
+                    // fresh arrays, so that the update is recognised as a change (see CommandsForKey.hasChanges)
+                    safeCfk.set(CommandsForKey.SerializerSupport.create(key, new CommandsForKey.TxnInfo[0], seq, new CommandsForKey.Unmanaged[0],
+                                                                        TxnId.NONE, CommandsForKey.NO_BOUNDS_INFO, false));
+                }
+            }
             long until = System.nanoTime() + WORK_NANOS;
             while (System.nanoTime() < until) {}
         }, (success, fail) -> {
