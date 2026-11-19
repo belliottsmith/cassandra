@@ -792,9 +792,12 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         if (loaded.status() == EVICTED)
             return;
 
-        // see ExclusiveExecutor.parkIfBatchingExclusive: the tasks we notify may place claims on entries a batch owns
+        // see ExclusiveExecutor.parkIfUsesOwnedExclusive: the tasks we notify may modify entries a batch owns. The loaded
+        // entry cannot itself be owned, so on success we complete the load and park only the notifications of those tasks
+        // that use an owned entry; failure is rare, and evicts the entry, so we park the whole operation.
         AccordCommandStore commandStore = loaded.owner == null ? null : loaded.owner.commandStore;
-        if (commandStore != null && commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> onLoadedExclusive(loaded, value, fail)))
+        ExclusiveExecutor exclusive = commandStore == null ? null : commandStore.exclusiveExecutor();
+        if (fail != null && exclusive != null && exclusive.parkIfBatchingExclusive(() -> onLoadedExclusive(loaded, value, fail)))
             return;
 
         try (ArrayBuffers.BufferList<SafeTask<?>> tasks = loaded.drainWaitingToLoad())
@@ -821,13 +824,22 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
                 {
                     if (task.isDone())
                         continue;
-                    try { task.onLoadOneExclusive(loaded); }
-                    catch (Throwable t) { task.unhandledException(t); }
+                    if (exclusive != null && exclusive.parkIfUsesOwnedExclusive(task, () -> onLoadedOneExclusive(loaded, task)))
+                        continue;
+                    onLoadedOneExclusive(loaded, task);
                 }
             }
         }
 
         maybePauseLoading();
+    }
+
+    private static void onLoadedOneExclusive(AccordCacheEntry<?, ?, ?> loaded, SafeTask<?> task)
+    {
+        if (task.isDone())
+            return;
+        try { task.onLoadOneExclusive(loaded); }
+        catch (Throwable t) { task.unhandledException(t); }
     }
 
     public void executeDirectlyWithLock(Runnable command)

@@ -164,7 +164,7 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
      */
     private Batch batch;
     /** the number of batches completed, and of followers that ran in them; modified only with the executor lock held */
-    private volatile long batchCount, batchedCount, inlinedCount;
+    private volatile long batchCount, batchedCount, inlinedCount, parkedCount;
     private boolean isStopped;
     private volatile boolean visibleIsStopped;
     private boolean isTerminated;
@@ -554,6 +554,12 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
         return batchedCount;
     }
 
+    /** the number of operations parked while a batch was in progress; see {@link #parkIfBatchingExclusive} */
+    public long unsafeParkedCount()
+    {
+        return parkedCount;
+    }
+
     /** the number of consequences executed inline by a batch */
     public long unsafeInlinedCount()
     {
@@ -585,8 +591,9 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
      * the owner's thread without the lock. Each follower takes the value of each entry it uses from {@link #values}:
      * whatever the last member to modify it would have published, else the value it had when the batch formed.
      * <p>
-     * Meanwhile any lock holder that would operate on this store's tasks, and so might modify an owned entry, parks the
-     * operation to be performed once the batch completes; see {@link #parkIfBatchingExclusive}. This is guarded by
+     * Meanwhile any lock holder that would operate on behalf of one of this store's tasks that uses an owned entry, and so
+     * might modify it, parks the operation to be performed once the batch completes; see {@link #parkIfUsesOwnedExclusive}
+     * (and {@link #parkIfBatchingExclusive}, for those operations that may adopt any entry). This is guarded by
      * {@link AccordCacheEntry#requireNotOwned}. Since cache entries belong to a single store, only operations on behalf of
      * this store's tasks need be considered.
      * <p>
@@ -958,7 +965,20 @@ public final class ExclusiveExecutor extends TaskQueueMulti<Task> implements Exc
         if (batch.parked == null)
             batch.parked = new ArrayList<>();
         batch.parked.add(operation);
+        //noinspection NonAtomicOperationOnVolatileField
+        ++parkedCount;
         return true;
+    }
+
+    /**
+     * As {@link #parkIfBatchingExclusive(Runnable)}, but only if {@code task} uses (or, if not yet setup, will use) an
+     * entry owned by the batch (see {@link SafeTask#usesOwnedEntryExclusive}): only then may the operation modify an owned
+     * entry. Since the owned entries are fixed while a batch is in progress, once one operation on behalf of a task is
+     * parked so are all others, and they are performed in the order they were parked.
+     */
+    boolean parkIfUsesOwnedExclusive(SafeTask<?> task, Runnable operation)
+    {
+        return batch != null && task.usesOwnedEntryExclusive() && parkIfBatchingExclusive(operation);
     }
 
     public boolean inExecutor()

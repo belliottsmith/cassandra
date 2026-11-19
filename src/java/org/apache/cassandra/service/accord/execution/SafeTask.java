@@ -697,13 +697,52 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
     }
 
     /**
-     * See ExclusiveExecutor.parkIfBatchingExclusive: whether we submit or (having been cancelled before submission)
+     * Whether we use an entry owned by a batch (see ExclusiveExecutor.parkIfUsesOwnedExclusive): either one we hold a
+     * reference to, or, if we have not yet been setup, one we declare. A task over ranges that has not been setup may
+     * adopt any entry, so we answer conservatively. Invoked with the lock held.
+     */
+    boolean usesOwnedEntryExclusive()
+    {
+        if (refs != null)
+        {
+            for (SafeState<?> safeState : refs.values())
+            {
+                if (global(safeState).isOwned())
+                    return true;
+            }
+        }
+
+        if (!is(UNREGISTERED) || loadKeys(context) == NONE)
+            return false;
+
+        Unseekables<?> keysOrRanges = context.keys();
+        if (keysOrRanges.domain() != Key)
+            return true;
+
+        Caches caches = commandStore.cachesExclusive();
+        for (RoutingKey key : (AbstractUnseekableKeys) keysOrRanges)
+        {
+            AccordCacheEntry<?, ?, ?> entry = caches.commandsForKeys().getUnsafe(key);
+            if (entry != null && entry.isOwned())
+                return true;
+        }
+        for (TxnId txnId : context.txnIds())
+        {
+            AccordCacheEntry<?, ?, ?> entry = caches.commands().getUnsafe(txnId);
+            if (entry != null && entry.isOwned())
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * See ExclusiveExecutor.parkIfUsesOwnedExclusive: whether we submit or (having been cancelled before submission)
      * release our preSetup references, we may modify this store's entries; we remain unregistered until resubmitted
      */
     @Override
     boolean parkSubmissionIfBatchingExclusive()
     {
-        return commandStore.exclusiveExecutor().parkIfBatchingExclusive(this::submitExclusiveNoExcept);
+        return commandStore.exclusiveExecutor().parkIfUsesOwnedExclusive(this, this::submitExclusiveNoExcept);
     }
 
     @Override
@@ -1160,7 +1199,7 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         Invariants.require(is(LOADING_OPTIONAL) && !isQueued());
         // see ExclusiveExecutor.parkIfBatchingExclusive; we may meanwhile be cancelled or, as we are no longer deferred,
         // proceed by another route (e.g. a parked load completing first, finding our deadline has passed)
-        if (commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> {
+        if (commandStore.exclusiveExecutor().parkIfUsesOwnedExclusive(this, () -> {
             if (is(LOADING_OPTIONAL) && !isQueued() && hasDeadline())
                 releaseDeferredExclusive();
         }))
@@ -2460,8 +2499,8 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         if (isContinuation())
             return;
 
-        // see ExclusiveExecutor.parkIfBatchingExclusive
-        if (commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> tryCancelExclusive(cancelled)))
+        // see ExclusiveExecutor.parkIfUsesOwnedExclusive
+        if (commandStore.exclusiveExecutor().parkIfUsesOwnedExclusive(this, () -> tryCancelExclusive(cancelled)))
             return;
 
         try

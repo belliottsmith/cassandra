@@ -109,6 +109,8 @@ public class AccordExecutorExclusiveBatchTest
     private static final int TIMEOUT_SECONDS = 60;
     private static final TableId TABLE_ID = TableId.fromUUID(new java.util.UUID(0, 1));
     private static final int KEYS = 3;
+    /** keys that are rarely used, so whose entries are rarely owned by a batch while their operations are performed */
+    private static final int COLD_KEYS = 32;
     private static final int TASKS = 4000;
     private static final int BATCH_LIMIT = 8;
 
@@ -212,10 +214,10 @@ public class AccordExecutorExclusiveBatchTest
             executor.setWorkingSetSize(4 << 20);
         });
 
-        RoutingKey[] keys = new RoutingKey[KEYS];
+        RoutingKey[] keys = new RoutingKey[KEYS + COLD_KEYS];
         List<ConcurrentLinkedQueue<Integer>> ranByKey = new ArrayList<>();
         List<ConcurrentLinkedQueue<Long>> observedByKey = new ArrayList<>();
-        for (int i = 0 ; i < KEYS ; ++i)
+        for (int i = 0 ; i < keys.length ; ++i)
         {
             keys[i] = new TokenKey(TABLE_ID, partitioner.getToken(Int32Type.instance.decompose(i)));
             ranByKey.add(new ConcurrentLinkedQueue<>());
@@ -241,10 +243,10 @@ public class AccordExecutorExclusiveBatchTest
             for (int i = 0 ; i < TASKS ; ++i)
             {
                 int index = i;
-                int keyIndex = i % KEYS;
+                int keyIndex = isCold(i) ? KEYS + (i / 5) % COLD_KEYS : i % KEYS;
                 RoutingKey key = keys[keyIndex];
                 // some tasks declare two keys, so that batches may span several
-                int[] taskKeys = isMultiKey(i) ? new int[] { keyIndex, (keyIndex + 1) % KEYS } : new int[] { keyIndex };
+                int[] taskKeys = isMultiKey(i) && !isCold(i) ? new int[] { keyIndex, (keyIndex + 1) % KEYS } : new int[] { keyIndex };
                 RoutingKey[] taskRoutingKeys = new RoutingKey[taskKeys.length];
                 for (int k = 0 ; k < taskKeys.length ; ++k)
                     taskRoutingKeys[k] = keys[taskKeys[k]];
@@ -336,7 +338,7 @@ public class AccordExecutorExclusiveBatchTest
                 throw new AssertionError("unexpected exception reported to the agent", agent.failure.get());
             assertEquals(0, unexpectedFailures.get());
 
-            for (int k = 0 ; k < KEYS ; ++k)
+            for (int k = 0 ; k < keys.length ; ++k)
             {
                 List<Integer> ran = new ArrayList<>(ranByKey.get(k));
                 for (int i = 1 ; i < ran.size() ; ++i)
@@ -356,7 +358,7 @@ public class AccordExecutorExclusiveBatchTest
             else assertEquals(0, inlined);
             System.out.println("### " + kind + " batchLimit=" + batchLimit + " continueLimit=" + continueLimit
  + " batches=" + batches + " batched=" + batched + " inlined=" + inlined + " continued=" + exclusive.unsafeContinuedCount()
-                               + " cancelled=" + cancelled.get() + " of " + (TASKS + nestedCount + plainCount));
+                               + " parked=" + exclusive.unsafeParkedCount() + " cancelled=" + cancelled.get() + " of " + (TASKS + nestedCount + plainCount));
             return batched;
         }
         finally
@@ -422,6 +424,7 @@ public class AccordExecutorExclusiveBatchTest
     private static boolean fails(int i) { return i % 23 == 7; }
     private static boolean isNested(int i) { return i % 17 == 3; }
     private static boolean isMultiKey(int i) { return i % 7 == 2; }
+    private static boolean isCold(int i) { return i % 5 == 4; }
     private static boolean isNestedOther(int i) { return i % 19 == 5; }
     private static boolean isAtomicNested(int i) { return (i / 17) % 2 == 0; }
 

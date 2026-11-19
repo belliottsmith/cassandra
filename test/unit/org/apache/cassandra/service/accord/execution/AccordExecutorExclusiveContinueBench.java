@@ -94,6 +94,8 @@ public class AccordExecutorExclusiveContinueBench
     private static final boolean CONSEQUENCES = Boolean.getBoolean("bench.consequences");
     /** the number of (consecutive) keys each task declares */
     private static final int KEYS_PER_TASK = Integer.getInteger("bench.keys_per_task", 1);
+    /** if set, run only those configurations whose description (e.g. "SIGNAL stores=1 keys=8 continue=0 batch=8") matches */
+    private static final String FILTER = System.getProperty("bench.filter");
     private static final long WORK_NANOS = Long.getLong("bench.work_nanos", 2000);
     private static final long WARMUP_MILLIS = Long.getLong("bench.warmup_millis", 2000);
     private static final long MEASURE_MILLIS = Long.getLong("bench.measure_millis", 4000);
@@ -126,7 +128,11 @@ public class AccordExecutorExclusiveContinueBench
                     {
                         // { continue limit, batch limit }
                         for (int[] limits : new int[][] { { 0, 0 }, { 8, 0 }, { 0, 8 }, { 8, 8 } })
-                            results.add(run(kind, stores, keys, limits[0], limits[1]));
+                        {
+                            String describe = kind + " stores=" + stores + " keys=" + keys + " continue=" + limits[0] + " batch=" + limits[1];
+                            if (FILTER == null || describe.matches(FILTER))
+                                results.add(run(kind, stores, keys, limits[0], limits[1]));
+                        }
                     }
                 }
             }
