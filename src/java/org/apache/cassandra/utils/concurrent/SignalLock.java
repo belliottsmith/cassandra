@@ -504,7 +504,11 @@ public final class SignalLock implements Lock
         {
             int signals = asyncSignalCount(cur);
             int thread = pickThreadToSignalAsync(cur);
-            if (signals == 0 || thread == NO_THREAD)
+            // if the lock is owned, we leave one permit for the owner: it is likely to have made the work available, and
+            // to acquire it on releasing the lock (see unlockAndAcquireAsyncWork); if it does not, it will propagate the
+            // permit on release. Otherwise, a thread we wake may cascade the owner's permit to another thread, leaving the
+            // owner with no work, so that its work must instead await another thread waking.
+            if (signals <= (isLockOwned(cur) ? 1 : 0) || thread == NO_THREAD)
                 return;
 
             long threadBit = threadBit(thread);
