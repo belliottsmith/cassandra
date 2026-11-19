@@ -139,4 +139,14 @@ public final class SaferCommandsForKey extends SafeCommandsForKey implements Saf
         setSafe();
     }
 
+    /** see {@link SaferCommand#preExecuteBatched} */
+    void preExecuteBatched(CommandsForKey value)
+    {
+        requireUninitialised();
+        current = value;
+        if (current == null)
+            initialize();
+        setSafe();
+    }
+
 }

@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -111,6 +112,7 @@ import static org.apache.cassandra.service.accord.debug.DebugExecution.DEBUG_EXE
 import static org.apache.cassandra.service.accord.debug.DebugExecution.DebugTask.SANITY_CHECK;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode.HOLD_QUEUE;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode.RELEASE_QUEUE;
+import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.LockMode.UNQUEUED;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus.NEWLY_BLOCKING_RUNNABLE;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus.NEWLY_RUNNABLE;
 import static org.apache.cassandra.service.accord.execution.AccordCacheEntry.RunnableStatus.NOT_RUNNABLE;
@@ -645,12 +647,12 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             if (primaryTxnId != null)
             {
                 SaferCommand primary = parent.refs == null ? null : (SaferCommand) parent.refs.get(primaryTxnId);
-                Invariants.require(primary != null && primary.global().isLockedBy(parent), "ATOMIC tasks must declare a subset of their parent's task txnIds() to avoid a priority inversion deadlock");
+                Invariants.require(primary != null && parent.holdsLock(primary), "ATOMIC tasks must declare a subset of their parent's task txnIds() to avoid a priority inversion deadlock");
                 TxnId additionalTxnId = context.additionalTxnId();
                 if (additionalTxnId != null)
                 {
                     SaferCommand additional = parent.refs == null ? null : (SaferCommand) parent.refs.get(additionalTxnId);
-                    Invariants.require(additional != null && additional.global().isLockedBy(parent), "ATOMIC tasks must declare a subset of their parent's task txnIds() to avoid a priority inversion deadlock");
+                    Invariants.require(additional != null && parent.holdsLock(additional), "ATOMIC tasks must declare a subset of their parent's task txnIds() to avoid a priority inversion deadlock");
                 }
             }
 
@@ -671,6 +673,17 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             preSetup(true, txnId, parent.refs, commandStore.cachesUnsafe().commands());
     }
 
+    /**
+     * Whether we hold the lock on {@code safeState}'s entry, either actually or (as a member of a batch that is running,
+     * see ExclusiveExecutor.Batch) logically, until the batch completes. Invoked by the thread running us.
+     */
+    private boolean holdsLock(SafeState<?> safeState)
+    {
+        if (isBatched())
+            return is(PREPARED) && safeState.isSafe();
+        return global(safeState).isLockedBy(this);
+    }
+
     private void initNonSync(LoadKeys loadKeys)
     {
         setNonSyncExclusive();
@@ -681,6 +694,16 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             setIncrementalExclusive();
             requireSequencedIfHoldsLocksBetweenRuns();
         }
+    }
+
+    /**
+     * See ExclusiveExecutor.parkIfBatchingExclusive: whether we submit or (having been cancelled before submission)
+     * release our preSetup references, we may modify this store's entries; we remain unregistered until resubmitted
+     */
+    @Override
+    boolean parkSubmissionIfBatchingExclusive()
+    {
+        return commandStore.exclusiveExecutor().parkIfBatchingExclusive(this::submitExclusiveNoExcept);
     }
 
     @Override
@@ -1135,6 +1158,14 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
     void releaseDeferredExclusive()
     {
         Invariants.require(is(LOADING_OPTIONAL) && !isQueued());
+        // see ExclusiveExecutor.parkIfBatchingExclusive; we may meanwhile be cancelled or, as we are no longer deferred,
+        // proceed by another route (e.g. a parked load completing first, finding our deadline has passed)
+        if (commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> {
+            if (is(LOADING_OPTIONAL) && !isQueued() && hasDeadline())
+                releaseDeferredExclusive();
+        }))
+            return;
+
         clearDeadline();
         // if we are async and still waiting for more keys to load, we will proceed as normal once they do
         if (isSync() || nonSync().isLoaded(this)) waitOnTxnsInternalExclusive();
@@ -1477,6 +1508,14 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
 
     void onChangeRunnableStatus(AccordCacheEntry<?, ?, ?> entry, RunnableStatus status)
     {
+        // a batched follower is notified only as the members of its batch ahead of it complete, having already run;
+        // it will take its locks (releasing its positions) once they have, so its waits are no longer of interest
+        if (isBatched())
+        {
+            Invariants.require(is(PREPARED), "%s is batched but %s", this, currentState());
+            return;
+        }
+
         if (entry.isCommandsForKey()) onChangeKeyRunnableStatus(entry, status);
         else onChangeTxnRunnableStatus(status);
     }
@@ -1895,6 +1934,292 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
         return !(ranges instanceof SafeTask<?>.RangeTxnScanner);
     }
 
+    /*
+     * Micro-batching (see ExclusiveExecutor.Batch). A batch is formed (with the lock held) once its head has been
+     * prepared, from tasks queued behind it on its (single) key; each follower must also be queued only behind members
+     * of the batch on every other entry it uses. The followers leave the executor's queues but keep their positions on
+     * the (now frozen) entry queues, and run in turn on the head's thread without the lock, taking the values of their
+     * entries from the batch. Once the batch is done, with the lock held, the head completes and then each follower that
+     * ran takes its locks (releasing its positions, as it would have if prepared) and completes; any that did not run
+     * return to waiting as before.
+     */
+
+    /**
+     * If we may lead a batch, return the entries we hold, from whose queues followers may be taken; else null.
+     * We have been prepared, so hold the lock on every entry we use.
+     */
+    @Nullable List<AccordCacheEntry<?, ?, ?>> batchEntriesExclusive()
+    {
+        if (!isBatchable() || !is(PREPARED) || optional != null && optional.failed > 0)
+            return null;
+
+        List<AccordCacheEntry<?, ?, ?>> entries = new ArrayList<>(refs.size());
+        for (SafeState<?> safeState : refs.values())
+        {
+            if (!safeState.isSafe())
+                return null;
+            AccordCacheEntry<?, ?, ?> entry = global(safeState);
+            if (!entry.isLockedBy(this) || entry.isInconsistent())
+                return null;
+            entries.add(entry);
+        }
+        return entries;
+    }
+
+    /** the cost of running us in a batch: the number of entries we use (keys and txnIds) */
+    int batchCost()
+    {
+        return Math.max(1, refs == null ? 0 : refs.size());
+    }
+
+    /**
+     * Whether we may follow the members of a batch: we must be waiting with all of our claims placed, and be queued only
+     * behind members of the batch on every entry we use, so that we would be runnable once they had all completed.
+     */
+    boolean isBatchableFollowerExclusive(Predicate<SafeTask<?>> isMember)
+    {
+        if (!isState(WAITING) || !isBatchable() || optional != null || refs == null || refs.isEmpty())
+            return false;
+
+        for (SafeState<?> safeState : refs.values())
+        {
+            if (!safeState.isUninitialised())
+                return false;
+            AccordCacheEntry<?, ?, ?> entry = global(safeState);
+            if (!entry.isLoaded() || entry.isInconsistent() || !entry.isRunnableAfter(this, isMember))
+                return false;
+        }
+        return true;
+    }
+
+    private boolean isBatchable()
+    {
+        // TODO (expected): relax these restrictions, e.g. to support range scans and multiple keys
+        return isSync() && !hasDeadline() && !isBatched() && ranges == null && refs != null && context.keys().domain() == Key;
+    }
+
+    /**
+     * Leave whichever executor queue we wait in to follow a batch, retaining our positions on our entries.
+     * @return the state to restore if we do not run
+     */
+    State joinBatchExclusive()
+    {
+        State prev = state();
+        unqueueIfQueued();
+        setBatchedExclusive();
+        // we have not been prepared in the usual way, and must not be prepared by anything else
+        unsafeSetStateExclusive(PREPARED);
+        return prev;
+    }
+
+    /**
+     * We did not run with our batch, so return to waiting in the state (and queue) we left it from. Our positions are
+     * unchanged, and we have not been notified of any change to them, so our waits remain correct.
+     */
+    void revertBatchedExclusive(State prev)
+    {
+        Invariants.require(is(PREPARED) && isBatched() && is(RunState.NOT_YET_RUN), "%s cannot be reverted from %s", this, currentState());
+        clearBatchedExclusive();
+        unsafeSetStateExclusive(prev);
+        switch (prev)
+        {
+            default: throw UnhandledEnum.invalid(prev);
+            case WAITING_TO_RUN:
+                commandStore.exclusiveExecutor().enqueue(this, false);
+                break;
+            case WAITING_ON_KEY:
+            case WAITING_ON_TXN:
+                executor().waiting.enqueue(this);
+        }
+    }
+
+    /**
+     * The equivalent of {@link #prepareExclusiveMayThrow} for a batched follower, invoked by the batch's owner without
+     * the lock: our entries are owned by the batch, which supplies the value each should have.
+     */
+    void prepareBatchedMayThrow(Function<AccordCacheEntry<?, ?, ?>, Object> valueOf)
+    {
+        Invariants.require(isBatched() && is(PREPARED));
+        // as prepareExclusiveMayThrow, keys first then txnIds, although we are notified of nothing here
+        refs.forEach((k, v) -> {
+            if (v instanceof SaferCommandsForKey)
+            {
+                SaferCommandsForKey safeCfk = (SaferCommandsForKey) v;
+                safeCfk.preExecuteBatched((CommandsForKey) valueOf.apply(safeCfk.global()));
+            }
+        });
+        refs.forEach((k, v) -> {
+            if (v instanceof SaferCommand)
+            {
+                SaferCommand safeCommand = (SaferCommand) v;
+                safeCommand.preExecuteBatched((Command) valueOf.apply(safeCommand.global()));
+            }
+        });
+        // see prepareTxnsExclusive
+        if (context.primaryTxnId() != null && context.additionalTxnId() != null)
+            ensureOptional().addTxnId(context.additionalTxnId());
+    }
+
+    /**
+     * Having run as a member of a batch, report to {@code publish} the value we would publish to each entry we modified
+     * (as {@link AccordCache.Type.Instance#release} will, once the batch completes)
+     */
+    void forEachBatchedUpdate(BiConsumer<AccordCacheEntry<?, ?, ?>, Object> publish)
+    {
+        refs.forEach((k, v) -> {
+            if (!v.isSafe() || !v.isModified())
+                return;
+
+            AccordCacheEntry<?, ?, ?> entry = global(v);
+            publish.accept(entry, entry.quickShrink(v.current()));
+        });
+    }
+
+    /**
+     * We ran as a follower of a batch that is now completing, and every member ahead of us has completed; take our locks,
+     * releasing our positions, as {@link #prepareExclusiveMayThrow} would have, so that we may complete as normal.
+     * Any entry we acquired while running is already locked by us, and any we did not reach (because our preparation
+     * failed) we never locked, so release only our position on.
+     */
+    void lockBatchedExclusive()
+    {
+        Invariants.require(isBatched() && is(PREPARED));
+        try (BufferList<AccordCacheEntry<?, ?, ?>> lock = new BufferList<>())
+        {
+            // collect first, as locking notifies other tasks; keys first, then txnIds, as prepareExclusiveMayThrow
+            refs.forEach((k, v) -> {
+                if (v instanceof SaferCommandsForKey && !v.isUninitialised() && !global(v).isLockedBy(this))
+                    lock.add(global(v));
+            });
+            refs.forEach((k, v) -> {
+                if (v instanceof SaferCommand && !v.isUninitialised() && !global(v).isLockedBy(this))
+                    lock.add(global(v));
+            });
+            for (int i = 0 ; i < lock.size() ; ++i)
+                lock.get(i).lockExclusive(this, RELEASE_QUEUE);
+        }
+        clearBatchedExclusive();
+    }
+
+    /**
+     * We are a consequence of a member of a batch that has run (and so are not yet submitted): whether the batch may
+     * execute us inline. This requires that we have inherited references to every entry we declare, and that the batch
+     * owns all of them. We may then run once we are also runnable (see {@link #isRunnableIfPlaced}).
+     * Invoked by the batch's owner without the lock.
+     */
+    boolean isInlinableConsequence(Predicate<AccordCacheEntry<?, ?, ?>> isOwned)
+    {
+        if (!is(UNREGISTERED) || !hasPreSetup() || !hasInherited() || isNonSync() || hasDeadline() || isBatched()
+            || ranges != null || refs == null || optional != null || context.keys().domain() != Key)
+            return false;
+
+        for (RoutingKey key : (AbstractUnseekableKeys) context.keys())
+        {
+            if (!refs.containsKey(key))
+                return false;
+        }
+        for (TxnId txnId : context.txnIds())
+        {
+            if (!refs.containsKey(txnId))
+                return false;
+        }
+        for (SafeState<?> safeState : refs.values())
+        {
+            AccordCacheEntry<?, ?, ?> entry = global(safeState);
+            if (!safeState.isUninitialised() || !isOwned.test(entry) || !entry.isLoaded() || entry.isInconsistent())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * We are a consequence that may be executed inline by a batch (see {@link #isInlinableConsequence}): whether, on each
+     * of our entries, we would be runnable once placed (in the position our sequencing implies) behind only those tasks
+     * that have already run. This is when we would run next were we submitted as normal. Invoked by the batch's owner
+     * without the lock: our entries are owned, so their queues are frozen.
+     */
+    boolean isRunnableIfPlaced(Predicate<SafeTask<?>> hasRun)
+    {
+        for (SafeState<?> safeState : refs.values())
+        {
+            if (!global(safeState).isRunnableIfPlaced(this, hasRun))
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Whether {@code pending}, a consequence that holds no positions, would be placed ahead of us on any entry we share
+     * (see {@link AccordCacheEntryQueue#wouldPrecede}). Invoked by a batch's owner without the lock.
+     */
+    boolean isPrecededOnSharedEntry(SafeTask<?> pending)
+    {
+        for (Map.Entry<Object, SafeState<?>> e : refs.entrySet())
+        {
+            if (pending.refs.containsKey(e.getKey()) && AccordCacheEntryQueue.wouldPrecede(global(e.getValue()), pending, this))
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * A cheap check (without the lock) of whether, having run, we might execute {@code consequence} inline in a batch
+     * we lead: it must reference only entries we already hold (as it inherits our references, this is usually so).
+     */
+    boolean mayInlineConsequence(SafeTask<?> consequence)
+    {
+        if (!consequence.is(UNREGISTERED) || !consequence.hasPreSetup() || consequence.isNonSync() || consequence.refs == null
+            || consequence.context.keys().domain() != Key || refs == null)
+            return false;
+
+        for (RoutingKey key : (AbstractUnseekableKeys) consequence.context.keys())
+        {
+            if (!consequence.refs.containsKey(key) || !refs.containsKey(key))
+                return false;
+        }
+        for (TxnId txnId : consequence.context.txnIds())
+        {
+            if (!consequence.refs.containsKey(txnId) || !refs.containsKey(txnId))
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Join a batch to be executed inline (see {@link #isInlinableConsequence}). Invoked by the batch's owner without the
+     * lock, but we have not been submitted, so no lock holder may yet operate on us; we will be registered, take our
+     * locks and complete once the batch completes.
+     */
+    void joinBatchInline()
+    {
+        Invariants.require(is(UNREGISTERED));
+        setBatchedExclusive();
+        // we may have been marked as cache queued by preSetup (if fifo) but we will never take a position
+        clearCacheQueuedExclusive();
+        unsafeSetStateExclusive(PREPARED);
+        waitingAt = Math.max(createdAt, nanoTime());
+    }
+
+    /**
+     * We were executed inline by a batch that is now completing, and every member that ran before us has completed;
+     * we hold no positions, so take our locks UNQUEUED (as for references acquired opportunistically while running)
+     * so that we may complete as normal.
+     */
+    void lockInlinedExclusive()
+    {
+        Invariants.require(isBatched() && is(PREPARED));
+        try (BufferList<AccordCacheEntry<?, ?, ?>> lock = new BufferList<>())
+        {
+            refs.forEach((k, v) -> {
+                if (!v.isUninitialised() && !global(v).isLockedBy(this))
+                    lock.add(global(v));
+            });
+            for (int i = 0 ; i < lock.size() ; ++i)
+                lock.get(i).lockExclusive(this, UNQUEUED);
+        }
+        clearBatchedExclusive();
+    }
+
     @Override
     public boolean runMayThrow()
     {
@@ -2133,6 +2458,10 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
     void tryCancelExclusive(CancellationException cancelled)
     {
         if (isContinuation())
+            return;
+
+        // see ExclusiveExecutor.parkIfBatchingExclusive
+        if (commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> tryCancelExclusive(cancelled)))
             return;
 
         try

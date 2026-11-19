@@ -162,7 +162,15 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
     static final int IS_SAVING_OR_WAITING_MASK = 0xE;
     static final int IS_SAVING_OR_WAITING = 0xC;
     static final int GENERATION_SHIFT = 9;
-    static final int GENERATION_MASK = 0x7fff;
+    // TODO (desired): we could overlap OWNED with the generation bits, since the generation is only consulted for
+    //  (ephemeral read) entries in the noEvict queue, which are not loaded/queued in a way that permits them to be owned
+    static final int GENERATION_MASK = 0x3fff;
+    /**
+     * The entry is owned by an {@link ExclusiveExecutor} micro-batch: its queue is frozen (it may be read by the batch's
+     * owning thread without the lock), and its state is published only once the batch completes. See
+     * {@link ExclusiveExecutor#parkIfBatchingExclusive}: no lock holder may modify its queue (or set its state) meanwhile.
+     */
+    static final int OWNED = 0x00800000;
     static final int AGE_SHIFT = 24;
     static final int AGE_MASK = 0x3f;
 
@@ -232,6 +240,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
     // a task upgrades all entries to fifo when first prepared to run, to ensure it is correctly ordered wrt other tasks
     final RunnableStatus moveToFifo(SafeTask<?> task)
     {
+        requireNotOwned(task);
         if (queue == task)
             return STILL_RUNNABLE;
 
@@ -266,6 +275,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
     // drains ONLY those queued with addWaitingToLoad; addFifo are included in the result but are not removed from the collection
     public final BufferList<SafeTask<?>> drainWaitingToLoad()
     {
+        requireNotOwned(null);
         Invariants.require(isLoading());
         Invariants.require(!isLocked());
         BufferList<SafeTask<?>> list = new BufferList<>();
@@ -311,6 +321,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
 
     final void remove(SafeTask<?> task, boolean ownsLock, @Nullable RemoveMode removeMode)
     {
+        requireNotOwned(task);
         if (queue instanceof AccordCacheEntryQueue)
         {
             AccordCacheEntryQueue q = (AccordCacheEntryQueue) queue;
@@ -445,6 +456,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
 
     final void addWaitingToLoad(SafeTask<?> task)
     {
+        requireNotOwned(task);
         Invariants.require(isLoading());
         if (queue == null) queue = task;
         else ensureQueue().addWaitingToLoad(task);
@@ -498,6 +510,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
     // RunnableStatus IF LOADED
     private RunnableStatus add(SafeTask<?> task, TriFunction<AccordCacheEntryQueue, AccordCacheEntry<?, ?, ?>, SafeTask<?>, RunnableStatus> add)
     {
+        requireNotOwned(task);
         Object prev = this.queue;
         if (prev == null)
         {
@@ -563,6 +576,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
      */
     public final V lockExclusive(SafeTask<?> task, LockMode lockMode)
     {
+        requireNotOwned(task);
         Invariants.require(!isLocked());
         if (queue == task)
         {
@@ -869,9 +883,120 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
         status &= ~(INCONSISTENT | UNSAFE_TO_READ);
     }
 
+    /** see {@link #OWNED} */
+    final boolean isOwned()
+    {
+        return (status & OWNED) != 0;
+    }
+
+    /** see {@link #OWNED}; must hold the lock */
+    final void setOwnedExclusive()
+    {
+        Invariants.require(!isOwned() && isLoaded(), "%s cannot be owned by a batch", this);
+        status |= OWNED;
+    }
+
+    /** see {@link #OWNED}; must hold the lock */
+    final void clearOwnedExclusive()
+    {
+        Invariants.require(isOwned());
+        status &= ~OWNED;
+    }
+
+    /**
+     * As {@link AccordCache.Type.Instance#release} transforms a value before publishing it; may be invoked without the lock
+     */
+    final @Nullable Object quickShrink(@Nullable Object value)
+    {
+        return value == null ? null : owner.parent().adapter().quickShrink((V) value);
+    }
+
+    /**
+     * The simple guard for micro-batching: while owned, an entry's queue is read by the batch's owner without the lock,
+     * so no lock holder may modify it (see {@link ExclusiveExecutor#parkIfBatchingExclusive}).
+     */
+    private void requireNotOwned(@Nullable SafeTask<?> task)
+    {
+        if ((status & OWNED) != 0)
+            throw Invariants.illegalState(String.format("%s is owned by a batch, so may not be modified%s", key, task == null ? "" : " by " + task));
+    }
+
+    /**
+     * Read-only. Collect (up to {@code limit} of) the tasks holding a position on this entry, in the order in which they may
+     * become runnable: fifo, then priority, then the unsequenced bag (whose members are mutually unordered).
+     * A lock holder that has released its position is not included.
+     */
+    final void collectQueuedInRunOrder(List<SafeTask<?>> into, int limit)
+    {
+        Object queue = this.queue;
+        if (queue == null)
+            return;
+
+        if (queue instanceof AccordCacheEntryQueue)
+        {
+            ((AccordCacheEntryQueue) queue).collectInRunOrder(into, limit);
+        }
+        else if (queue instanceof AccordCacheEntryMiniQueue)
+        {
+            AccordCacheEntryMiniQueue q = (AccordCacheEntryMiniQueue) queue;
+            if (isLockedHoldingQueue() && into.size() < limit) into.add(q.lockedBy);
+            if (into.size() < limit) into.add(q.next);
+        }
+        else if ((!isLocked() || isLockedHoldingQueue()) && into.size() < limit)
+        {
+            into.add((SafeTask<?>) queue);
+        }
+    }
+
+    /**
+     * Read-only. Whether {@code task} holds a position on this entry from which it would be runnable once every task
+     * matching {@code isMember} has released its position (and any lock) here, i.e. whether only such tasks are ahead of it.
+     */
+    final boolean isRunnableAfter(SafeTask<?> task, Predicate<SafeTask<?>> isMember)
+    {
+        SafeTask<?> locked = lockedBy();
+        if (locked != null && (locked == task || !isMember.test(locked)))
+            return false;
+
+        Object queue = this.queue;
+        if (queue instanceof AccordCacheEntryQueue)
+            return ((AccordCacheEntryQueue) queue).isRunnableAfter(task, isMember);
+        if (queue instanceof AccordCacheEntryMiniQueue)
+            return ((AccordCacheEntryMiniQueue) queue).next == task;
+        return queue == task && !isLocked();
+    }
+
+    /**
+     * Read-only. Whether {@code task}, which holds no position here, would be runnable were it to take the position its
+     * sequencing implies (by fifoAt if fifo, else by priority), considering only those tasks that do not match
+     * {@code hasRun} (which have run, and logically released their positions). Conservative where the representation
+     * does not tell us a task's region: we assume an unsequenced task is placed behind every sequenced task.
+     */
+    final boolean isRunnableIfPlaced(SafeTask<?> task, Predicate<SafeTask<?>> hasRun)
+    {
+        SafeTask<?> locked = lockedBy();
+        if (locked != null && !hasRun.test(locked))
+            return false;
+
+        Object queue = this.queue;
+        if (queue == null)
+            return true;
+        if (queue instanceof AccordCacheEntryQueue)
+            return ((AccordCacheEntryQueue) queue).isRunnableIfPlaced(this, task, hasRun);
+        if (queue instanceof AccordCacheEntryMiniQueue)
+        {
+            SafeTask<?> next = ((AccordCacheEntryMiniQueue) queue).next;
+            return hasRun.test(next) || !AccordCacheEntryQueue.wouldPrecede(this, next, task);
+        }
+        // a lone task is either the lock holder (considered above) or a waiter
+        SafeTask<?> lone = (SafeTask<?>) queue;
+        return lone == locked || hasRun.test(lone) || !AccordCacheEntryQueue.wouldPrecede(this, lone, task);
+    }
+
     // a partially failed ATOMIC execution must retain its queue position for any retry that may be scheduled
     final void reclaimFifoHead(SafeTask<?> task)
     {
+        requireNotOwned(task);
         Invariants.require(isUnsafeToRead(), "%s may only retain a claim on an entry it has marked unsafe to read", task);
         Invariants.require(isLockedBy(task));
         Invariants.require(!isLockedHoldingQueue());
@@ -1101,6 +1226,7 @@ public class AccordCacheEntry<K, V, S extends SafeState<V> & SaferState<K, V, S>
     // must own the cache's lock when invoked
     void setExclusive(V value)
     {
+        requireNotOwned(null);
         if (value == state)
             return;
 

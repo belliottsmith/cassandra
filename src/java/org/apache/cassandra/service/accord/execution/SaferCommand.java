@@ -108,4 +108,18 @@ public final class SaferCommand extends SafeCommand implements SaferState<TxnId,
             initialise();
         setSafe();
     }
+
+    /**
+     * As {@link #preExecute}, but for a follower of an {@link ExclusiveExecutor.Batch}, which takes the value published
+     * by the batch member that last used this entry (or the entry's value when the batch formed), without the lock
+     */
+    void preExecuteBatched(Command value)
+    {
+        requireUninitialised();
+        original = value;
+        current = original;
+        if (current == null)
+            initialise();
+        setSafe();
+    }
 }

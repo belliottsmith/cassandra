@@ -291,6 +291,25 @@ public class AccordConfig
     public Integer queue_fifo_promote_per_key;
 
     /**
+     * EXPERIMENTAL (baseline for micro-batching): when a command store's exclusive executor finishes running a task and
+     * has more work queued, the thread may try (without blocking) to take the executor lock, complete the task and
+     * prepare the next, and run it immediately, without giving up ownership of the command store. This avoids a
+     * hand-off between threads, but not the lock. Up to this many further tasks may be run per hand-off;
+     * zero (the default) disables.
+     */
+    public Integer queue_exclusive_continue_limit;
+
+    /**
+     * EXPERIMENTAL: micro-batching. When a command store's next task is a SYNC task, other SYNC tasks queued behind it on
+     * its keys and txnIds (and only behind tasks of the batch on any other entry they use), and any consequences of these
+     * tasks whose entries the batch already owns, may be run immediately after it by the same thread, without taking the
+     * executor lock, passing state between them directly. The entries used by the batch are frozen (owned) until it
+     * completes. This is the budget of a batch, besides its head: each task costs the number of entries it uses (keys
+     * plus txnIds). Zero (the default) disables.
+     */
+    public Integer queue_exclusive_batch_limit;
+
+    /**
      * Deadline-ordered delivery of contended PreAccepts (AccordExecutorSignalLoop only). If set, a PreAccept that is
      * judged to be contended has its processing postponed until txnId.hlc() plus this pluggable
      * {@link org.apache.cassandra.service.accord.execution.deadline.PreAcceptPenalty}, and contended PreAccepts are

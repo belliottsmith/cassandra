@@ -580,7 +580,8 @@ public class AccordExecutorSignalLoop extends AbstractLoop
         {
             Task wrapped = complete.unwrap();
             Task head, tail;
-            if (wrapped.next == null) head = tail = complete;
+            // wrapped may be null if a continuation completed the ExclusiveExecutor's task; see ExclusiveExecutor.tryContinue
+            if (wrapped == null || wrapped.next == null) head = tail = complete;
             else
             {
                 Task cur = wrapped.next;

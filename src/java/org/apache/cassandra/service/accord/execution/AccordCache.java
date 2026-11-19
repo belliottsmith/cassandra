@@ -564,7 +564,8 @@ public class AccordCache
 
                 if (onlyIfLoadedAndPermitted)
                 {
-                    if (!isLoaded || node.hasFifoOrLocked())
+                    // an entry owned by a batch (see AccordCacheEntry#OWNED) is in use by a task of the batch
+                    if (!isLoaded || node.hasFifoOrLocked() || node.isOwned())
                         return null;
                 }
 

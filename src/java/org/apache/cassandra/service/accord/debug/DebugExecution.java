@@ -256,7 +256,7 @@ public class DebugExecution
         private static final boolean DEBUG = DEBUG_EXECUTION || SANITY_CHECK;
 
         public static WithResources maybeDebug(WithResources resources, Task task) { return DEBUG ? new DebugTask(resources, task) : resources; }
-        public static DebugTask get(Task task) { return (DebugTask)task.unwrap().resources; }
+        public static DebugTask get(Task task) { Task unwrapped = task.unwrap(); return (DebugTask)(unwrapped == null ? task : unwrapped).resources; }
 
         final WithResources resources;
         final Task task;

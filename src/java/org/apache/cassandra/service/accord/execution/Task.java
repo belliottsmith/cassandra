@@ -257,7 +257,10 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     private static final long HAS_INHERITED_TRANCHE = 0x2L << HAS_SETUP_SHIFT;
     private static final long HAS_INHERITED_RANGE_SCAN = 0x3L << HAS_SETUP_SHIFT;
 
-    // bits 16-17 unused (formerly the executor queue)
+    // bit 17 unused (formerly the executor queue)
+
+    /** see {@link ExclusiveExecutor.Batch}: we are a follower of a micro-batch, that has run or may run without leaving our queue positions */
+    private static final long BATCHED_BIT = 1L << 16;
 
     private static final int INCREMENTAL_SHIFT = 18;
     private static final long INCREMENTAL_MASK = 0x3L << INCREMENTAL_SHIFT;
@@ -481,6 +484,10 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         }
     }
 
+    /**
+     * The task wrapped by an {@link ExclusiveExecutorTask}, or this task otherwise. NOTE: may return null for an
+     * {@link ExclusiveExecutorTask} whose task was completed by a continuation (see ExclusiveExecutor.tryContinue)
+     */
     public final Task unwrap()
     {
         if (this instanceof ExclusiveExecutorTask)
@@ -517,8 +524,20 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     abstract boolean isNewWork();
     abstract String briefDescription();
 
+    /**
+     * If our submission must be deferred (see ExclusiveExecutor.parkIfBatchingExclusive) arrange for it to be retried,
+     * and return true
+     */
+    boolean parkSubmissionIfBatchingExclusive()
+    {
+        return false;
+    }
+
     final void submitExclusiveNoExcept()
     {
+        if (parkSubmissionIfBatchingExclusive())
+            return;
+
         if (is(UNREGISTERED))
         {
             try { submitExclusiveMayThrow(); }
@@ -996,6 +1015,12 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         info |= VALIDATE_CACHE_QUEUED_BIT;
     }
 
+    /** we will never take positions on our entries (see ExclusiveExecutor.Batch), so there are none to validate */
+    final void clearCacheQueuedExclusive()
+    {
+        info &= ~VALIDATE_CACHE_QUEUED_BIT;
+    }
+
     final int tranche()
     {
         Invariants.require((info & HAS_SETUP_MASK) != 0);
@@ -1032,6 +1057,23 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
     final boolean isContinuation()
     {
         return 0 != (info & IS_CONTINUATION);
+    }
+
+    final boolean isBatched()
+    {
+        return 0 != (info & BATCHED_BIT);
+    }
+
+    final void setBatchedExclusive()
+    {
+        Invariants.require(!isBatched());
+        info |= BATCHED_BIT;
+    }
+
+    final void clearBatchedExclusive()
+    {
+        Invariants.require(isBatched());
+        info &= ~BATCHED_BIT;
     }
 
     final void setContinuation()
@@ -1093,6 +1135,26 @@ public abstract class Task extends IntrusiveHeapNode implements Cancellable, Deb
         task.inherit(this);
         task.next = prev;
         next = task;
+    }
+
+    /**
+     * Detach {@code consequence} from the (not yet submitted) consequences of this task, e.g. because it is to be
+     * executed some other way (see ExclusiveExecutor.Batch). Invoked only by the thread executing this task.
+     */
+    final void removeConsequence(Task consequence)
+    {
+        Task prev = null;
+        for (Task cur = next ; cur != null ; prev = cur, cur = cur.next)
+        {
+            if (cur != consequence)
+                continue;
+
+            if (prev == null) next = cur.next;
+            else prev.next = cur.next;
+            cur.next = null;
+            return;
+        }
+        throw Invariants.illegalState(consequence + " is not a consequence of " + this);
     }
 
     Task prepareConsequencesExclusive()

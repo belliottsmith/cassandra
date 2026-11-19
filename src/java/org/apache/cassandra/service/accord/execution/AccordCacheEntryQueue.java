@@ -609,7 +609,10 @@ class AccordCacheEntryQueue
 
     private static boolean isWaitingOnCaches(AccordCacheEntry<?, ?, ?> owner, SafeTask<?> task)
     {
+        // a batched follower (see ExclusiveExecutor.Batch) has run, or may run, without leaving the queue; it does so only
+        // once its batch completes
         return (task.isNonSync() && (owner == null || owner.isCommandsForKey()) && task.is(PREPARED))
+               || (task.isBatched() && task.is(PREPARED))
                || task.is(PREPARING) || task.is(WAITING_TO_RUN) || task.is(WAITING_ON_TXN) || task.is(WAITING_ON_KEY)
                || task.is(LOADING_OPTIONAL) || task.is(LOADING_REQUIRED) || task.is(SCANNING_RANGES) || task.is(REGISTERED);
     }
@@ -865,6 +868,78 @@ class AccordCacheEntryQueue
             if (filter.test(next))
                 into.add(next);
         }
+    }
+
+    /**
+     * Read-only. See {@link AccordCacheEntry#collectQueuedInRunOrder}
+     */
+    void collectInRunOrder(List<SafeTask<?>> into, int limit)
+    {
+        for (int i = fifoHead ; i > fifoTail && into.size() < limit ; --i)
+            into.add(tasks[i]);
+        for (int i = priorityHead, end = priorityTail + unsequencedSize ; i < end && into.size() < limit ; ++i)
+            into.add(tasks[i]);
+    }
+
+    /**
+     * Read-only. See {@link AccordCacheEntry#isRunnableAfter}. The unsequenced bag is mutually unordered, so a task there
+     * need only follow members in the sequenced regions.
+     */
+    boolean isRunnableAfter(SafeTask<?> task, Predicate<SafeTask<?>> isMember)
+    {
+        for (int i = fifoHead ; i > fifoTail ; --i)
+        {
+            if (tasks[i] == task) return true;
+            if (!isMember.test(tasks[i])) return false;
+        }
+        for (int i = priorityHead ; i < priorityTail ; ++i)
+        {
+            if (tasks[i] == task) return true;
+            if (!isMember.test(tasks[i])) return false;
+        }
+        return unsequencedIndexOf(task) >= 0;
+    }
+
+    /**
+     * Read-only. See {@link AccordCacheEntry#isRunnableIfPlaced}.
+     */
+    boolean isRunnableIfPlaced(AccordCacheEntry<?, ?, ?> owner, SafeTask<?> task, Predicate<SafeTask<?>> hasRun)
+    {
+        boolean fifo = task.isCacheQueuedFifo();
+        for (int i = fifoHead ; i > fifoTail ; --i)
+        {
+            SafeTask<?> next = tasks[i];
+            if (!hasRun.test(next) && (!fifo || compareFifo(next, task) < 0))
+                return false;
+        }
+        if (fifo)
+            return true;
+
+        // an unsequenced task joins the bag behind every priority claim, unless it sorts ahead of the priority tail
+        boolean behindPriority = task.isUnsequenced(owner) && !placeInPriorityRegion(task);
+        for (int i = priorityHead ; i < priorityTail ; ++i)
+        {
+            SafeTask<?> next = tasks[i];
+            if (!hasRun.test(next) && (behindPriority || compare(next, task) < 0))
+                return false;
+        }
+        // the bag is mutually unordered, and behind any priority claim
+        return true;
+    }
+
+    /**
+     * Whether {@code existing}, which holds a position on {@code owner} (of unknown region), would be ahead of
+     * {@code task} were it to take a position. Conservative: see {@link AccordCacheEntry#isRunnableIfPlaced}.
+     */
+    static boolean wouldPrecede(AccordCacheEntry<?, ?, ?> owner, SafeTask<?> existing, SafeTask<?> task)
+    {
+        boolean existingFifo = existing.isCacheQueuedFifo();
+        if (task.isCacheQueuedFifo())
+            return existingFifo && compareFifo(existing, task) < 0;
+        if (existingFifo)
+            return true;
+        // an unsequenced claim may have been placed in the priority region, so we compare it as though it were sequenced
+        return compare(existing, task) < 0 || (task.isUnsequenced(owner) && !existing.isUnsequenced(owner));
     }
 
     RunnableStatus moveToFifo(AccordCacheEntry<?, ?, ?> owner, SafeTask<?> task)

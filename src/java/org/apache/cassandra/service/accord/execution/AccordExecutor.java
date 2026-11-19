@@ -32,6 +32,8 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +66,7 @@ import org.apache.cassandra.metrics.LogLinearDecayingHistograms;
 import org.apache.cassandra.metrics.LogLinearDecayingHistograms.LogLinearDecayingHistogram;
 import org.apache.cassandra.metrics.ShardedDecayingHistograms;
 import org.apache.cassandra.metrics.ShardedDecayingHistograms.DecayingHistogramsShard;
+import org.apache.cassandra.service.accord.AccordCommandStore;
 import org.apache.cassandra.service.accord.debug.DebugExecution.DebugExecutor;
 import org.apache.cassandra.service.accord.debug.DebugExecution.DebugTask;
 import org.apache.cassandra.service.accord.execution.AccordCacheEntry.LoadExecutor;
@@ -114,6 +117,8 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     static final long GLOBAL_QUEUE_LIMITS, EXCLUSIVE_QUEUE_LIMITS;
     static final int NONSYNC_MIN_BATCH_SIZE, NONSYNC_MAX_BATCH_SIZE, NONSYNC_BLOCKED_LIMIT;
     static final int FIFO_PROMOTE_PER_KEY;
+    static final int EXCLUSIVE_CONTINUE_LIMIT;
+    static final int EXCLUSIVE_BATCH_LIMIT;
     static final boolean NONSYNC_ENABLED, CACHE_QUEUES_ENABLED;
     private static final long LOADING_GROUPS = overflowBit(LOAD) | overflowBit(RANGE_LOAD) | overflowBit(RANGE_SCAN);
 
@@ -131,6 +136,8 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
             logger.info("config.queue_key_ordering_enabled is false; accord.queue_nonsync_enabled forced to false as well");
         NONSYNC_BLOCKED_LIMIT = config.queue_nonsync_blocked_limit == null ? 8 : config.queue_nonsync_blocked_limit;
         FIFO_PROMOTE_PER_KEY = config.queue_fifo_promote_per_key == null ? 1 : Math.max(0, config.queue_fifo_promote_per_key);
+        EXCLUSIVE_CONTINUE_LIMIT = config.queue_exclusive_continue_limit == null ? 0 : Math.max(0, config.queue_exclusive_continue_limit);
+        EXCLUSIVE_BATCH_LIMIT = config.queue_exclusive_batch_limit == null ? 0 : Math.max(0, config.queue_exclusive_batch_limit);
         switch (BALANCING_MODEL)
         {
             default: throw new UnhandledEnum(BALANCING_MODEL);
@@ -242,6 +249,17 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
 
     long nextPosition = 1;
     int tasks;
+
+    /**
+     * see {@link AccordConfig#queue_exclusive_continue_limit}; read by an {@link ExclusiveExecutor} owner without the
+     * lock, so should only be modified before use (or, in tests, while quiescent)
+     */
+    int exclusiveContinueLimit = EXCLUSIVE_CONTINUE_LIMIT;
+
+    /**
+     * see {@link AccordConfig#queue_exclusive_batch_limit}; read only with the lock held (when a batch is formed)
+     */
+    int exclusiveBatchLimit = EXCLUSIVE_BATCH_LIMIT;
 
     private boolean hasPausedLoading;
     // racy-read statistics of the loading pauses, for JfrDiagnostics (written under the executor lock)
@@ -473,6 +491,18 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         return result;
     }
 
+    @VisibleForTesting
+    public void unsafeSetExclusiveContinueLimit(int limit)
+    {
+        exclusiveContinueLimit = Math.max(0, limit);
+    }
+
+    @VisibleForTesting
+    public void unsafeSetExclusiveBatchLimit(int limit)
+    {
+        exclusiveBatchLimit = Math.max(0, limit);
+    }
+
     /**
      * Whether this executor supports postponing tasks until a deadline (see {@link #setDeferredWakeupExclusive}).
      */
@@ -673,7 +703,7 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
 
         Task task = self.accordActiveSelfTask();
         if (task instanceof ExclusiveExecutorTask)
-            task = ((ExclusiveExecutorTask)task).queue.task;
+            task = ((ExclusiveExecutorTask)task).queue.currentTask();
         return task;
     }
 
@@ -706,6 +736,18 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         maybeUnpauseLoading();
     }
 
+    /**
+     * Register a consequence that was executed inline by a batch (see ExclusiveExecutor.Batch), and so was never
+     * submitted; it shares the tranche of its parent, which must not yet have completed.
+     */
+    final void registerInlinedExclusive(Task task)
+    {
+        Invariants.require(isOwningThread());
+        Invariants.require(task.hasInherited());
+        tranches.addInherited(task.tranche());
+        ++tasks;
+    }
+
     // a blocked task that will never run should not prevent tranches from proceeding
     final void unregisterBlockedExclusive(Task task)
     {
@@ -729,6 +771,11 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
         if (task.state().isDone())
             return;
 
+        // see ExclusiveExecutor.parkIfBatchingExclusive
+        Throwable parkFail = fail;
+        if (task.commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> onScannedRangesExclusive(task, parkFail)))
+            return;
+
         SafeTask<?>.RangeTxnScanner scanner = task.rangeScanner();
         if (scanner == null && fail == null) fail = new CancellationException();
         if (fail != null) task.tryFailAndCompleteUnexecutedExclusive(fail, FAILED);
@@ -743,6 +790,11 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
     <K, V> void onLoadedExclusive(AccordCacheEntry<K, V, ?> loaded, V value, Throwable fail)
     {
         if (loaded.status() == EVICTED)
+            return;
+
+        // see ExclusiveExecutor.parkIfBatchingExclusive: the tasks we notify may place claims on entries a batch owns
+        AccordCommandStore commandStore = loaded.owner == null ? null : loaded.owner.commandStore;
+        if (commandStore != null && commandStore.exclusiveExecutor().parkIfBatchingExclusive(() -> onLoadedExclusive(loaded, value, fail)))
             return;
 
         try (ArrayBuffers.BufferList<SafeTask<?>> tasks = loaded.drainWaitingToLoad())
@@ -1165,7 +1217,9 @@ public abstract class AccordExecutor implements CacheSize, LoadExecutor<SafeTask
             if (t instanceof ExclusiveExecutorTask)
             {
                 ExclusiveExecutor q = ((ExclusiveExecutorTask) t).queue;
-                snapshot.add(new TaskInfo(ifCurrent, q.commandStoreId, q.task));
+                // a continuation may have completed the current task without (yet) polling another; see ExclusiveExecutor.tryContinue
+                if (q.task != null)
+                    snapshot.add(new TaskInfo(ifCurrent, q.commandStoreId, q.task));
                 for (TaskQueue<?> q0 : q.queues)
                 {
                     if (q0 != null)
