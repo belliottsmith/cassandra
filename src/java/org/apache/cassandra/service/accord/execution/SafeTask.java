@@ -712,23 +712,28 @@ public final class SafeTask<R> extends Task implements Cancellable, DebuggableTa
             }
         }
 
-        if (!is(UNREGISTERED) || loadKeys(context) == NONE)
+        if (!is(UNREGISTERED))
+            return false;
+
+        // a task that loads no keys may still declare txnIds, whose entries setup will queue on (waitOnTxnsInternalExclusive)
+        Caches caches = commandStore.cachesExclusive();
+        for (TxnId txnId : context.txnIds())
+        {
+            AccordCacheEntry<?, ?, ?> entry = caches.commands().getUnsafe(txnId);
+            if (entry != null && entry.isOwned())
+                return true;
+        }
+
+        if (loadKeys(context) == NONE)
             return false;
 
         Unseekables<?> keysOrRanges = context.keys();
         if (keysOrRanges.domain() != Key)
             return true;
 
-        Caches caches = commandStore.cachesExclusive();
         for (RoutingKey key : (AbstractUnseekableKeys) keysOrRanges)
         {
             AccordCacheEntry<?, ?, ?> entry = caches.commandsForKeys().getUnsafe(key);
-            if (entry != null && entry.isOwned())
-                return true;
-        }
-        for (TxnId txnId : context.txnIds())
-        {
-            AccordCacheEntry<?, ?, ?> entry = caches.commands().getUnsafe(txnId);
             if (entry != null && entry.isOwned())
                 return true;
         }
