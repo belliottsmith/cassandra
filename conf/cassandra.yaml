@@ -1734,7 +1734,7 @@ dynamic_snitch_badness_threshold: 1.0
 # are used to infer the time spent at replicas that do not report it themselves, for the Accord
 # AccordCoordinator.ReplicaTime.<request> metrics. Disabled by default.
 # Min unit: ms
-#link_latency_probe_interval: 1s
+link_latency_probe_interval: 1s
 #link_latency_probe_window: 64
 
 # Paxos variant for lightweight transactions (LWTs)
@@ -2878,17 +2878,57 @@ max_security_label_length: 48
 #
 storage_compatibility_mode: NONE
 
+# Expose system_views_debug (e.g. link_latencies, the estimates made with link_latency_probe_interval)
+enable_virtual_debug_only_keyspace: true
+
 accord:
  # Enables the execution of Accord (multi-key) transactions on this node.
  enabled: true
 
  replica_execution: ALL
  send_stable: TO_ALL_REPLICA_EXECUTABLE_ELSE_FOR_READS
- send_minimal: MAXIMAL
+ # MINIMAL_NO_DEPS (execute-backlog): also omit deps from Apply to replicas expected to have been sent Stable
+ send_minimal: MINIMAL_NO_DEPS
  shrink_cache_entries_before_eviction: false
 
  # Bound the time each dispatch pass of the signal loop spends completing tasks; later completions are deferred (unset: no budget)
  queue_completion_budget: 1ms
+
+ # microbatching: an exclusive executor may run up to this many further queued tasks per hand-off between threads,
+ # and a SYNC task may lead a batch of the tasks queued behind it with this budget of entries (0 disables either).
+ # EXPERIMENTAL: under contention batches currently trip the "is owned by a batch" invariant, failing some
+ # transactions (also on the microbatching branch itself); queue_exclusive_batch_limit: 0 disables batching only.
+ queue_exclusive_continue_limit: 8
+ queue_exclusive_batch_limit: 8
+
+ # deadline-delivery: a waiting task becoming fifo also promotes up to this many of the tasks it overtook on each key
+ # (1 is the default; 0 disables)
+ queue_fifo_promote_per_key: 1
+
+ # deadline-delivery: postpone contended PreAccepts until txnId.hlc() plus the largest one-way latency from any DC (half
+ # the round-trip measured by link_latency_probe_interval), releasing them in txnId order
+ preaccept_deadline_penalty:
+   class_name: LinkLatencyPreAcceptPenalty
+ # preaccept_deadline_contention_window: 100ms
+ # preaccept_deadline_max_penalty: 200ms
+
+ # maxuncachedtxnid: rely on MaxUncachedTxnId to bound the CommandsForKey a sync point must load (the default; VALIDATE
+ # also checks it, IGNORE disables it)
+ max_uncached_txnid_mode: RELY
+
+ # execute-backlog: a designated replica executes contended transactions, following their predecessors so that each
+ # key's chain of conflicting transactions executes in one DC (coordinators delegate to it); including multi-key
+ # transactions. relay_remote_apply sends one Apply per remote DC, relayed by that DC's designated replica.
+ coordinator_backlog_execution: DESIGNATED
+ coordinator_backlog_execution_multi_key: true
+ coordinator_backlog_execution_follow: true
+ coordinator_backlog_execution_follow_delegation: PRECEDENCE
+ # coordinator_backlog_execution_follow_window: 1s
+ relay_remote_apply: true
+ # The alternative, every DC executing every contended transaction, with the coordinator owning durability
+ # (not with coordinator_backlog_execution_follow):
+ # coordinator_backlog_execution_per_dc: true
+ # coordinator_backlog_execution_persist_locally: true
 
  # # The number of Accord shards on this node; -1 means use the number of cores
  # queue_shard_count: -1
